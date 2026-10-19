@@ -84,6 +84,7 @@ signal in ``config.qa_addressed`` (string-keyed dict, same "e{id}_s{idx}" /
 from __future__ import annotations
 
 import glob
+import html as _html
 import os
 import re
 import shutil
@@ -114,7 +115,6 @@ from PyQt6.QtWidgets import (
 from metatv.core.build_info import git
 from metatv.core.time_display import iso_date_text
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.whats_new import step_target, step_text
 from metatv.gui import deferred_config_save as _cfgsave
@@ -553,6 +553,22 @@ def _write_flagged_digest(config: "Config", addressed: dict | None = None) -> st
 _WORKER_SHUTDOWN_MS = 3_000
 
 
+
+def _set_section_toggle(btn: QPushButton, collapsed: bool, noun: str) -> None:
+    """Point a section's disclosure toggle at its state: icon and tooltip together."""
+    _icon_utils.set_button_icon(btn, "expand" if collapsed else "collapse")
+    btn.setToolTip(f"Show {noun}" if collapsed else f"Hide {noun}")
+
+
+def _section_toggle(collapsed: bool, noun: str) -> QPushButton:
+    """The one disclosure toggle the archived/flagged/resolved headers share."""
+    btn = QPushButton()
+    btn.setFixedWidth(24)
+    _theme.style_fn(btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+        f" font-size: {_theme.FONT_SM}; }}")
+    _set_section_toggle(btn, collapsed, noun)
+    return btn
+
 class _GitRefWorker(QThread):
     """Off-thread worker that resolves PR# / commit hash for each open entry.
 
@@ -732,8 +748,8 @@ class QAChecklistWindow(QWidget):
         hbar_layout = QHBoxLayout(header_bar)
         hbar_layout.setContentsMargins(12, 8, 12, 8)
 
-        icon_label = QLabel(_icons.qa_checklist_icon)
-        _theme.style_fn(icon_label, lambda: f"font-size: {_theme.FONT_2XL};")
+        icon_label = QLabel()
+        _icon_utils.set_label_icon(icon_label, "qa_checklist", px=20)
         hbar_layout.addWidget(icon_label)
 
         title_label = QLabel("Testing Checklist")
@@ -741,7 +757,8 @@ class QAChecklistWindow(QWidget):
             f" color: {_theme.COLOR_TEXT};")
         hbar_layout.addWidget(title_label, stretch=1)
 
-        self._purge_btn = QPushButton(f"{_icons.qa_purge_icon}  Mark all done")
+        self._purge_btn = QPushButton("Mark all done")
+        _icon_utils.set_button_icon(self._purge_btn, "qa_purge")
         self._purge_btn.setToolTip(
             "Clear all passed items — advances the verified cursor so these"
             " entries no longer appear.  Entries with failures are kept."
@@ -965,9 +982,9 @@ class QAChecklistWindow(QWidget):
         layout.setContentsMargins(0, 40, 0, 40)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        icon_lbl = QLabel(_icons.qa_all_clear_icon)
+        icon_lbl = QLabel()
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        _theme.style_fn(icon_lbl, lambda: f"font-size: {_theme.FONT_4XL};")
+        _icon_utils.set_label_icon(icon_lbl, "qa_all_clear", px=28)
         layout.addWidget(icon_lbl)
 
         msg_lbl = QLabel("Nothing to test")
@@ -1025,7 +1042,7 @@ class QAChecklistWindow(QWidget):
         header_layout.addWidget(title_lbl, stretch=1)
 
         if has_failure and not archived:
-            fail_badge = QLabel(f"{_icons.qa_fail_icon} FAILED")
+            fail_badge = QLabel(f"{_icon_utils.role_html('qa_fail')}&nbsp;FAILED")
             _theme.style(fail_badge, "QA_FAIL_BADGE")
             header_layout.addWidget(fail_badge)
 
@@ -1046,7 +1063,8 @@ class QAChecklistWindow(QWidget):
 
             # Archive only when every step passes (no failures).
             if is_complete:
-                archive_btn = QPushButton(f"{_icons.qa_archive_icon}  Archive")
+                archive_btn = QPushButton("Archive")
+                _icon_utils.set_button_icon(archive_btn, "qa_archive")
                 archive_btn.setToolTip("Archive this checklist entry")
                 _theme.style(archive_btn, "PANEL_BTN")
                 archive_btn.clicked.connect(
@@ -1054,7 +1072,8 @@ class QAChecklistWindow(QWidget):
                 )
                 header_layout.addWidget(archive_btn)
         else:
-            unarchive_btn = QPushButton(f"{_icons.qa_unarchive_icon}  Unarchive")
+            unarchive_btn = QPushButton("Unarchive")
+            _icon_utils.set_button_icon(unarchive_btn, "qa_unarchive")
             unarchive_btn.setToolTip("Restore this entry to the open checklist")
             _theme.style(unarchive_btn, "PANEL_BTN")
             unarchive_btn.clicked.connect(
@@ -1135,7 +1154,8 @@ class QAChecklistWindow(QWidget):
 
         # Deep-link "Go ▸" button — jumps the app to the view/content under test.
         if target:
-            go_btn = QPushButton(f"Go {_icons.qa_goto_icon}")
+            go_btn = QPushButton("Go")
+            _icon_utils.set_button_icon(go_btn, "qa_goto", trailing=True)
             go_btn.setToolTip(f"Jump the app to this step's target ({target})")
             go_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             _theme.style(go_btn, "QA_GOTO_BTN")
@@ -1144,7 +1164,7 @@ class QAChecklistWindow(QWidget):
 
         # Stale "re-test" hint when this step's sha differs from current HEAD.
         if rec and self._current_sha and rec.get("sha") and rec["sha"] != self._current_sha:
-            stale_lbl = QLabel(f"{_icons.qa_stale_icon} re-test")
+            stale_lbl = QLabel(f"{_icon_utils.role_html('qa_stale')}&nbsp;re-test")
             stale_lbl.setToolTip(
                 f"Marked on {rec.get('sha')}; current build is {self._current_sha}."
             )
@@ -1157,7 +1177,7 @@ class QAChecklistWindow(QWidget):
             if addr_info:
                 addr_pr = addr_info.get("pr_number")
                 addr_eid = addr_info.get("addressing_entry_id")
-                badge_parts = [_icons.qa_addressed_icon, "Addressed"]
+                badge_parts = ["Addressed"]
                 if addr_pr:
                     badge_parts.append(f"PR #{addr_pr}")
                 if addr_eid:
@@ -1166,6 +1186,7 @@ class QAChecklistWindow(QWidget):
                 # Clickable badge — jumps to the addressing entry in the checklist
                 # (no-ops gracefully when that entry isn't in the current list).
                 badge_btn = QPushButton(" ".join(badge_parts))
+                _icon_utils.set_button_icon(badge_btn, "qa_addressed")
                 badge_btn.setToolTip(
                     "This failure was addressed in a later PR.\n"
                     "Click to jump to the addressing entry; re-test and mark pass once confirmed."
@@ -1230,7 +1251,8 @@ class QAChecklistWindow(QWidget):
         chips_layout.setContentsMargins(0, 0, 0, 0)
         chips_layout.setSpacing(4)
 
-        attach_btn = QPushButton(f"{_icons.qa_attach_icon} Attach")
+        attach_btn = QPushButton("Attach")
+        _icon_utils.set_button_icon(attach_btn, "qa_attach")
         attach_btn.setToolTip("Attach a screenshot file to this failure")
         _theme.style(attach_btn, "QA_ATTACH_BTN")
         attach_btn.clicked.connect(
@@ -1238,7 +1260,8 @@ class QAChecklistWindow(QWidget):
         )
         chips_layout.addWidget(attach_btn)
 
-        retest_btn = QPushButton(f"{_icons.qa_retest_icon} Re-test")
+        retest_btn = QPushButton("Re-test")
+        _icon_utils.set_button_icon(retest_btn, "qa_retest")
         retest_btn.setToolTip(
             "Re-run the log snapshot and record that this item was re-reviewed,\n"
             "making it visually distinct from a stale unreviewed failure."
@@ -1255,7 +1278,7 @@ class QAChecklistWindow(QWidget):
         if addr_info:
             # Already addressed — show a compact chip so the tester knows.
             addr_pr = addr_info.get("pr_number")
-            addr_lbl_text = f"{_icons.qa_addressed_icon} Addressed"
+            addr_lbl_text = f"{_icon_utils.role_html('qa_addressed')}&nbsp;Addressed"
             if addr_pr:
                 addr_lbl_text += f" PR #{addr_pr}"
             addr_chip = QLabel(addr_lbl_text)
@@ -1266,7 +1289,8 @@ class QAChecklistWindow(QWidget):
             chips_layout.addWidget(addr_chip)
         else:
             # Not yet addressed — offer a manual-mark button.
-            mark_addr_btn = QPushButton(f"{_icons.qa_addressed_icon} Mark addressed")
+            mark_addr_btn = QPushButton("Mark addressed")
+            _icon_utils.set_button_icon(mark_addr_btn, "qa_addressed")
             mark_addr_btn.setToolTip(
                 "Record that a later PR addresses this failure.\n"
                 "The step stays FAILED until you re-test and mark it pass."
@@ -1279,7 +1303,8 @@ class QAChecklistWindow(QWidget):
 
         for path in (rec.get("attachments") or []):
             name = os.path.basename(path)
-            chip = QPushButton(f"{name}  {_icons.close_icon}")
+            chip = QPushButton(name)
+            _icon_utils.set_button_icon(chip, "close", trailing=True)
             chip.setToolTip(f"Remove {path}")
             _theme.style(chip, "QA_ATTACHMENT_CHIP")
             chip.clicked.connect(
@@ -1289,7 +1314,7 @@ class QAChecklistWindow(QWidget):
 
         log_path = rec.get("log")
         if log_path:
-            log_chip = QLabel(f"{_icons.info_icon} {os.path.basename(log_path)}")
+            log_chip = QLabel(f"{_icon_utils.role_html('info')}&nbsp;{_html.escape(os.path.basename(log_path), quote=False)}")
             log_chip.setToolTip(f"Log snapshot: {log_path}")
             _theme.style(log_chip, "QA_FAIL_BADGE")
             chips_layout.addWidget(log_chip)
@@ -1309,8 +1334,8 @@ class QAChecklistWindow(QWidget):
         """Render a collapsible 'Archived (N)' section at the bottom of the body.
 
         The section is collapsed by default (``config.qa_archived_collapsed = True``).
-        The toggle button uses ``icons.collapse_icon`` when expanded and
-        ``icons.expand_icon`` when collapsed — never the ordering arrows.
+        The toggle button shows the ``collapse`` icon when expanded and
+        ``expand`` when collapsed — never the ordering arrows.
         """
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -1325,14 +1350,7 @@ class QAChecklistWindow(QWidget):
         hdr_layout.setContentsMargins(0, 6, 0, 4)
         hdr_layout.setSpacing(6)
 
-        toggle_icon = _icons.expand_icon if collapsed else _icons.collapse_icon
-        toggle_btn = QPushButton(toggle_icon)
-        toggle_btn.setToolTip(
-            "Show archived entries" if collapsed else "Hide archived entries"
-        )
-        toggle_btn.setFixedWidth(24)
-        _theme.style_fn(toggle_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
-            f" font-size: {_theme.FONT_SM}; }}")
+        toggle_btn = _section_toggle(collapsed, "archived entries")
         self._archived_toggle_btn = toggle_btn
         hdr_layout.addWidget(toggle_btn)
 
@@ -1372,12 +1390,7 @@ class QAChecklistWindow(QWidget):
             want_collapsed = not current_collapsed
             self._archived_container.setVisible(not want_collapsed)
             self._archived_container._qa_collapsed = want_collapsed   # type: ignore[attr-defined]
-            self._archived_toggle_btn.setText(
-                _icons.expand_icon if want_collapsed else _icons.collapse_icon
-            )
-            self._archived_toggle_btn.setToolTip(
-                "Show archived entries" if want_collapsed else "Hide archived entries"
-            )
+            _set_section_toggle(self._archived_toggle_btn, want_collapsed, "archived entries")
             self._config.qa_archived_collapsed = want_collapsed
             _cfgsave.save_soon(self)
             logger.debug("QA checklist: archived section collapsed={}", want_collapsed)
@@ -1419,18 +1432,11 @@ class QAChecklistWindow(QWidget):
         hdr_layout.setContentsMargins(0, 6, 0, 4)
         hdr_layout.setSpacing(6)
 
-        toggle_icon = _icons.expand_icon if collapsed else _icons.collapse_icon
-        flagged_toggle_btn = QPushButton(toggle_icon)
-        flagged_toggle_btn.setToolTip(
-            "Show flagged items" if collapsed else "Hide flagged items"
-        )
-        flagged_toggle_btn.setFixedWidth(24)
-        _theme.style_fn(flagged_toggle_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
-            f" font-size: {_theme.FONT_SM}; }}")
+        flagged_toggle_btn = _section_toggle(collapsed, "flagged items")
         hdr_layout.addWidget(flagged_toggle_btn)
 
         section_hdr = QLabel(
-            f"{_icons.qa_flag_icon} Flagged Items ({len(active_items)})"
+            f"{_icon_utils.role_html('qa_flag')}&nbsp;Flagged Items ({len(active_items)})"
         )
         _theme.style_fn(section_hdr, lambda: f"font-size: {_theme.FONT_SM}; font-weight: bold;"
             f" color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px;")
@@ -1460,12 +1466,7 @@ class QAChecklistWindow(QWidget):
         def _on_flagged_toggle() -> None:
             want_collapsed = flagged_container.isVisible()
             flagged_container.setVisible(not want_collapsed)
-            flagged_toggle_btn.setText(
-                _icons.expand_icon if want_collapsed else _icons.collapse_icon
-            )
-            flagged_toggle_btn.setToolTip(
-                "Show flagged items" if want_collapsed else "Hide flagged items"
-            )
+            _set_section_toggle(flagged_toggle_btn, want_collapsed, "flagged items")
             self._config.qa_flagged_collapsed = want_collapsed
             _cfgsave.save_soon(self)
             logger.debug("QA checklist: flagged section collapsed={}", want_collapsed)
@@ -1478,8 +1479,7 @@ class QAChecklistWindow(QWidget):
             # Reveal the container and update the toggle if it was collapsed.
             if not flagged_container.isVisible():
                 flagged_container.setVisible(True)
-                flagged_toggle_btn.setText(_icons.collapse_icon)
-                flagged_toggle_btn.setToolTip("Hide flagged items")
+                _set_section_toggle(flagged_toggle_btn, False, "flagged items")
                 self._config.qa_flagged_collapsed = False
                 _cfgsave.save_soon(self)
             # Insert the new card at position 0 (top of the list) so it's
@@ -1492,7 +1492,7 @@ class QAChecklistWindow(QWidget):
                 if not self._is_flagged_resolved(i.get("id", ""))
             ]
             section_hdr.setText(
-                f"{_icons.qa_flag_icon} Flagged Items ({len(new_active)})"
+                f"{_icon_utils.role_html('qa_flag')}&nbsp;Flagged Items ({len(new_active)})"
             )
 
         add_btn.clicked.connect(_on_add_item)
@@ -1527,17 +1527,10 @@ class QAChecklistWindow(QWidget):
         hdr_layout.setContentsMargins(0, 4, 0, 4)
         hdr_layout.setSpacing(6)
 
-        toggle_icon = _icons.expand_icon if collapsed else _icons.collapse_icon
-        toggle_btn = QPushButton(toggle_icon)
-        toggle_btn.setToolTip(
-            "Show resolved items" if collapsed else "Hide resolved items"
-        )
-        toggle_btn.setFixedWidth(24)
-        _theme.style_fn(toggle_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
-            f" font-size: {_theme.FONT_SM}; }}")
+        toggle_btn = _section_toggle(collapsed, "resolved items")
         hdr_layout.addWidget(toggle_btn)
 
-        section_hdr = QLabel(f"{_icons.qa_addressed_icon} Resolved ({len(resolved)})")
+        section_hdr = QLabel(f"{_icon_utils.role_html('qa_addressed')}&nbsp;Resolved ({len(resolved)})")
         section_hdr.setToolTip(
             "Flagged items a later PR has addressed — re-test, then remove."
         )
@@ -1564,12 +1557,7 @@ class QAChecklistWindow(QWidget):
             want_collapsed = not getattr(container, "_qa_collapsed", True)
             container.setVisible(not want_collapsed)
             container._qa_collapsed = want_collapsed  # type: ignore[attr-defined]
-            toggle_btn.setText(
-                _icons.expand_icon if want_collapsed else _icons.collapse_icon
-            )
-            toggle_btn.setToolTip(
-                "Show resolved items" if want_collapsed else "Hide resolved items"
-            )
+            _set_section_toggle(toggle_btn, want_collapsed, "resolved items")
             self._config.qa_resolved_collapsed = want_collapsed
             _cfgsave.save_soon(self)
             logger.debug("QA checklist: resolved section collapsed={}", want_collapsed)
@@ -1578,11 +1566,7 @@ class QAChecklistWindow(QWidget):
 
     def _flagged_type_label(self, item_type: str) -> str:
         """Return the display label for a flagged item type cycle button."""
-        return {
-            "bug": f"{_icons.qa_type_bug_icon} bug",
-            "feature": f"{_icons.qa_type_feature_icon} feature",
-            "note": f"{_icons.qa_type_note_icon} note",
-        }.get(item_type, f"{_icons.qa_type_bug_icon} bug")
+        return item_type if item_type in ("bug", "feature", "note") else "bug"
 
     def _render_flagged_item(
         self,
@@ -1639,6 +1623,7 @@ class QAChecklistWindow(QWidget):
         # Type cycle button: bug → feature → note → bug
         item_type = item.get("type", "bug")
         type_btn = QPushButton(self._flagged_type_label(item_type))
+        _icon_utils.set_button_icon(type_btn, f"qa_type_{self._flagged_type_label(item_type)}")
         type_btn.setToolTip(
             "Item type — click to cycle: bug → feature → note.\n"
             "bug = reproducible defect  feature = enhancement request  note = observation"
@@ -1651,8 +1636,8 @@ class QAChecklistWindow(QWidget):
         title_row_layout.addWidget(type_btn)
 
         status = item.get("status", "open")
-        status_label = _icons.qa_triaged_icon if status == "triaged" else _icons.qa_flag_icon
-        status_btn = QPushButton(status_label)
+        status_btn = QPushButton()
+        _icon_utils.set_button_icon(status_btn, "qa_triaged" if status == "triaged" else "qa_flag")
         status_btn.setToolTip(
             "Mark as triaged (converted to a task/PR)" if status == "open"
             else "Mark as open (not yet triaged)"
@@ -1690,7 +1675,8 @@ class QAChecklistWindow(QWidget):
         chips_layout.setContentsMargins(0, 0, 0, 0)
         chips_layout.setSpacing(4)
 
-        attach_btn = QPushButton(f"{_icons.qa_attach_icon} Attach")
+        attach_btn = QPushButton("Attach")
+        _icon_utils.set_button_icon(attach_btn, "qa_attach")
         attach_btn.setToolTip("Attach a screenshot file to this observation")
         _theme.style(attach_btn, "QA_ATTACH_BTN")
         chips_layout.addWidget(attach_btn)
@@ -1702,7 +1688,7 @@ class QAChecklistWindow(QWidget):
         flagged_addr_info = self._flagged_effective_addressed(item_id)
         if flagged_addr_info:
             fa_pr = flagged_addr_info.get("pr_number")
-            fa_text = f"{_icons.qa_addressed_icon} Addressed"
+            fa_text = f"{_icon_utils.role_html('qa_addressed')}&nbsp;Addressed"
             if fa_pr:
                 fa_text += f" PR #{fa_pr}"
             fa_chip = QLabel(fa_text)
@@ -1714,7 +1700,8 @@ class QAChecklistWindow(QWidget):
 
         for att_path in (item.get("attachments") or []):
             att_name = os.path.basename(att_path)
-            chip = QPushButton(f"{att_name}  {_icons.close_icon}")
+            chip = QPushButton(att_name)
+            _icon_utils.set_button_icon(chip, "close", trailing=True)
             chip.setToolTip(f"Remove attachment: {att_path}")
             _theme.style(chip, "QA_ATTACHMENT_CHIP")
             chip.clicked.connect(
