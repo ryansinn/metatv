@@ -697,3 +697,22 @@ def test_existing_config_preserves_whats_new_cursor(tmp_path, monkeypatch):
     assert loaded.last_seen_whats_new_id == seed, (
         "an existing valid config must keep its saved cursor (not reseed to latest)"
     )
+
+
+def test_a_single_bullet_without_its_trailing_comma_is_refused():
+    """``items=("text")`` is a str: the dialog listed #730 one letter per bullet."""
+    import pytest
+
+    from metatv.whats_new import WhatsNewEntry
+
+    with pytest.raises(TypeError, match="trailing comma"):
+        WhatsNewEntry(id=1, version="0", date="2026-01-01", title="t", items=("one bullet"))
+    WhatsNewEntry(id=1, version="0", date="2026-01-01", title="t", items=("one bullet",))
+
+
+def test_every_loaded_entry_has_tuple_fields():
+    from metatv.whats_new import _load_entries
+
+    for entry in _load_entries():
+        for name in ("items", "test_steps", "addresses"):
+            assert isinstance(getattr(entry, name), tuple), (entry.id, name)

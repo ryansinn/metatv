@@ -72,6 +72,15 @@ class WhatsNewEntry:
     # The human must still re-test and manually mark it pass; nothing is auto-passed.
     # Backward-compatible: omit from existing entries (defaults to empty tuple).
 
+    def __post_init__(self) -> None:
+        # ``items=("one bullet")`` is a STRING, not a 1-tuple, and the dialog
+        # then lists it one character per bullet (#730 shipped that way).
+        for name in ("items", "test_steps", "addresses"):
+            if isinstance(getattr(self, name), str):
+                raise TypeError(
+                    f"What's New #{self.id}: {name} is a string — a single "
+                    f"bullet needs a trailing comma: ({name}_text,)")
+
 
 def _load_entries() -> list[WhatsNewEntry]:
     """Discover and load all entry modules from the ``entries`` sub-package.
