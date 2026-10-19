@@ -123,7 +123,7 @@ class _Shelf(QWidget):
             self._edit_btn.setFixedSize(24, 22)
             self._edit_btn.setFlat(True)
             self._edit_btn.setStyleSheet(btn_ss)
-            _icon_utils.set_button_icon(self._edit_btn, "recipe_edit")
+            _icon_utils.set_button_icon(self._edit_btn, "edit")
             self._edit_btn.setIconSize(QSize(13, 13))
             self._edit_btn.setToolTip("Edit this recipe")
             self._edit_btn.clicked.connect(lambda: self.editRequested.emit(self._shelf_key))

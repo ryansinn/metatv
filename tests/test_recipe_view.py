@@ -846,10 +846,6 @@ def test_recipe_icons_defined_and_non_empty():
     icon_attrs = [
         "recipe_icon",
         "recipe_check_icon",
-        "recipe_omit_icon",
-        "recipe_save_icon",
-        "recipe_clear_icon",
-        "recipe_edit_icon",
     ]
     for attr in icon_attrs:
         value = getattr(_icons, attr, None)

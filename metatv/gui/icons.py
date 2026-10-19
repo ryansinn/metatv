@@ -100,7 +100,6 @@ search_filter_icon: str = "🔎"      # U+1F50E MAGNIFIER TILTED RIGHT — conte
 dead_stream_icon: str = "⚠"        # U+26A0 WARNING SIGN — content held back by the dead-stream gate (repeated play failures); same glyph family as notification_warning_icon/qa_stale_icon
 keyword_exclusion_icon: str = "🔤"  # U+1F524 INPUT SYMBOL FOR LATIN LETTERS — content held back by the Global Exclusions keyword axis (user-defined free-text terms)
 adult_filter_icon: str = "🔞"       # U+1F51E NO ONE UNDER EIGHTEEN — content held back by the adult-content gate (Settings → Content)
-filter_only_icon: str = "◎"   # U+25CE BULLSEYE — "show only this group" affordance
 show_all_icon: str = "⋯"    # U+22EF MIDLINE HORIZONTAL ELLIPSIS — "show all / expand" affordance
 see_all_arrow_icon: str = "→"  # U+2192 RIGHTWARDS ARROW — "See all / Show all" drill-down affordance
 redirect_icon: str = "↪"  # U+21AA — "open a different copy/version instead" (series tree: a season this copy lacks)
@@ -268,10 +267,6 @@ variant_count_icon: str = "×"    # U+00D7 MULTIPLICATION SIGN — "×N" variant
 # Recipe builder (task #56)
 recipe_icon: str = "✦"          # U+2726 BLACK FOUR POINTED STAR — Recipe chip (same as whats_new star)
 recipe_check_icon: str = "✓"    # U+2713 CHECK MARK — included ingredient indicator (alias of tag_include_icon)
-recipe_omit_icon: str = "⊘"     # U+2298 CIRCLED DIVISION SLASH — omitted/excluded ingredient (alias of tag_exclude_icon)
-recipe_save_icon: str = "＋"     # U+FF0B FULLWIDTH PLUS SIGN — Save recipe action
-recipe_clear_icon: str = "×"    # U+00D7 MULTIPLICATION SIGN — Clear recipe action (alias of close_icon)
-recipe_edit_icon: str = "✎"     # U+270E LOWER RIGHT PENCIL — edit/rename recipe (reserved for slice 4)
 
 # Dev-only QA Testing Checklist
 qa_checklist_icon: str = "🧪"      # Testing Checklist menu item / window header
@@ -600,22 +595,22 @@ VECTOR_KEYS: dict[str, str] = {
     "season": "mdi6.folder-outline",
     "episode": "mdi6.play-circle-outline",
     # judgement / state
-    "favorite": "mdi6.star",
-    "unfavorite": "mdi6.star-outline",
+    # A heart, not a star (owner, 2026-10-19): the details pane shows ratings
+    # as stars, and one shape cannot mean both "rated" and "favourite".
+    "favorite": "mdi6.heart",
+    "unfavorite": "mdi6.heart-outline",
     "like": "mdi6.thumb-up-outline",
     "dislike": "mdi6.thumb-down-outline",
     "not_interested": "mdi6.cancel",
     "watched": "mdi6.check",
     "unwatched": "mdi6.circle-outline",
-    # The sidebar's "has news" marker. A ring with a centre, NOT the plain
-    # circle-outline "unwatched" already owns — tests/test_vector_icon_registry
-    # rightly refuses two roles one glyph, because the viewer cannot tell them
-    # apart and they mean different things on rows that sit inches away.
-    "news": "mdi6.record-circle-outline",
-    # A small FILLED dot for a row marker. The outline ring above is a
-    # header affordance; at row scale it reads as a control you can click
-    # rather than a mark on the row.
-    "new_dot": "mdi6.circle-medium",
+    # The sidebar header's "something new here" marker — in practice new
+    # Watch Alerts. The bell with a dot (owner's pick, 2026-10-19); the role is
+    # named "news" but the app has no news.
+    "news": "mdi6.bell-badge-outline",
+    # The row-level "new" mark. A small spark, not a dot: the status dot
+    # (source on/off) is a filled dot too, and the two differed only by colour.
+    "new_dot": "mdi6.star-four-points-small",
     "monitor": "mdi6.bell-outline",
     "monitor_off": "mdi6.bell-off-outline",
     "hide": "mdi6.eye-off-outline",
@@ -624,7 +619,9 @@ VECTOR_KEYS: dict[str, str] = {
     # override) — distinct from "versions" would-be role: not registered
     # because show_versions has never needed a vector counterpart either.
     "show_separately": "mdi6.not-equal-variant",
-    "watch_later": "mdi6.eye-outline",
+    # "Saved for later" is a list, not a time: a bookmark, not a clock beside
+    # the scheduled-recording clock (owner, 2026-10-19). The eye read as a football.
+    "watch_later": "mdi6.bookmark-outline",
     # navigation / chrome
     "search": "mdi6.magnify",
     "epg": "mdi6.calendar-month-outline",
@@ -699,8 +696,8 @@ VECTOR_KEYS: dict[str, str] = {
     # location rather than describing one, which is the distinction
     # config_folder_icon already draws for Tools > Open config folder.
     "folder_open": "mdi6.folder-open-outline",
-    # Not record-circle: "news" already owns record-circle-outline and the two
-    # are indistinguishable at row size. record-rec is the unambiguous REC mark.
+    # record-rec is the unambiguous REC mark; a plain ring would sit beside
+    # "unwatched" and the status dots at row size.
     "record": "mdi6.record-rec",
     # Catch, Keep, Record (Feature 3): Watch Alerts' record-slot STATE, beside
     # "record" above (the idle affordance). A plain filled dot for "taking the
@@ -759,6 +756,103 @@ VECTOR_KEYS: dict[str, str] = {
     # General facet would have been pixel-identical. A venue that hosts many
     # sports is also the better shape for "carries several of these".
     "sport_general": "mdi6.stadium-variant",
+    # "show only this group" in a filter group row (was the ◎ glyph).
+    "filter_only": "mdi6.filter-check-outline",
+    # ── Every remaining role (icon plan, 2026-10-19: one icon set, mdi6) ──
+    # Picked against the rendered table in the "Icon Conversion Plan" artifact
+    # and checked pixel-for-pixel by tests/test_vector_icon_registry.py. Roles
+    # that mean the same as an existing one reuse it rather than duplicate it:
+    # overflow→more, next→next_episode, watchlist_off→monitor_off, notification_info→info, config_folder→folder_open, calendar→epg, explore_columns→columns, notification_warning→warning.
+    "unknown": "mdi6.help-circle-outline",
+    "rating_star": "mdi6.star-half-full",
+    "curious": "mdi6.head-question-outline",
+    "playback_in_progress": "mdi6.play-outline",
+    "partial_watched_q1": "mdi6.circle-slice-2",
+    "partial_watched": "mdi6.circle-slice-4",
+    "partial_watched_q3": "mdi6.circle-slice-6",
+    "browse": "mdi6.folder-play-outline",
+    "play_all": "mdi6.playlist-play",
+    "open_ended_buffer": "mdi6.infinity",
+    "record_window": "mdi6.timer-outline",
+    "deep_cache": "mdi6.harddisk",
+    "play_from_beginning": "mdi6.replay",
+    "resume_from": "mdi6.step-forward",
+    "diagnose": "mdi6.stethoscope",
+    "new_window": "mdi6.open-in-new",
+    "back": "mdi6.arrow-left",
+    "undo": "mdi6.undo",
+    "keyboard": "mdi6.keyboard-outline",
+    "copy": "mdi6.content-copy",
+    "versions": "mdi6.layers-outline",
+    "global_exclusion": "mdi6.lock-outline",
+    "search_filter": "mdi6.filter-outline",
+    "dead_stream": "mdi6.lan-disconnect",
+    "keyword_exclusion": "mdi6.format-letter-case",
+    "adult_filter": "mdi6.account-cancel-outline",
+    "show_all": "mdi6.unfold-more-horizontal",
+    "see_all_arrow": "mdi6.chevron-double-right",
+    "redirect": "mdi6.arrow-u-right-top",
+    "hide_watched_filter": "mdi6.eye-check-outline",
+    "visibility_toggle": "mdi6.eye",
+    "analyze": "mdi6.chart-bar",
+    "edit": "mdi6.pencil-outline",
+    "move_up": "mdi6.arrow-up-bold-outline",
+    "move_down": "mdi6.arrow-down-bold-outline",
+    "dropdown_caret": "mdi6.menu-down",
+    "try_first": "mdi6.format-vertical-align-top",
+    "prev": "mdi6.skip-previous",
+    "nav_prev": "mdi6.page-previous-outline",
+    "nav_next": "mdi6.page-next-outline",
+    "loading": "mdi6.loading",
+    "stream_retry_pending": "mdi6.sync-alert",
+    "stream_retry_online": "mdi6.access-point-check",
+    "status_dot": "mdi6.circle",
+    "inactive_dot": "mdi6.circle-off-outline",
+    "watchlist_on": "mdi6.bell-ring-outline",
+    "clear_epg_link": "mdi6.link-variant-off",
+    "new_episodes": "mdi6.new-box",
+    "alert": "mdi6.bell-alert-outline",
+    "new_match": "mdi6.bell-plus-outline",
+    "provider": "mdi6.server-network",
+    "info": "mdi6.information-outline",
+    "missing_data": "mdi6.database-off-outline",
+    "reconnect": "mdi6.power-plug-outline",
+    "log_viewer": "mdi6.text-box-outline",
+    "clear_log": "mdi6.delete-sweep-outline",
+    "save_log": "mdi6.content-save-outline",
+    "watchlist": "mdi6.alarm",
+    "preferences": "mdi6.account-heart-outline",
+    "category": "mdi6.shape-outline",
+    "zoom": "mdi6.magnify-plus-outline",
+    "zoom_poster": "mdi6.fullscreen",
+    "whats_new": "mdi6.bullhorn-outline",
+    "notification_success": "mdi6.check-circle-outline",
+    "notification_error": "mdi6.alert-circle-outline",
+    "migration_pending": "mdi6.progress-clock",
+    "verified": "mdi6.check-decagram-outline",
+    "pref_liked": "mdi6.trending-up",
+    "pref_disliked": "mdi6.trending-down",
+    "tag_include": "mdi6.plus-circle-outline",
+    "tag_exclude": "mdi6.minus-circle-outline",
+    "sort": "mdi6.swap-vertical",
+    "qa_checklist": "mdi6.flask-outline",
+    "qa_all_clear": "mdi6.party-popper",
+    "qa_purge": "mdi6.check-all",
+    "qa_archive": "mdi6.archive-outline",
+    "qa_unarchive": "mdi6.archive-arrow-up-outline",
+    "qa_attach": "mdi6.paperclip",
+    "qa_stale": "mdi6.update",
+    "qa_flag": "mdi6.flag-outline",
+    "qa_triaged": "mdi6.clipboard-check-outline",
+    "qa_retest": "mdi6.restart",
+    "qa_type_bug": "mdi6.bug-outline",
+    "qa_type_feature": "mdi6.lightbulb-outline",
+    "qa_type_note": "mdi6.note-text-outline",
+    "qa_addressed": "mdi6.sync",
+    "qa_goto": "mdi6.arrow-top-right",
+    "metadata_enrich": "mdi6.auto-fix",
+    "enrich_pause": "mdi6.pause",
+    "enrich_cancel": "mdi6.stop",
 }
 
 

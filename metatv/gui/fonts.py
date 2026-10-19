@@ -13,16 +13,10 @@ What is here, and why:
     the clearest rendering at 11–12px, which is where most of this interface
     lives. Latin subset, ~47 KB each.
 
-``MetaTVIcons.ttf``
-    Material Symbols Outlined, instantiated at the pinned axes
-    (``FILL 0 / GRAD 0 / opsz 24 / wght 400``) and subset to the 48 icons the
-    interface names — **7 KB**. Bundled and verified loading, but the icon
-    system still runs on ``mdi6`` through ``qtawesome`` (see ``icons.py``);
-    switching over is its own slice and this file is what unblocks it.
-    ``material_symbols_codepoints.json`` maps each name to its codepoint,
-    because these are addressed by CODEPOINT rather than by ligature: the
-    ligature route needs the ``liga`` feature and every latin letter, and the
-    layout closure that comes with it kept 3,621 glyphs and 765 KB.
+Icons are not a font here: every icon is an mdi6 glyph drawn through
+qtawesome (``icons.py`` / ``icon_utils.py``) — one icon set (owner, 2026-10-19).
+A Material Symbols subset once sat in this directory, loaded and unused; it
+was removed rather than kept as a second system.
 
 Regenerate with ``scripts/build_font_assets.py`` — never by hand, and never
 into a scratchpad.
@@ -30,7 +24,6 @@ into a scratchpad.
 
 from __future__ import annotations
 
-import json
 from functools import lru_cache
 from pathlib import Path
 
@@ -44,7 +37,6 @@ ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 _BUNDLED = (
     ("Inter-Regular.ttf", "ui"),
     ("Inter-SemiBold.ttf", "ui-semibold"),
-    ("MetaTVIcons.ttf", "icons"),
 )
 
 #: The family the UI face registers as. Asserted at load rather than assumed —
@@ -136,27 +128,3 @@ def monospace_family() -> str:
     font = QFont()
     font.setStyleHint(QFont.StyleHint.Monospace)
     return font.defaultFamily()
-
-
-@lru_cache(maxsize=1)
-def icon_codepoints() -> dict[str, str]:
-    """``{icon_name: "e8b6"}`` for the bundled Material Symbols subset.
-
-    Read from the JSON the build script emits, so the map cannot drift from
-    the font it describes — both are produced by the same run.
-    """
-    path = ASSET_DIR / "material_symbols_codepoints.json"
-    if not path.is_file():
-        return {}
-    return json.loads(path.read_text())
-
-
-def icon_char(name: str) -> str:
-    """The character that renders *name* in the bundled icon face.
-
-    Raises:
-        KeyError: if *name* is not in the subset — deliberately loud, the same
-            contract ``icons.vector_key`` keeps, so a typo surfaces at the call
-            site instead of rendering a blank box.
-    """
-    return chr(int(icon_codepoints()[name], 16))

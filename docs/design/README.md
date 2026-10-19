@@ -32,11 +32,11 @@ consumes belongs:
 | Asset | Where | Licence |
 |---|---|---|
 | `Inter-Regular.ttf` / `Inter-SemiBold.ttf` | `metatv/assets/fonts/` | OFL-1.1 |
-| `MetaTVIcons.ttf` — Material Symbols Outlined, 48-glyph subset, **7 KB** | `metatv/assets/fonts/` | Apache-2.0 |
 
-`scripts/build_font_assets.py` regenerates all three from upstream, and
-`metatv/gui/fonts.py` loads them via `QFontDatabase.addApplicationFont`. The
-codepoint map ships beside the font so `icon_char()` resolves a name to a glyph
-without guessing.
+`scripts/build_font_assets.py` regenerates both from upstream, and
+`metatv/gui/fonts.py` loads them via `QFontDatabase.addApplicationFont`.
+Icons are not a font asset: every icon is an mdi6 glyph through qtawesome
+(`icons.py` / `icon_utils.py`). The 48-icon Material Symbols subset the
+mockup used was removed on 2026-10-19 — one icon set.
 
 IBM Plex Sans was the other candidate and was not chosen; it is not vendored.
