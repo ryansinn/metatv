@@ -62,7 +62,6 @@ from metatv.gui.sidebar.sources_strip import SourcesStatusStrip
 from metatv.gui.sources_manager_view import SourcesManagerView
 from metatv.gui import settings_apply as _settings_apply
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.channel_state_bus import ChannelStateBus
@@ -955,7 +954,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         )
         outer_layout.addWidget(self.sources_strip)
 
-        self._settings_btn = QPushButton(f"{self.config.settings_icon} Settings")
+        self._settings_btn = QPushButton("Settings")
+        _icon_utils.set_button_icon(self._settings_btn, "settings")
         self._settings_btn.setFlat(True)
         self._settings_btn.setToolTip("Open application settings (Ctrl+,)")
         _theme.style(self._settings_btn, "FLAT_NAV_BTN")
@@ -1337,7 +1337,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self._tab_all_btn.clicked.connect(lambda: self._set_list_scope("all"))
         controls_layout.addWidget(self._tab_all_btn)
 
-        self._tab_downloaded_btn = QPushButton(f"{_icons.download_icon} Downloaded")
+        self._tab_downloaded_btn = QPushButton("Downloaded")
+        _icon_utils.set_button_icon(self._tab_downloaded_btn, "download")
         self._tab_downloaded_btn.setCheckable(True)
         self._tab_downloaded_btn.setChecked(False)
         _theme.style_fn(self._tab_downloaded_btn,
@@ -1346,7 +1347,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self._tab_downloaded_btn.clicked.connect(lambda: self._set_list_scope("downloaded"))
         controls_layout.addWidget(self._tab_downloaded_btn)
 
-        self._tab_hidden_btn = QPushButton(f"{self.config.hide_icon} Hidden")
+        self._tab_hidden_btn = QPushButton("Hidden")
+        _icon_utils.set_button_icon(self._tab_hidden_btn, "hide")
         self._tab_hidden_btn.setCheckable(True)
         self._tab_hidden_btn.setChecked(False)
         _theme.style_fn(self._tab_hidden_btn, lambda: _tab_btn_sheet(_radius_r))
@@ -1419,8 +1421,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         _hb_layout.setContentsMargins(8, 4, 8, 4)
         _hb_layout.setSpacing(8)
         self._hidden_banner_lbl = QLabel(
-            f"{self.config.hide_icon}  Showing hidden and excluded channels — right-click to unhide"
+            f"{_icon_utils.role_html('hide')}&nbsp; Showing hidden and excluded channels — right-click to unhide"
         )
+        self._hidden_banner_lbl.setTextFormat(Qt.TextFormat.RichText)
         _theme.style_fn(self._hidden_banner_lbl, lambda: f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};")
         _hb_layout.addWidget(self._hidden_banner_lbl)
         _hb_layout.addStretch()
@@ -1750,7 +1753,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.epg_status_label.setVisible(False)
         stats_layout.addWidget(self.epg_status_label)
 
-        self.epg_refresh_btn = QPushButton(f"{self.config.refresh_icon} Refresh")
+        self.epg_refresh_btn = QPushButton("Refresh")
+        _icon_utils.set_button_icon(self.epg_refresh_btn, "refresh")
         self.epg_refresh_btn.setToolTip("Refresh EPG data from all providers")
         self.epg_refresh_btn.clicked.connect(self.epg_view._on_force_refresh)
         self.epg_refresh_btn.setVisible(False)
