@@ -64,7 +64,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.recipe_browse_mixin import _RecipeBrowseMixin
 from metatv.gui.recipe_cluster_mixin import _RecipeClusterMixin
@@ -341,7 +341,8 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         hdr_row = QHBoxLayout()
         hdr_row.setContentsMargins(0, 0, 0, 0)
         hdr_row.setSpacing(8)
-        self._back_to_clusters_btn = QPushButton(f"{_icons.nav_prev_icon} All facets")
+        self._back_to_clusters_btn = QPushButton("All facets")
+        _icon_utils.set_button_icon(self._back_to_clusters_btn, "back")
         self._back_to_clusters_btn.setFlat(True)
         _theme.style(self._back_to_clusters_btn, "RECIPE_BACK_TO_GRID_BTN")
         self._back_to_clusters_btn.setToolTip("Back to the facet overview")
@@ -411,8 +412,9 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
 
         self._browse = _BrowseView(self._image_cache, self._config)
         self._browse.set_back_label(
-            f"{_icons.recipe_icon} Build recipe",
+            "Build recipe",
             "Return to the recipe builder to refine ingredients",
+            icon_role="recipe",
         )
         self._browse.backRequested.connect(self._on_browse_back)
         self._browse.cardClicked.connect(self.channelSelected)

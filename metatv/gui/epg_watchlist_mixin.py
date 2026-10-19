@@ -80,7 +80,6 @@ from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_regi
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui.epg_widgets import _DismissedDialog, _parse_iso
 from metatv.gui import deferred_config_save as _cfgsave
 
@@ -974,7 +973,8 @@ class _EpgWatchlistMixin:
         layout.addWidget(play_btn)
 
         # Skip / dismiss button
-        skip_btn = QPushButton(f"{_icons.close_icon} skip")
+        skip_btn = QPushButton("skip")
+        _icon_utils.set_button_icon(skip_btn, "close")
         skip_btn.setFixedWidth(55)
         _theme.style(skip_btn, "DISCOVER_REC_SKIP_BTN")
         skip_btn.setToolTip("Dismiss this recommendation for 7 days")

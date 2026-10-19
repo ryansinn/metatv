@@ -544,7 +544,6 @@ class Config(BaseModel):
     episode_icon: str = "▶"  # Episode indicator
     
     # UI Control Icons
-    close_icon: str = "×"  # Close/dismiss button
     provider_icon: str = "📡"          # Provider / source section
     # Graduated play-failure ledger (roadmap S3): on a source refresh, re-probe
     # that source's flagged/degraded/dead retry-checker rows immediately
@@ -553,7 +552,6 @@ class Config(BaseModel):
     # Settings → Playback.
     recheck_failed_on_refresh: bool = True
     watched_icon: str = "✓"            # Watched / completed indicator
-    like_icon: str = "👍"              # Like / positive rating
 
     # Global Exclusions — opt-out blacklist (applies to discovery + recommendations everywhere)
     # Prefix codes to HIDE. Empty list = hide nothing (show all). Opt-out model: new prefixes

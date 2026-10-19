@@ -64,7 +64,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.dialog_chrome import dialog_buttons
 
@@ -110,8 +110,9 @@ class Shortcut:
         existing_action: Window attribute of a ``QAction`` that ALREADY exists
             and already does this job — the shortcut is attached to it rather
             than a second action being built beside it.
-        menu_text: The menu entry's own text, when it wants an icon and the
-            trailing ellipsis a dialog-opening entry owes the user.
+        menu_text: The menu entry's own text, when it wants the trailing
+            ellipsis a dialog-opening entry owes the user.
+        menu_icon: The menu entry's icon role (``icons.VECTOR_KEYS``), or None.
         tooltip_host: Window attribute of the control (or action) that EXISTS
             already and whose tooltip gains the key text, per the ``Ctrl+,``
             precedent on the sidebar Settings button. An action ``install``
@@ -130,6 +131,7 @@ class Shortcut:
     arg: str | None = None
     menu: str | None = None
     menu_text: str | None = None
+    menu_icon: str | None = None
     existing_action: str | None = None
     tooltip_host: str | None = None
     text_keys: tuple[str, ...] = ()
@@ -299,7 +301,8 @@ SHORTCUTS: tuple[Shortcut, ...] = (
         keys=("?", "F1"),
         alias_keys=("Shift+?",),
         menu="_tools_menu",
-        menu_text=f"{_icons.keyboard_icon}  Keyboard Shortcuts…",
+        menu_text="Keyboard Shortcuts…",
+        menu_icon="keyboard",
         # F1 is a function key — nothing types it, so it stays live in a text
         # field and is the way to reach this from inside the search box.
         text_keys=("?",),
@@ -451,6 +454,8 @@ def _resolve_action(window, spec: Shortcut, separated: set[str]) -> QAction | No
         return None
 
     action = QAction(spec.menu_text or spec.label, window)
+    if spec.menu_icon:
+        action.setIcon(_icon_utils.role_icon(spec.menu_icon))
     if spec.arg is None:
         action.triggered.connect(lambda _checked=False, fn=handler: fn())
     else:
@@ -519,7 +524,7 @@ class ShortcutCheatSheetDialog(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(12)
 
-        title = QLabel(f"{_icons.keyboard_icon}  Keyboard Shortcuts")
+        title = QLabel(f"{_icon_utils.role_html('keyboard')}&nbsp; Keyboard Shortcuts")
         _theme.style(title, "DIALOG_TITLE")
         root.addWidget(title)
 

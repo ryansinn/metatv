@@ -87,11 +87,12 @@ class _BrowseView(QWidget):
         vl.setSpacing(6)
 
         top = QHBoxLayout()
-        self._back_btn = QPushButton("← Back")
+        self._back_btn = QPushButton("Back")
         self._back_btn.setFlat(True)
         _theme.style_fn(self._back_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_LG}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}")
         self._back_btn.clicked.connect(self.backRequested)
+        _icon_utils.set_button_icon(self._back_btn, "back")
         top.addWidget(self._back_btn)
 
         self._title_lbl = QLabel()
@@ -152,19 +153,23 @@ class _BrowseView(QWidget):
 
         vl.addWidget(self._stack)
 
-    def set_back_label(self, text: str, tooltip: str | None = None) -> None:
+    def set_back_label(self, text: str, tooltip: str | None = None,
+                       icon_role: str | None = None) -> None:
         """Override the Back link's label + tooltip.
 
-        Discover keeps the default ``"← Back"`` (returns to the shelf list); the
-        recipe view relabels it (e.g. ``"✦ Build recipe"``) because the same link
+        Discover keeps the default "Back" with a back arrow (returns to the shelf
+        list); the recipe view relabels it ("Build recipe" with the recipe icon) because the same link
         returns to the recipe *builder* there. Only the label/tooltip change — the
         emitted :attr:`backRequested` signal and its wiring are untouched.
 
         Args:
             text: New button label.
             tooltip: Optional tooltip; unchanged when ``None``.
+            icon_role: Optional icon role replacing the Back arrow.
         """
         self._back_btn.setText(text)
+        if icon_role is not None:
+            _icon_utils.set_button_icon(self._back_btn, icon_role)
         if tooltip is not None:
             self._back_btn.setToolTip(tooltip)
 

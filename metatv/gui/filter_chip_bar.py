@@ -25,7 +25,6 @@ from PyQt6.QtWidgets import (
 
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.filter_chips import FilterChip
 from metatv.gui.scoped_filter_box import ScopedFilterBox
@@ -145,7 +144,8 @@ class FilterChipBar(QWidget):
         self._overflow.hide()
         self._row.addWidget(self._overflow)
 
-        self._add = QPushButton(f"{_icons.add_icon} Add filter")
+        self._add = QPushButton("Add filter")
+        _icon_utils.set_button_icon(self._add, "add")
         self._add.setFixedHeight(CHIP_HEIGHT)
         _theme.style(self._add, "FILTER_CHIP_ADD")
         self._add.setToolTip("Open the full filter panel")

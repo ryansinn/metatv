@@ -179,3 +179,23 @@ def test_display_code_known_region():
 
 def test_display_code_unknown_code_returns_bare():
     assert display_code("ZZZZ-NOT-A-CODE") == "ZZZZ-NOT-A-CODE"
+
+
+def test_a_chip_icon_is_capped_at_its_text_line(qapp, owned_widgets, monkeypatch):
+    """A mark set on a chip later (a liked actor's trend icon) cannot make the
+    chip taller: its icon is sized to the chip's own text line, not Qt's
+    default 16px — which on macOS is taller than the line and grew the cast
+    row the moment taste weights arrived (#955's CI)."""
+    from metatv.gui import icon_utils
+    from metatv.gui.detail_chips import make_chip
+
+    # A chip font whose line is SHORTER than Qt's 16px default icon — the
+    # macOS condition, made deterministic on every platform.
+    monkeypatch.setattr(theme, "FONT_MD", "9px")
+    chip = owned_widgets.own(make_chip("Ada Star", "COLOR_OK"))
+    assert chip.fontMetrics().height() < 16, "the test font did not take"
+    line = chip.fontMetrics().height()
+    assert chip.iconSize().height() == line
+    before = chip.sizeHint().height()
+    icon_utils.set_button_icon(chip, "pref_liked")
+    assert chip.sizeHint().height() == before, "the icon resized the chip"

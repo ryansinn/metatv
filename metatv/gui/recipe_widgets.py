@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui.weighted_tag_cloud import (
@@ -289,7 +289,8 @@ class _ClusterTile(QFrame):
         hdr_row.addStretch()
         # A real button (it was a label that only LOOKED like a link): same
         # drill-in as the facet name, same role/icon as the bar's "Show all".
-        self._see_all_btn = QPushButton(f"See all {_icons.see_all_arrow_icon}")
+        self._see_all_btn = QPushButton("See all")
+        _icon_utils.set_button_icon(self._see_all_btn, "see_all_arrow", trailing=True)
         self._see_all_btn.setFlat(True)
         _theme.style(self._see_all_btn, "RECIPE_SHOW_ALL_BTN")
         self._see_all_btn.clicked.connect(self._emit_facet)

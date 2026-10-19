@@ -261,19 +261,20 @@ def test_a_trailing_button_keeps_the_row_hit_testable(qtbot):
     )
 
 
-def test_liked_shows_the_like_glyph_before_the_title(qtbot):
-    from metatv.gui import icons as _icons
+def test_liked_shows_the_like_icon_before_the_title(qtbot):
+    from metatv.gui import icon_utils
     liked = _row(liked=True)
     qtbot.addWidget(liked)
     first = _ordered_items(liked)[0][1]
-    assert isinstance(first, QLabel) and _icons.like_icon in first.text()
+    assert isinstance(first, QLabel) and icon_utils.label_role(first) == "like"
+    assert not first.pixmap().isNull(), "the like icon was not painted"
 
     plain = _row()
     qtbot.addWidget(plain)
     assert not any(
-        isinstance(w, QLabel) and _icons.like_icon in w.text()
+        isinstance(w, QLabel) and icon_utils.label_role(w) == "like"
         for k, w in _ordered_items(plain)
-    ), "no like glyph when liked is False"
+    ), "no like icon when liked is False"
 
 
 def test_new_badge_renders_a_ring_marker(qtbot):

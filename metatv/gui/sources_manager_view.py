@@ -43,7 +43,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import cursor_affordance
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.sources import ProviderItemWidget
 
@@ -82,11 +82,12 @@ class SourcesManagerView(QWidget):
         header = QWidget()
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(10, 8, 10, 8)
-        title = QLabel(f"{_icons.provider_icon} <b>Sources</b>")
+        title = QLabel(f"{_icon_utils.role_html('provider')}&nbsp;<b>Sources</b>")
         header_layout.addWidget(title)
         header_layout.addStretch()
 
-        self._add_btn = QPushButton(_icons.add_icon + " Add Source")
+        self._add_btn = QPushButton("Add Source")
+        _icon_utils.set_button_icon(self._add_btn, "add")
         self._add_btn.setMinimumHeight(28)
         self._add_btn.setToolTip("Add Source…")
         _theme.style(self._add_btn, "SOURCES_ADD_BTN")
