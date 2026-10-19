@@ -6,7 +6,6 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from metatv.core.epg_utils import fmt_guide_day
 from metatv.gui import theme as _theme
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 
 
 def _epg_tooltip(state: str, start, end) -> str:
@@ -88,15 +87,13 @@ class ProviderItemWidget(QWidget):
 
         # Status dot — green=active, red=expired, grey=inactive
         if is_expired:
-            dot_char = _icons.status_dot_icon
-            dot_color = _theme.COLOR_ERR
+            dot_role, dot_color = "status_dot", _theme.COLOR_ERR
         elif is_active:
-            dot_char = _icons.status_dot_icon
-            dot_color = _theme.COLOR_OK
+            dot_role, dot_color = "status_dot", _theme.COLOR_OK
         else:
-            dot_char = _icons.inactive_dot_icon
-            dot_color = _theme.COLOR_MUTED_2
-        self._status_lbl = QLabel(dot_char)
+            dot_role, dot_color = "inactive_dot", _theme.COLOR_MUTED_2
+        self._status_lbl = QLabel()
+        self._status_lbl.setPixmap(_icon_utils.role_pixmap(dot_role, dot_color, 10))
         self._status_lbl.setFixedWidth(12)
         self._status_lbl.setStyleSheet(f"color: {dot_color};")
         if is_expired:

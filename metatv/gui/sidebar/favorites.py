@@ -61,7 +61,7 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
     def __init__(self, config, db, parent=None):
         self.db = db
         self._has_unavailable = False
-        super().__init__("Favorites", config.favorite_icon, config, parent,
+        super().__init__("Favorites", "favorite", config, parent,
                          vector_role="favorite")
         self._init_background_refresh()
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)

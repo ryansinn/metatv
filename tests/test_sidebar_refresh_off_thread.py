@@ -25,7 +25,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from metatv.core.repositories.dtos import FavoriteDTO, HistoryDTO
-from metatv.gui import icons as _icons
 from tests.conftest import sidebar_config
 
 
@@ -244,7 +243,7 @@ def test_favorites_on_data_ready_none_shows_error_row(qapp):
     obj._on_data_ready(None)
     texts = _texts(obj.favorites_list)
     assert len(texts) == 1
-    assert _icons.notification_warning_icon in texts[0]
+    assert not obj.favorites_list.item(0).icon().isNull(), "the error row carries the warning icon"
     assert "Couldn't load favorites" in texts[0]
 
 
@@ -336,7 +335,7 @@ def test_history_on_data_ready_none_shows_error_row(qapp):
     obj._on_data_ready(None)
     texts = _texts(obj.history_list)
     assert len(texts) == 1
-    assert _icons.notification_warning_icon in texts[0]
+    assert not obj.history_list.item(0).icon().isNull(), "the error row carries the warning icon"
     assert "Couldn't load history" in texts[0]
 
 
@@ -429,7 +428,7 @@ def test_queue_on_data_ready_none_shows_error_row(qapp):
     obj._on_data_ready(None)
     texts = _texts(obj._list)
     assert len(texts) == 1
-    assert _icons.notification_warning_icon in texts[0]
+    assert not obj._list.item(0).icon().isNull(), "the error row carries the warning icon"
     assert "Couldn't load watch queue" in texts[0]
 
 

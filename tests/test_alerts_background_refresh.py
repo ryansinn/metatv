@@ -477,7 +477,6 @@ def test_show_load_error_adds_non_selectable_tree_item(qapp):
     from PyQt6.QtWidgets import QTreeWidget
     from PyQt6.QtCore import Qt
     from metatv.gui.sidebar.alerts import WatchAlertsSection
-    from metatv.gui import icons as _icons
 
     tree = QTreeWidget()
     tree.setHeaderHidden(True)
@@ -493,9 +492,9 @@ def test_show_load_error_adds_non_selectable_tree_item(qapp):
     item = tree.topLevelItem(0)
     # Item must be non-selectable
     assert item.flags() == Qt.ItemFlag.NoItemFlags
-    # Text must carry the warning icon + message
+    # The row carries the warning icon and the message
     text = item.text(0)
-    assert _icons.notification_warning_icon in text
+    assert not item.icon(0).isNull()
     assert "Couldn't load watch alerts" in text
     # set_empty(False) keeps the section visible (error must be seen)
     obj.set_empty.assert_called_once_with(False)

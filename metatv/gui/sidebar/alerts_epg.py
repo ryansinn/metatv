@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
 from PyQt6.QtCore import Qt, QSize, QTimer
 from metatv.core import watchlist
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui.epg_widgets import _PROG_START_ROLE, _PROG_STOP_ROLE
 from metatv.gui.relative_time import humanize_remaining, humanize_until
@@ -85,7 +86,7 @@ class EpgGroupMixin:
         """
         if reason == self.EPG_EMPTY_GUIDE_ENDED:
             return (
-                _icons.notification_warning_icon,
+                "warning",
                 "Guide data has run out",
                 "This source's guide has no programmes left to start, so no "
                 "alert can match until it is refreshed. It refreshes on its "
@@ -93,7 +94,7 @@ class EpgGroupMixin:
             )
         count = watchlist.count(self.config)
         return (
-            _icons.info_icon,
+            "info",
             f"Nothing airing from {count} alerts",
             f"Your {count} watch alerts are loaded — none of them is on now or "
             f"coming up in the next 24 hours.",
@@ -171,7 +172,9 @@ class EpgGroupMixin:
         """
         self._forget_tracked_items()
         tree.clear()
-        item = QTreeWidgetItem([f"{icon} {message}"])
+        # *icon* is an icon role; the row draws it as the item's icon.
+        item = QTreeWidgetItem([message])
+        item.setIcon(0, _icon_utils.role_icon(icon))
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         if tooltip:
             item.setToolTip(0, tooltip)
@@ -202,11 +205,11 @@ class EpgGroupMixin:
 
     def show_load_error(self, tree, message: str) -> None:
         """Override for QTreeWidget: render a non-selectable error row."""
-        self._show_tree_notice(tree, _icons.notification_warning_icon, message)
+        self._show_tree_notice(tree, "warning", message)
 
     def show_loading(self, tree, message: str = "Loading…") -> None:
         """Override for QTreeWidget: render a transient, non-selectable loading row."""
-        self._show_tree_notice(tree, _icons.loading_icon, message)
+        self._show_tree_notice(tree, "loading", message)
 
     def _reveal_epg_subsection(self, count: int | None = None) -> None:
         """Show the EPG sub-header + tree (loading / error / notice / populated).

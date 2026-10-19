@@ -85,7 +85,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("History", config.history_icon, config, parent,
+        super().__init__("History", "history", config, parent,
                          vector_role="history")
         self._init_background_refresh()
 
@@ -100,17 +100,17 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
             # wiping history daily ... add a second wipe history option that
             # wipes history older than a month".
             SectionAction(
-                f"{self.config.delete_icon} Clear history older than 30 days",
+                "Clear history older than 30 days",
                 "Forget what you played more than a month ago, keeping "
                 "everything since",
                 lambda: self.clearOldHistoryClicked.emit(30),
-                destructive=True,
+                icon="history", destructive=True,
             ),
             SectionAction(
-                f"{self.config.delete_icon} Clear all history",
+                "Clear all history",
                 "Remove every entry from your history",
                 self.clearHistoryClicked.emit,
-                destructive=True,
+                icon="clear_all", destructive=True,
             ),
         ]
 
