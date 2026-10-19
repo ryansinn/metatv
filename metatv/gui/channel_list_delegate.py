@@ -791,27 +791,37 @@ class ChannelRowDelegate(RowCellPaintMixin, QStyledItemDelegate):
         """
         fm = QFontMetrics(font)
         x = line.left()
-        glyph = index.data(FAV_GLYPH_ROLE) or ""
-        if glyph:
-            w = fm.horizontalAdvance(glyph)
-            self._draw_text(painter, QRect(x, line.top(), w, line.height()), glyph,
-                            _theme.COLOR_ROW_META, font)
-            x += w + _CELL_GAP
+        # The marks are mdi6 icons (one icon set, 2026-10-19), sized to the
+        # text they sit before and centred on its line.
+        size = min(_layout.KIND_ICON, fm.height())
 
-        playback_glyph = index.data(PLAYBACK_GLYPH_ROLE) or ""
-        if playback_glyph:
+        def _icon(role: str, color: str) -> None:
+            nonlocal x
+            pixmap = _icon_utils.role_pixmap(role, color, size)
+            if not pixmap.isNull():
+                painter.drawPixmap(
+                    QRect(x, line.top() + (line.height() - size) // 2, size, size), pixmap)
+            x += size + _CELL_GAP
+
+        fav_role = index.data(FAV_GLYPH_ROLE) or ""
+        if fav_role:
+            _icon(fav_role, _theme.COLOR_FAVORITE if fav_role == "favorite"
+                  else _theme.COLOR_ROW_META)
+
+        playback_role = index.data(PLAYBACK_GLYPH_ROLE) or ""
+        if playback_role:
             playback_color = index.data(PLAYBACK_GLYPH_COLOR_ROLE)
-            w = fm.horizontalAdvance(playback_glyph)
-            self._draw_text(painter, QRect(x, line.top(), w, line.height()), playback_glyph,
-                            playback_color if playback_color else _theme.COLOR_ROW_META, font)
+            _icon(playback_role, playback_color or _theme.COLOR_ROW_META)
+        else:
+            # Not started: the neutral separator dot, which is typography.
+            dot = _icons.playback_neutral_icon
+            w = fm.horizontalAdvance(dot)
+            self._draw_text(painter, QRect(x, line.top(), w, line.height()), dot,
+                            _theme.COLOR_ROW_META, font)
             x += w + _CELL_GAP
 
-        match_marker = index.data(MATCH_MARKER_ROLE) or ""
-        if match_marker:
-            w = fm.horizontalAdvance(match_marker)
-            self._draw_text(painter, QRect(x, line.top(), w, line.height()), match_marker,
-                            _theme.COLOR_ROW_META, font)
-            x += w
+        if index.data(MATCH_MARKER_ROLE):
+            _icon("new_match", _theme.COLOR_ROW_META)
         return x
 
     def _paint_meta_line(self, painter, line: QRect, cells, font) -> None:

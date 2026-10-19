@@ -168,4 +168,4 @@ def test_air_date_and_episode_rating_sit_at_the_right_of_their_rows(pane, qapp):
 
     assert abs(_y_mid(rating, head) - _y_mid(title, head)) <= 8
     assert head.width() - (_x(rating, head) + rating.width()) <= 2
-    assert "7.4" in rating.text() and "/ 10" in rating.text()
+    assert "7.4 / 10" in rating.toolTip()   # stars in the row, the number on hover
