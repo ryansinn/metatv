@@ -15,10 +15,13 @@ this one — is fine, and the guard must not be defeatable by rewrapping a line)
 (b) ``.setText(<bare glyph literal>)`` on a name constructed as a button in
     the same module — the "toggle badge" shape, which is also the one the
     factory replaces with ``icon_utils.set_button_icon(btn, role)``;
-(c) any string literal, anywhere in a widget's visible label, that is a
-    hand-typed copy of a glyph ``icons.py`` already names. This is the
-    "second close glyph" case: the literal and the constant drift apart and
-    nobody can tell which is canonical.
+(c) any PICTOGRAPHIC string literal, anywhere in a widget's visible label.
+    It began as "a hand-typed copy of a glyph ``icons.py`` already names"
+    (the "second close glyph" case). Since every icon became an mdi6 role
+    (2026-10), a pictograph in a label is a stray whether or not ``icons.py``
+    still holds a glyph for it — keying on that table meant deleting a dead
+    constant silently shrank the guard. The widened rule found seven
+    hand-typed ``ⓘ`` info labels the narrow one never could.
 
 Scope of (c) — why not every literal equal to an icon value
 -----------------------------------------------------------
@@ -73,30 +76,6 @@ _PICTOGRAPH_CATEGORIES = {"So", "Sk"}
 # ---------------------------------------------------------------------------
 
 
-def _defined_glyphs() -> dict[str, str]:
-    """Every module-level ``<name>_icon = "<glyph>"`` in ``icons.py``.
-
-    Read from the AST rather than by importing, so the guard has no Qt or
-    import-order dependency and cannot be affected by a runtime theme.
-    """
-    tree = ast.parse(_ICONS.read_text())
-    out: dict[str, str] = {}
-    for node in tree.body:
-        if isinstance(node, ast.AnnAssign):
-            targets = [node.target]
-        elif isinstance(node, ast.Assign):
-            targets = node.targets
-        else:
-            continue
-        value = node.value
-        if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
-            continue
-        for target in targets:
-            if isinstance(target, ast.Name) and target.id.endswith("_icon") and value.value:
-                out.setdefault(value.value, target.id)
-    return out
-
-
 def _is_bare_glyph(text: str) -> bool:
     """A short symbol with no words in it — the whole label is the picture."""
     stripped = text.strip()
@@ -104,9 +83,10 @@ def _is_bare_glyph(text: str) -> bool:
 
 
 def _is_pictographic(glyph: str) -> bool:
-    """True for ✓ ● ▼ 📌 …; False for · — • × and other typography."""
+    """True for ✓ ● ▼ 📌 …; False for · — • × and other typography, and for
+    ASCII (a Markdown backtick is category Sk but is prose punctuation)."""
     return bool(glyph) and all(
-        unicodedata.category(ch) in _PICTOGRAPH_CATEGORIES
+        (ord(ch) > 0x7F and unicodedata.category(ch) in _PICTOGRAPH_CATEGORIES)
         or ord(ch) > 0x1F000  # emoji planes: category So already, but be explicit
         for ch in glyph
         if ch not in "️︎"  # variation selectors carry no category meaning
@@ -185,18 +165,6 @@ def scan(root: Path | None = None) -> dict[str, list[str]]:
     """
     gui = (root / "metatv" / "gui") if root else _GUI
     icons_path = gui / "icons.py"
-    tree = ast.parse(icons_path.read_text())
-    glyphs: dict[str, str] = {}
-    for node in tree.body:
-        targets = (
-            [node.target] if isinstance(node, ast.AnnAssign)
-            else node.targets if isinstance(node, ast.Assign) else []
-        )
-        value = getattr(node, "value", None)
-        if isinstance(value, ast.Constant) and isinstance(value.value, str) and value.value:
-            for target in targets:
-                if isinstance(target, ast.Name) and target.id.endswith("_icon"):
-                    glyphs.setdefault(value.value, target.id)
 
     found: dict[str, list[str]] = {"construction": [], "settext": [], "copy": []}
     for path in sorted(gui.rglob("*.py")):
@@ -242,12 +210,12 @@ def scan(root: Path | None = None) -> dict[str, list[str]]:
                     f"{rel}:{node.lineno}: {lines[node.lineno - 1].strip()[:88]}"
                 )
 
-            # (c) a hand-typed copy of a glyph icons.py already names
+            # (c) a pictograph typed into a visible label (use an icon role)
             for const in _label_constants(node):
                 glyph = const.value.strip()
-                if glyph in glyphs and _is_pictographic(glyph):
+                if _is_pictographic(glyph):
                     found["copy"].append(
-                        f"{rel}:{const.lineno}: {glyph!r} is icons.{glyphs[glyph]} — "
+                        f"{rel}:{const.lineno}: {glyph!r} — "
                         f"{lines[const.lineno - 1].strip()[:70]}"
                     )
     for key in found:
@@ -280,8 +248,9 @@ def test_no_button_swaps_its_glyph_with_a_setText_literal() -> None:
     )
 
 
-def test_no_label_hand_types_a_glyph_icons_py_already_names() -> None:
-    """Rule (c). Two spellings of one icon is how the second close glyph shipped."""
+def test_no_label_hand_types_a_pictograph() -> None:
+    """Rule (c). Two spellings of one icon is how the second close glyph shipped;
+    since icons are roles, any typed pictograph is that mistake."""
     allowed = _load_allowlist()
     offenders = [v for v in scan()["copy"] if v.split(":")[0] not in allowed]
     assert not offenders, (
@@ -304,13 +273,6 @@ def test_the_allowlist_only_shrinks() -> None:
 # ---------------------------------------------------------------------------
 # The detector itself — a matcher that finds nothing reads as a clean tree
 # ---------------------------------------------------------------------------
-
-
-def test_icons_py_defines_a_real_glyph_table() -> None:
-    """Rule (c) is only worth anything if the reference set is populated."""
-    glyphs = _defined_glyphs()
-    assert len(glyphs) >= 80, f"only {len(glyphs)} icon glyphs parsed out of icons.py"
-    assert glyphs.get("×") == "close_icon"
 
 
 def test_the_bare_glyph_predicate_matches_what_it_should() -> None:
@@ -344,9 +306,12 @@ def test_the_scan_recognises_all_three_pre_fix_shapes(tmp_path) -> None:
         '    dismiss = QPushButton("✕")\n'          # (a)
         '    dismiss.setText("⌄")\n'                 # (b)
         '    self.badge.setText(f"✓ {count}")\n'     # (c)
+        '    info = QLabel("ⓘ")\n'                  # (c), a glyph icons.py never named
         "    return dismiss\n"
     )
     found = scan(tmp_path)
     assert found["construction"], "rule (a) missed QPushButton('✕')"
     assert found["settext"], "rule (b) missed a setText glyph swap on a button"
-    assert found["copy"], "rule (c) missed a hand-typed copy of icons.watched_icon"
+    assert any("'✓'" in f for f in found["copy"]), "rule (c) missed a typed ✓"
+    assert any("'ⓘ'" in f for f in found["copy"]), (
+        "rule (c) must flag a pictograph whether or not icons.py names it")

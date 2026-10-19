@@ -42,7 +42,6 @@ curious_icon: str = "❓"
 # marker). Its own name so the two never collide again.
 mood_none_icon: str = "—"
 watched_icon: str = "✓"
-unwatched_icon: str = "○"   # U+25CB WHITE CIRCLE — poster "mark watched" corner badge, unwatched state
 # Channel-list playback-state separator — the fixed "·" slot between the leading
 # icons/tags and the title becomes a 3-state indicator (see playback_state_glyph).
 # SHAPE carries the meaning (dot vs play-triangle vs check); colour (applied by the
@@ -56,60 +55,32 @@ partial_watched_q3_icon: str = "◕"   # U+25D5 CIRCLE WITH ALL BUT UPPER LEFT Q
 # Actions
 add_icon: str = "+"  # Add / create new item
 play_icon: str = "▶"
-browse_icon: str = "🗂"  # U+1F5C2 CARD INDEX DIVIDERS — series primary button: open seasons/episodes
-play_all_icon: str = "⏩"  # Play first + queue rest (multi-select "Play All")
 open_ended_buffer_icon: str = "∞"  # U+221E INFINITY — open-ended disk-backed buffer (monochrome, "buffer without end")
-download_icon: str = "⬇"   # U+2B07 DOWNWARDS ARROW — save a VOD to the library
 record_icon: str = "⏺"     # U+23FA BLACK CIRCLE FOR RECORD — record a live channel
-record_window_icon: str = "⏱"  # U+23F1 STOPWATCH — record a live channel for a picked start/end window, no guide needed (REC Option B)
 # Catch, Keep, Record (Feature 3, settled 2026-08-30): guide-row Rec column state.
 # Same filled dot as record_icon (the state is COLOUR, COLOR_ERR-family, applied
 # by the caller) — the affordance itself does not change shape, only its tint
 # and tooltip, once it is actively taking the connection.
-recording_active_icon: str = "⏺"
 # A distinct, non-solid shape for "scheduled but not yet recording" — reuses the
 # partial-circle family already established by partial_watched_*_icon above
 # rather than a clock glyph, which is Emoji_Presentation by default on most
 # platforms and would render in colour regardless of theme.
-recording_scheduled_icon: str = "◷"  # U+25F7 WHITE CIRCLE WITH UPPER RIGHT QUADRANT
-deep_cache_icon: str = "💽"  # U+1F4BD COMPUTER DISK — deep-cache "Buffer without limit" (VOD pre-load-to-disk), distinct from ∞ open-ended buffer
-play_from_beginning_icon: str = "▶"  # U+25B6 play triangle — force start from position 0; gray, distinct from the orange ⏩ resume affordance by COLOUR (⏮ U+23EE rendered as a tofu/box in many fonts)
-resume_from_icon: str = "⏩"  # U+23E9 BLACK RIGHT-POINTING DOUBLE TRIANGLE — resume from saved position
 diagnose_icon: str = "∿"    # stream-diagnostics action (U+223F SINE WAVE — monochrome signal waveform)
-split_icon: str = "⧉"       # U+29C9 TWO JOINED SQUARES — split-streams toggle (one window per source)
-tools_icon: str = "⚒"       # U+2692 HAMMER AND PICK — the header's Tools menu button.
                             # Monochrome by codepoint, unlike 🔧/🛠 which render as
                             # colour emoji on most platforms and would ignore the palette.
-new_window_icon: str = "❐"  # U+2750 UPPER-RIGHT DROP-SHADOWED SQUARE — window-over-window (separate per-source window)
-back_icon: str = "‹"  # U+2039 SINGLE LEFT-POINTING ANGLE QUOTATION MARK — step back up one level (details "All regions"); NOT collapse_icon, which points DOWN and reads as "fold this away" rather than "go back"
 close_icon: str = "×"
 delete_icon: str = "🗑"
-undo_icon: str = "↩"   # U+21A9 LEFTWARDS ARROW WITH HOOK — "Undo" a pending recoverable-remove
-watch_later_icon: str = "👀"  # Watch Later quick-pick category
 refresh_icon: str = "⟳"
 settings_icon: str = "⚙"
-keyboard_icon: str = "⌨"      # U+2328 KEYBOARD — Tools ▸ Keyboard Shortcuts (the cheat-sheet)
 search_icon: str = "🔍"
-copy_icon: str = "📄"       # U+1F4C4 PAGE FACING UP — "copy this text to the clipboard"
                             # (📋 is the Watch Queue; ⧉ is the split-streams toggle)
 versions_icon: str = "🗐"   # U+1F5D0 PAGES — channel-menu "Show N versions" (collapsed-row variant picker)
-show_separately_icon: str = "≠"   # U+2260 NOT EQUAL TO — channel-menu "Show N versions separately" (recommendation-engine dedup override, distinct from versions_icon's content_key picker)
 filter_icon: str = "⚡"
-global_exclusion_icon: str = "🔒"   # U+1F512 LOCK — content held back by Global Exclusions
-search_filter_icon: str = "🔎"      # U+1F50E MAGNIFIER TILTED RIGHT — content held back by search/Tier-1 filters
-dead_stream_icon: str = "⚠"        # U+26A0 WARNING SIGN — content held back by the dead-stream gate (repeated play failures); same glyph family as notification_warning_icon/qa_stale_icon
-keyword_exclusion_icon: str = "🔤"  # U+1F524 INPUT SYMBOL FOR LATIN LETTERS — content held back by the Global Exclusions keyword axis (user-defined free-text terms)
-adult_filter_icon: str = "🔞"       # U+1F51E NO ONE UNDER EIGHTEEN — content held back by the adult-content gate (Settings → Content)
 show_all_icon: str = "⋯"    # U+22EF MIDLINE HORIZONTAL ELLIPSIS — "show all / expand" affordance
-see_all_arrow_icon: str = "→"  # U+2192 RIGHTWARDS ARROW — "See all / Show all" drill-down affordance
-redirect_icon: str = "↪"  # U+21AA — "open a different copy/version instead" (series tree: a season this copy lacks)
 overflow_icon: str = "⋯"    # U+22EF MIDLINE HORIZONTAL ELLIPSIS — "More…" overflow-menu button (demoted actions)
 hide_icon: str = "🚫"
-hide_watched_filter_icon: str = "✓"   # Used in "Hide watched" toggle label
 pin_icon: str = "📌"
 visibility_toggle_icon: str = "👁"
-analyze_icon: str = "📊"   # U+1F4CA BAR CHART — "analyze this source" action (overlap/content breakdown)
-edit_icon: str = "✎"   # U+270E LOWER RIGHT PENCIL — generic "edit this" action (alias of recipe_edit_icon)
 
 # Navigation / collapse
 expand_icon: str = ">"
@@ -128,8 +99,6 @@ search_band_caret_shut_icon: str = "▸"   # U+25B8 BLACK RIGHT-POINTING SMALL T
 # reorder arrow and a menu affordance must be free to diverge, and typing "▼"
 # inline in two places is exactly the drift tests/test_no_stray_glyph_literals.py
 # now fails the suite on.
-dropdown_caret_icon: str = "▼"           # U+25BC BLACK DOWN-POINTING TRIANGLE
-try_first_icon: str = "⤒"  # U+2912 UPWARDS ARROW TO BAR — one-shot "try this URL first on the next connection"
 prev_icon: str = "◀"
 next_icon: str = "▶"
 # Carousel / single-axis navigation (monochrome single chevrons — no colour bleed)
@@ -143,17 +112,14 @@ live_indicator_icon: str = "🟢"
 stream_retry_pending_icon: str = "🔴"
 stream_retry_online_icon: str = "🟢"
 status_dot_icon: str = "●"      # filled status dot; colored by state (ok/err) at the call site
-inactive_dot_icon: str = "○"    # U+25CB WHITE CIRCLE — hollow companion to status_dot_icon; disabled/inactive state
 watchlist_on_icon: str = "🔔"
 watchlist_off_icon: str = "🔕"
 preferred_version_icon: str = "🎯"
 # "Clear EPG link" — unlink a channel's wrong/mismatched guide data and block it
 # from future auto-matching (channel menu + details-pane rail, live channels only).
-clear_epg_link_icon: str = "🧹"   # U+1F9F9 BROOM
 
 # Alerts (siren — used for the Alerts sidebar section AND the new-episode alert action;
 # not 📡, which is live/provider/events, nor ⚠, which stays for warnings)
-new_episodes_icon: str = "🆕"   # "new episodes available" indicator
 alert_icon: str = "🚨"          # the alert affordance — Alerts section header + "alert me to new episodes"
 # "New monitored-content match" marker — the colourblind-safe non-colour cue that
 # ALWAYS pairs with the new-match GREEN across every surface (sidebar badge, details
@@ -168,20 +134,15 @@ history_icon: str = "🕒"
 provider_icon: str = "📡"
 watch_alerts_icon: str = "⚠"
 info_icon: str = "ℹ"
-missing_data_icon: str = "🗄"   # U+1F5C4 FILE CABINET — Missing TMDb data diagnostic view
 #: Tools ▸ "Open config folder". A FOLDER rather than a document, because the
 #: action reveals the directory — config.yaml sits beside the logs, and a user
 #: sent to fetch one usually needs the other.
 config_folder_icon: str = "📂"  # U+1F4C2 OPEN FILE FOLDER
-reconnect_icon: str = "🔌"     # U+1F50C ELECTRIC PLUG — Reconnect Engaged Content diagnostic view
 #: Tools ▸ "Log viewer". A SCROLL rather than a document or a magnifier: the
 #: window shows a running stream of lines, not a file to open or a search.
-log_viewer_icon: str = "📜"     # U+1F4DC SCROLL
 #: Tools ▸ "Clear log" and the viewer's own clear button — the same broom the
 #: EPG link-clearing action uses, because it is the same kind of act.
-clear_log_icon: str = "🧹"      # U+1F9F9 BROOM
 #: The viewer's save-to-file action.
-save_log_icon: str = "💾"       # U+1F4BE FLOPPY DISK
 watchlist_icon: str = "⏰"
 calendar_icon: str = "📅"
 #: The mark a NESTED group heading puts in the reserved play-slot column.
@@ -196,11 +157,9 @@ group_mark_icon: str = "—"
 discover_icon: str = "✨"
 preferences_icon: str = "🎯"
 queue_icon: str = "📋"
-category_icon: str = "▤"        # U+25A4 SQUARE WITH HORIZONTAL FILL — user category / shelf (distinct from the 📋 queue)
 events_icon: str = "📡"         # EPG Events tab (platform-event / scheduled feeds)
 
 # Discover zoom slider
-zoom_icon: str = "⊞"   # card-resize affordance in the Discover header bar
 
 # Poster lightbox
 zoom_poster_icon: str = "⤢"   # U+2922 — diagonal arrow; "click to enlarge" affordance
@@ -214,7 +173,6 @@ lightbox_icon: str = "⤢"
 # Explore trail-map (cascading-columns adjacency browser opened from the lightbox).
 # Compass = "lateral exploration / walk the adjacency trail" — DELIBERATELY DISTINCT
 # from ``discover_icon`` (✨ = the global browse) and ``lightbox_icon`` (⤢ = preview).
-explore_icon: str = "🧭"   # U+1F9ED COMPASS
 # The sidebar section header's Explore affordance. Same U+2922 glyph family as
 # ``zoom_poster_icon``/``lightbox_icon`` — all three mean "open this out into a
 # bigger surface" — and specifically the glyph that opened the cascading columns
@@ -227,7 +185,6 @@ explore_columns_icon: str = "⤢"   # U+2922 — "open the cascading columns"
 trail_expand_icon: str = "›"   # U+203A SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
 
 # What's New
-whats_new_icon: str = "✦"   # U+2726 BLACK FOUR POINTED STAR — monochrome, menu + dialog header
 bullet_icon: str = "•"       # U+2022 BULLET — used in What's New item lists
 
 # View toggles
@@ -251,15 +208,11 @@ migration_done_icon: str = "✓"      # U+2713 CHECK MARK — task complete
 # A measured fact (PLAYED-1): the stream itself confirmed it, e.g. the quality
 # badge on a copy chip whose resolution was read off the stream.
 verified_icon: str = "✓"            # U+2713 CHECK MARK
-pref_liked_icon: str = "▲"          # U+25B2 BLACK UP-POINTING TRIANGLE
-pref_disliked_icon: str = "▼"       # U+25BC BLACK DOWN-POINTING TRIANGLE
 
 # Tag cloud — state mark prefixes (WeightedTagCloud)
 tag_include_icon: str = "✓"   # U+2713 CHECK MARK — "this facet value is included in filter"
-tag_exclude_icon: str = "⊘"   # U+2298 CIRCLED DIVISION SLASH — "this facet value is excluded"
 
 # Tag cloud — sort / filter controls
-sort_icon: str = "⇅"   # U+21C5 UPWARDS ARROW LEFTWARDS OF DOWNWARDS ARROW — sort toggle
 
 # Content variant count badge (dedup Slice 2 — shown on collapsed cards with >1 variant)
 variant_count_icon: str = "×"    # U+00D7 MULTIPLICATION SIGN — "×N" variant count badge prefix
@@ -269,30 +222,11 @@ recipe_icon: str = "✦"          # U+2726 BLACK FOUR POINTED STAR — Recipe ch
 recipe_check_icon: str = "✓"    # U+2713 CHECK MARK — included ingredient indicator (alias of tag_include_icon)
 
 # Dev-only QA Testing Checklist
-qa_checklist_icon: str = "🧪"      # Testing Checklist menu item / window header
-qa_all_clear_icon: str = "🎉"      # Empty state — nothing left to test
-qa_purge_icon: str = "✓"           # Purge / mark-all-done button
-qa_archive_icon: str = "📦"        # Archive a single fully-checked entry
-qa_unarchive_icon: str = "↩"       # Unarchive / restore an archived entry
-qa_pass_icon: str = "✓"            # U+2713 CHECK MARK — mark a step PASSED (tri-state)
-qa_fail_icon: str = "✗"            # U+2717 BALLOT X — mark a step FAILED (tri-state)
-qa_attach_icon: str = "📎"         # Attach a screenshot to a failed step
 qa_stale_icon: str = "⚠"           # Newer build available — re-test hint
-qa_flag_icon: str = "🚩"            # Flagged Items section header + add-item indicator
-qa_triaged_icon: str = "✔"         # U+2714 HEAVY CHECK MARK — flagged item triaged status
-qa_retest_icon: str = "↻"          # U+21BB CLOCKWISE OPEN CIRCLE — Re-test log snapshot
-qa_type_bug_icon: str = "🐛"       # Flagged item type: bug
-qa_type_feature_icon: str = "✨"   # Flagged item type: feature request
-qa_type_note_icon: str = "📝"      # Flagged item type: general note
-qa_addressed_icon: str = "↺"       # U+21BA ANTICLOCKWISE OPEN CIRCLE — addressed-by-later-PR badge
-qa_jump_icon: str = "↑"            # U+2191 UPWARDS ARROW — jump to the addressing entry
 qa_goto_icon: str = "▸"            # U+25B8 BLACK RIGHT-POINTING SMALL TRIANGLE — "Go" deep-link to view/content under test
 
 # Background metadata enrichment queue (Tools menu + progress view). Start/Resume
 # reuse play_icon (▶) — same "go" affordance, no need for a third glyph.
-metadata_enrich_icon: str = "🧬"    # U+1F9EC DNA — background metadata enrichment queue
-enrich_pause_icon: str = "⏸"       # U+23F8 PAUSE — pause an in-progress background pass
-enrich_cancel_icon: str = "⏹"      # U+23F9 STOP — cancel a background pass
 
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
