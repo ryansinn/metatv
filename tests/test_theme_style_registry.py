@@ -253,7 +253,7 @@ class TestDriftGuard:
     # RUNTIME colour into a hand-composed QProgressBar sheet, and both now bind
     # that colour into theme.progress_bar(colour) — a builder that takes it as
     # a parameter.
-    COMPOSED_BUDGET = 12
+    COMPOSED_BUDGET = 10
 
     def test_no_raw_setstylesheet_hands_over_a_theme_role(self):
         tier_a, _ = self._drift_sites()

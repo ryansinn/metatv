@@ -23,6 +23,8 @@ later Watch-History view seeds the SAME component with history instead.
 """
 from __future__ import annotations
 
+import html as _html
+
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import Callable, TYPE_CHECKING
@@ -36,7 +38,6 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.sentiment_bar import SentimentBar
@@ -219,8 +220,9 @@ class _TrailRow(QWidget):
         main.addWidget(make_sim_badges(row.as_badge_item(), show_year=False))
         lay.addLayout(main, 1)
 
-        chev = QLabel(_icons.trail_expand_icon)
+        chev = QLabel()
         _theme.style(chev, "TRAILMAP_ROW_CHEVRON")
+        _icon_utils.set_label_icon(chev, "nav_next", 14)
         lay.addWidget(chev, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Hover action bar — hidden until the row (or a button in it) is hovered.
@@ -428,8 +430,8 @@ class TrailMapView(QWidget):
         if self._embedded and origin_title:
             # Embedded Explore view: relabel the header per entry point (it is not
             # the generic "Explore" overlay here).
-            icon = origin_icon or _icons.history_icon
-            self._header_title.setText(f"{icon}  {origin_title}")
+            role = origin_icon or "history"
+            self._header_title.setText(f"{_icon_utils.role_html(role)}&nbsp; {_html.escape(origin_title, quote=False)}")
         self._seed_rows = []
         self._drill = []
         self._selected_id = None
@@ -501,7 +503,7 @@ class TrailMapView(QWidget):
         row.setContentsMargins(16, 10, 12, 10)
         row.setSpacing(10)
 
-        title = QLabel(f"{_icons.explore_icon}  Explore")
+        title = QLabel(f"{_icon_utils.role_html('explore')}&nbsp; Explore")
         _theme.style(title, "TRAILMAP_TITLE")
         self._header_title = title  # embedded mode relabels this per origin_title
         row.addWidget(title)

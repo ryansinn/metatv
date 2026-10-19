@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_card import UniformCardGrid, card_metrics, _ContentCard
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
 from metatv.gui.scoped_filter_box import ScopedFilterBox
@@ -103,7 +104,9 @@ class _BrowseView(QWidget):
         self._search_box.filterChanged.connect(self._apply_filter)
         top.addWidget(self._search_box)
 
-        self._toggle_btn = QPushButton(f"{self._config.list_view_icon} List")
+        self._toggle_btn = QPushButton("List")
+        self._toggle_btn.setToolTip("Switch between grid and list")
+        _icon_utils.set_button_icon(self._toggle_btn, "as_list")
         self._toggle_btn.setFlat(True)
         _theme.style_fn(self._toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
@@ -217,12 +220,11 @@ class _BrowseView(QWidget):
 
         # Grow the LIST widget immediately (cheap text rows).
         for card in cards:
-            icon = (self._config.movie_icon if card.media_type == "movie"
-                    else self._config.series_icon)
+            icon = _icon_utils.role_icon("movie" if card.media_type == "movie" else "series")
             rating_str = f"  ★{card.rating:.1f}" if card.rating else ""
             year_str = f"  ({card.year})" if card.year else ""
             variant_str = f"  ·{_icons.variant_count_icon}{card.variant_count}" if card.variant_count > 1 else ""
-            item = QListWidgetItem(f"{icon} {card.title}{year_str}{rating_str}{variant_str}")
+            item = QListWidgetItem(icon, f"{card.title}{year_str}{rating_str}{variant_str}")
             item.setData(Qt.ItemDataRole.UserRole, card.channel_id)
             if card.variant_count > 1:
                 item.setToolTip(f"{card.variant_count} source / quality variants of this title available")
@@ -240,12 +242,11 @@ class _BrowseView(QWidget):
 
         self._list_widget.clear()
         for card in cards:
-            icon = (self._config.movie_icon if card.media_type == "movie"
-                    else self._config.series_icon)
+            icon = _icon_utils.role_icon("movie" if card.media_type == "movie" else "series")
             rating_str = f"  ★{card.rating:.1f}" if card.rating else ""
             year_str = f"  ({card.year})" if card.year else ""
             variant_str = f"  ·{_icons.variant_count_icon}{card.variant_count}" if card.variant_count > 1 else ""
-            item = QListWidgetItem(f"{icon} {card.title}{year_str}{rating_str}{variant_str}")
+            item = QListWidgetItem(icon, f"{card.title}{year_str}{rating_str}{variant_str}")
             item.setData(Qt.ItemDataRole.UserRole, card.channel_id)
             if card.variant_count > 1:
                 item.setToolTip(f"{card.variant_count} source / quality variants of this title available")
@@ -338,10 +339,12 @@ class _BrowseView(QWidget):
         self._grid_mode = not self._grid_mode
         if self._grid_mode:
             self._stack.setCurrentIndex(0)
-            self._toggle_btn.setText(f"{self._config.list_view_icon} List")
+            self._toggle_btn.setText("List")
+            _icon_utils.set_button_icon(self._toggle_btn, "as_list")
         else:
             self._stack.setCurrentIndex(1)
-            self._toggle_btn.setText(f"{self._config.grid_view_icon} Grid")
+            self._toggle_btn.setText("Grid")
+            _icon_utils.set_button_icon(self._toggle_btn, "as_grid")
 
     def _on_list_select(self, current, _prev) -> None:
         if current:

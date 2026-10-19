@@ -14,6 +14,7 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
 
@@ -261,17 +262,17 @@ class _ContentCard(QWidget):
             self._shimmer = None
 
         # Placeholder media-type icon (centered) — font size scales with zoom.
-        icon = config.movie_icon if card.media_type == "movie" else config.series_icon
-        self._icon_lbl = QLabel(icon, self._poster_frame)
+        self._icon_lbl = QLabel(self._poster_frame)
         self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_h = round(40 * z)
         self._icon_lbl.setGeometry(0, ph // 2 - icon_h // 2, cw, icon_h)
-        self._icon_lbl.setFont(_theme.zoomed_font(_theme.FONT_ICON_LG, z))
         self._icon_lbl.setStyleSheet("background: transparent;")
+        _icon_utils.set_label_icon(self._icon_lbl, "movie" if card.media_type == "movie" else "series",
+                                   max(16, round(icon_h * 0.8)))
 
         # Rating badge (bottom-left overlay) — magic numbers scaled by zoom.
         if card.rating:
-            rating_lbl = QLabel(f"{config.rating_star_icon} {card.rating:.1f}", self._poster_frame)
+            rating_lbl = QLabel(f"{_icon_utils.role_html('rating_star')} {card.rating:.1f}", self._poster_frame)
             badge_y = ph - round(22 * z)
             badge_h = round(18 * z)
             badge_w = round(60 * z)
@@ -291,17 +292,11 @@ class _ContentCard(QWidget):
             cat_lbl.move(cw - cat_lbl.width() - round(4 * z), ph - round(22 * z))
 
         # Status overlay (top-right corner) — badges scale with zoom.
-        badges = []
-        if card.is_liked:
-            badges.append(config.like_icon)
-        if card.is_favorite:
-            badges.append(config.favorite_icon)
-        if card.in_queue:
-            badges.append(config.queue_icon)
-        if card.already_watched:
-            badges.append(config.watched_icon)
+        badges = [role for on, role in ((card.is_liked, "like"), (card.is_favorite, "favorite"),
+                                         (card.in_queue, "watch_later"), (card.already_watched, "watched"))
+                  if on]
         if badges:
-            status_lbl = QLabel(" ".join(badges), self._poster_frame)
+            status_lbl = QLabel(" ".join(_icon_utils.role_html(r) for r in badges), self._poster_frame)
             status_lbl.setFont(_theme.zoomed_font(_theme.FONT_XS, z))
             _theme.style_fn(status_lbl, lambda: f"background: {_theme.OVERLAY_BLACK_60}; border-radius: 3px;"
                 f" padding: 1px 3px; color: {_theme.COLOR_ON_FILL_LIGHT};")

@@ -40,7 +40,7 @@ from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import deferred_config_save as _cfgsave
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.discover_workers import SHELF_FAMILY_ORDER, family_of
 
@@ -191,9 +191,9 @@ class _FamilyGroup(QWidget):
 
     def sync_heading(self) -> None:
         """Restate the caret, the label and the count after any row change."""
-        arrow = _icons.expand_icon if self._folded else _icons.collapse_icon
         count = self.row_count()
-        self.heading.setText(f"{arrow}  {self.family} ({count})")
+        self.heading.setText(f"{self.family} ({count})")
+        _icon_utils.set_button_icon(self.heading, "expand" if self._folded else "collapse")
         verb = "Show" if self._folded else "Fold away"
         noun = "shelf" if count == 1 else "shelves"
         self.heading.setToolTip(f"{verb} {self.family} ({count} {noun})")

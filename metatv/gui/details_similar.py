@@ -10,7 +10,6 @@ from metatv.gui import cursor_affordance
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.chip_row import MiddleElideLabel
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
 from metatv.gui.details_versions import ChannelVersion, resolve_category_name
@@ -241,16 +240,13 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         row_w.add_hover_only(play_btn)
 
         # 2. Media type icon (🎬/📺/📡)
-        type_icon = {
-            "movie":  _icons.movie_icon,
-            "series": _icons.series_icon,
-            "live":   _icons.live_icon,
-        }.get(v.media_type, "")
+        type_icon = {"movie": "movie", "series": "series", "live": "live"}.get(v.media_type, "")
         if type_icon:
-            type_lbl = QLabel(type_icon)
+            type_lbl = QLabel()
             type_lbl.setFixedWidth(18)
             type_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             _theme.style(type_lbl, "TEXT_MD")
+            _icon_utils.set_label_icon(type_lbl, type_icon)
             type_lbl.setToolTip((v.media_type or "").title())
             row.addWidget(type_lbl)
 
@@ -304,13 +300,15 @@ class _SimilarSection(CollapsibleMixin, QWidget):
 
         # 5. Rating icon (liked / disliked — hidden when neutral)
         if v.user_rating == 1:
-            rating_lbl = QLabel(_icons.like_icon)
+            rating_lbl = QLabel()
             _theme.style(rating_lbl, "DETAIL_STATE_MARK_LIKED")
+            _icon_utils.set_label_icon(rating_lbl, "like")
             rating_lbl.setToolTip("You liked this")
             row.addWidget(rating_lbl)
         elif v.user_rating == -1:
-            rating_lbl = QLabel(_icons.dislike_icon)
+            rating_lbl = QLabel()
             _theme.style(rating_lbl, "DETAIL_STATE_MARK_DISLIKED")
+            _icon_utils.set_label_icon(rating_lbl, "dislike")
             rating_lbl.setToolTip("You disliked this")
             row.addWidget(rating_lbl)
 
@@ -318,18 +316,21 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         # so a plain row stays quiet. Watch Later (below) is the one action
         # that is always offered.
         if v.is_rec_suppressed:
-            ni = QLabel(_icons.not_interested_icon)
+            ni = QLabel()
             _theme.style(ni, "TEXT_MD")
+            _icon_utils.set_label_icon(ni, "not_interested")
             ni.setToolTip("Not interested")
             row.addWidget(ni)
         if v.watch_completed:
-            done = QLabel(_icons.watched_icon)
+            done = QLabel()
             _theme.style(done, "DETAIL_STATE_MARK_OK")
+            _icon_utils.set_label_icon(done, "watched")
             done.setToolTip("Watched")
             row.addWidget(done)
         elif v.in_history:
-            hist = QLabel(_icons.history_icon)
+            hist = QLabel()
             _theme.style(hist, "TEXT_MD")
+            _icon_utils.set_label_icon(hist, "history")
             hist.setToolTip("Previously watched")
             row.addWidget(hist)
 

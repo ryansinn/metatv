@@ -23,7 +23,6 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.sentiment_bar import SentimentBar
@@ -224,13 +223,15 @@ class TrailDetailStrip(QWidget):
         self._sentiment.queue_clicked.connect(self.queue_clicked)
         side.addWidget(self._sentiment, 0, Qt.AlignmentFlag.AlignHCenter)
 
-        self._open_btn = QPushButton(f"{_icons.see_all_arrow_icon} Open in details")
+        self._open_btn = QPushButton("Open in details")
+        _icon_utils.set_button_icon(self._open_btn, "see_all_arrow")
         _theme.style(self._open_btn, "TRAILMAP_DETAIL_LINK_BTN")
         self._open_btn.setToolTip("Open this title in the main details pane")
         self._open_btn.clicked.connect(self.open_details_clicked)
         side.addWidget(self._open_btn)
 
-        self._recipe_btn = QPushButton(f"{_icons.recipe_icon} Make recipe")
+        self._recipe_btn = QPushButton("Make recipe")
+        _icon_utils.set_button_icon(self._recipe_btn, "recipe")
         _theme.style(self._recipe_btn, "TRAILMAP_DETAIL_LINK_BTN")
         self._recipe_btn.setToolTip("Build a recipe from this title's genre & tags")
         self._recipe_btn.clicked.connect(self.recipe_clicked)
@@ -256,7 +257,7 @@ class TrailDetailStrip(QWidget):
         self._overview_lbl.setText("Pick any stop or similar title above to see its details here.")
         _theme.style(self._overview_lbl, "TRAILMAP_EMPTY_HINT")
         self._crew_lbl.hide()
-        self._play_btn.setText(f"{_icons.play_icon} Play")
+        self._play_btn.setText("Play")
         self._play_btn.setEnabled(False)
         self._sentiment.setEnabled(False)
         self._open_btn.setEnabled(False)
@@ -347,7 +348,7 @@ class TrailDetailStrip(QWidget):
         rating = detail.get("rating") or row.rating
         if rating:
             parts.append(self._meta_text(
-                f"{_icons.rating_star_icon} {rating}", _theme.TRAILMAP_DETAIL_STAR
+                f"{_icon_utils.role_html('rating_star')} {rating}", _theme.TRAILMAP_DETAIL_STAR
             ))
         runtime = _fmt_runtime(detail.get("runtime"))
         if runtime:
@@ -374,15 +375,15 @@ class TrailDetailStrip(QWidget):
         state = watch_state(row)
         if state == "partial":
             self._can_resume = True
-            self._play_btn.setText(f"{_icons.play_icon} Resume {_fmt_resume(row.watch_progress)}")
+            self._play_btn.setText(f"Resume {_fmt_resume(row.watch_progress)}")
             self._play_btn.setToolTip("Resume from where you left off")
         elif state == "done":
             self._can_resume = False
-            self._play_btn.setText(f"{_icons.play_icon} Play again")
+            self._play_btn.setText("Play again")
             self._play_btn.setToolTip("Play again from the beginning")
         else:
             self._can_resume = False
-            self._play_btn.setText(f"{_icons.play_icon} Play")
+            self._play_btn.setText("Play")
             self._play_btn.setToolTip("Play from the beginning")
 
     # -- click handlers --------------------------------------------------- #

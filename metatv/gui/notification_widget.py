@@ -36,7 +36,7 @@ def _title_html(notification) -> str:
     """The card title: the type's icon inline, then the escaped title."""
     role = _TYPE_ROLE.get(notification.type)
     lead = f"{_icon_utils.role_html(role)}&nbsp;" if role else ""
-    return lead + _html.escape(notification.title)
+    return lead + _html.escape(notification.title, quote=False)
 
 def _step_color() -> dict[StepStatus, str]:
     """Color for each glyph state, re-read fresh so a live theme switch applies."""

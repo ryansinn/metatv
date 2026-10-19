@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html as _html
+
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
@@ -16,7 +18,6 @@ from metatv.gui.discover_card import _ContentCard, card_metrics
 from metatv.gui.discover_workers import _RECIPE_PREFIX
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
@@ -459,7 +460,7 @@ class _Shelf(QWidget):
         if self._cards_widgets:
             return
         self._clear_placeholder()
-        self._placeholder_lbl = QLabel(f"{_icons.loading_icon} Loading…")
+        self._placeholder_lbl = QLabel(f"{_icon_utils.role_html('loading')}&nbsp;Loading…")
         _theme.style(self._placeholder_lbl, "DISCOVER_SHELF_LOADING")
         self._inner_layout.insertWidget(0, self._placeholder_lbl)
 
@@ -470,7 +471,7 @@ class _Shelf(QWidget):
         must never look like a silently-empty result — never ``clear(); return``.
         """
         self._clear_placeholder()
-        self._placeholder_lbl = QLabel(f"{_icons.notification_warning_icon} {message}")
+        self._placeholder_lbl = QLabel(f"{_icon_utils.role_html('warning')}&nbsp;{_html.escape(message, quote=False)}")
         _theme.style(self._placeholder_lbl, "DISCOVER_SHELF_ERROR")
         self._inner_layout.insertWidget(0, self._placeholder_lbl)
 

@@ -579,8 +579,6 @@ class Config(BaseModel):
     preferences_icon: str = "🎯"       # Preferences / Recommended dashboard
     preferred_version_icon: str = "🎯" # Best-match version indicator (distinct semantic from favorites ★)
     queue_icon: str = "📋"             # Watch Queue section / action
-    list_view_icon: str = "☰"         # Toggle to list view
-    grid_view_icon: str = "⊞"         # Toggle to grid view
 
     # Global Exclusions — opt-out blacklist (applies to discovery + recommendations everywhere)
     # Prefix codes to HIDE. Empty list = hide nothing (show all). Opt-out model: new prefixes

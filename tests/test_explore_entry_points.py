@@ -379,7 +379,8 @@ class TestExploreViewPerSource:
         assert view.trail_map.isVisible()
         header = view.trail_map._header_title.text()
         assert "Favorites" in header
-        assert view.source.icon in header, "header carries this entry point's icon"
+        from metatv.gui import icon_utils as _icon_utils
+        assert _icon_utils.role_html(view.source.icon) in header, "header carries this entry point's icon"
         assert view.trail_map._row_cache["f_recent"].watch_count == 4
         db.close()
 

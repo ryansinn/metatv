@@ -723,7 +723,6 @@ class TestInjectableLoaders:
 class TestSharedBadgeRenderer:
     def test_make_sim_badges_renders_active_state_glyphs(self, qapp):
         from PyQt6.QtWidgets import QLabel
-        from metatv.gui import icons as _icons
         from metatv.gui.sim_badges import make_sim_badges
 
         w = make_sim_badges({
@@ -733,8 +732,11 @@ class TestSharedBadgeRenderer:
         tips = [lbl.toolTip() for lbl in w.findChildren(QLabel)]
         texts = [lbl.text() for lbl in w.findChildren(QLabel)]
         assert {"You liked this", "In Watch Later", "In Favorites", "Watched"} <= set(tips)
-        assert _icons.like_icon in texts and _icons.watched_icon in texts
-        assert "LAT" in texts and f"{_icons.rating_star_icon}8.3" in texts
+        from metatv.gui import icon_utils
+        icons = [lbl for lbl in w.findChildren(QLabel)
+                 if lbl.pixmap() is not None and not lbl.pixmap().isNull()]
+        assert len(icons) >= 2, "the active states draw icons"
+        assert "LAT" in texts and f"{icon_utils.role_html('rating_star')}8.3" in texts
 
     def test_lightbox_card_delegates_to_shared_renderer(self, qapp):
         # The lightbox strip card still renders badges (via the shared renderer).
