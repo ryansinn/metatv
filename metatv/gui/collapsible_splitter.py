@@ -3,8 +3,9 @@ from PyQt6.QtWidgets import QSplitter, QSplitterHandle
 from PyQt6.QtCore import Qt, QPointF, QSize, pyqtSignal
 from PyQt6.QtGui import QColor, QMouseEvent, QPainter
 
+from metatv.core import runtime_env
 from metatv.gui import theme as _theme
-from metatv.gui.cursor_affordance import set_clickable
+from metatv.gui.cursor_affordance import set_clickable, set_resizable
 
 
 class CollapsibleSplitterHandle(QSplitterHandle):
@@ -23,6 +24,10 @@ class CollapsibleSplitterHandle(QSplitterHandle):
     #: Minimum handle thickness (px) so the grip dots have room to show — a bare
     #: QSplitterHandle is near-zero-width on most styles.
     GRIP_THICKNESS = 7
+    #: macOS: a 7px strip is a hard target on a Retina trackpad, and the
+    #: handle had the pointing hand rather than the resize arrows macOS users
+    #: look for — "hard to grab on Mac, fine on Linux" (owner, 2026-10-19).
+    MAC_GRIP_THICKNESS = 12
     #: Number / geometry of the centred grip dots painted on the handle.
     _GRIP_DOTS = 3
     _GRIP_DOT_RADIUS = 1.0
@@ -35,17 +40,25 @@ class CollapsibleSplitterHandle(QSplitterHandle):
         # Discoverability: tooltip + pointing-hand cursor.  A QSplitterHandle is
         # not a QAbstractButton, so it must opt into the hand via the single
         # cursor_affordance chokepoint — never a hand-rolled setCursor call here.
-        self.setToolTip("Click to collapse/expand")
-        set_clickable(self)
+        self.setToolTip("Drag to resize · click to collapse/expand")
+        if runtime_env.is_macos():
+            set_resizable(self, orientation)
+        else:
+            set_clickable(self)
+
+    @classmethod
+    def grip_thickness(cls) -> int:
+        """Handle thickness for this platform (wider on macOS)."""
+        return cls.MAC_GRIP_THICKNESS if runtime_env.is_macos() else cls.GRIP_THICKNESS
 
     def sizeHint(self) -> QSize:
         """Guarantee enough thickness across the handle to show the grip dots."""
         hint = super().sizeHint()
         if self.orientation() == Qt.Orientation.Horizontal:
             # Horizontal splitter → vertical handle strip: thickness is the WIDTH.
-            hint.setWidth(max(hint.width(), self.GRIP_THICKNESS))
+            hint.setWidth(max(hint.width(), self.grip_thickness()))
         else:
-            hint.setHeight(max(hint.height(), self.GRIP_THICKNESS))
+            hint.setHeight(max(hint.height(), self.grip_thickness()))
         return hint
 
     def paintEvent(self, event) -> None:
@@ -122,7 +135,7 @@ class CollapsibleSplitter(QSplitter):
         # Give handles a real thickness so the discoverable grip (see
         # CollapsibleSplitterHandle.paintEvent) has room to show; the handle's
         # sizeHint enforces the same floor.
-        self.setHandleWidth(CollapsibleSplitterHandle.GRIP_THICKNESS)
+        self.setHandleWidth(CollapsibleSplitterHandle.grip_thickness())
     
     def createHandle(self):
         """Create custom handle with click detection"""
