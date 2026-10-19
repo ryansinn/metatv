@@ -166,6 +166,24 @@ def set_clickable(widget: QWidget, clickable: bool = True, *,
         widget.unsetCursor()
 
 
+def set_resizable(widget: QWidget, orientation: Qt.Orientation) -> None:
+    """Give a drag-to-resize divider the platform's resize cursor.
+
+    For a splitter handle whose primary gesture is DRAG: the pointing hand says
+    "click", and on macOS — where the resize arrows are how a divider is found —
+    a handle showing the hand was hard to grab (owner, 2026-10-19). Takes the
+    widget out of the pointing-hand filter so hover does not put the hand back.
+
+    Args:
+        widget: The divider (a ``QSplitterHandle``).
+        orientation: The SPLITTER's orientation: a horizontal splitter resizes
+            sideways, so its handles get the horizontal-split cursor.
+    """
+    widget.setProperty(CLICKABLE_PROPERTY, False)
+    widget.setCursor(Qt.CursorShape.SplitHCursor if orientation == Qt.Orientation.Horizontal
+                     else Qt.CursorShape.SplitVCursor)
+
+
 def install(app: QApplication) -> PointingHandFilter:
     """Install the pointing-hand affordance filter on *app* (call once at startup).
 
