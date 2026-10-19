@@ -573,7 +573,7 @@ class DetailsPaneWidget(QWidget):
         # "Width discipline").
         self._byline = QLabel()
         self._byline.setWordWrap(True)
-        _theme.style(self._byline, "DETAIL_TITLE")   # the episode is the subject
+        _theme.style(self._byline, "DETAIL_TITLE_EPISODE")   # the episode is the subject
         _no_width_force(self._byline)
         self._byline.hide()
 

@@ -712,8 +712,11 @@ def _build_semantic_constants() -> dict[str, object]:
     FIELD_LABEL  = "font-weight: 600;"
     DETAIL_TITLE = "font-size: " + FONT_3XL + "; font-weight: bold;"
     # The smaller of two titles in episode mode — the SHOW's title once an
-    # episode is the subject (the episode title takes DETAIL_TITLE).
-    DETAIL_TITLE_SECOND = "font-size: " + FONT_2XL + "; font-weight: 600; color: " + COLOR_TEXT_HI + ";"
+    # episode is the subject (the episode title takes DETAIL_TITLE_EPISODE).
+    DETAIL_TITLE_SECOND = "font-size: " + FONT_XL + "; font-weight: 600; color: " + COLOR_TEXT_HI + ";"
+    # The episode's title when both titles show — one step under DETAIL_TITLE,
+    # so long episode names stop wrapping onto a second line (owner 2026-10-19).
+    DETAIL_TITLE_EPISODE = "font-size: " + FONT_2XL + "; font-weight: bold; color: " + COLOR_TEXT_HI + ";"
     DETAIL_TEXT  = "color: " + COLOR_LIGHTGRAY + ";"
     META_DIM     = "color: " + COLOR_GRAY + ";"
     LOADING_TEXT = "color: " + COLOR_GRAY + "; font-style: italic;"
