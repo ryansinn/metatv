@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QListWidgetItem
 from PyQt6.QtCore import Qt
-from metatv.gui import icons as _icons
+
+from metatv.gui import icon_utils as _icon_utils
+from metatv.gui import theme as _theme
 
 
 class StreamMonitoringMixin:
@@ -39,9 +41,12 @@ class StreamMonitoringMixin:
         now = datetime.utcnow()
 
         for entry in entries:
-            icon = _icons.stream_retry_online_icon if entry.status == "online" \
-                else _icons.stream_retry_pending_icon
-            item = QListWidgetItem(f"{icon}  {entry.channel_name}")
+            online = entry.status == "online"
+            # Shape AND colour: an emoji dot said it by colour alone.
+            item = QListWidgetItem(
+                _icon_utils.role_icon("stream_retry_online" if online else "stream_retry_pending",
+                                      _theme.COLOR_OK if online else _theme.COLOR_ERR),
+                entry.channel_name)
             item.setData(Qt.ItemDataRole.UserRole,     entry.id)
             item.setData(Qt.ItemDataRole.UserRole + 1, entry.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 2, entry.stream_url)

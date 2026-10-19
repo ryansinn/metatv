@@ -13,7 +13,6 @@ from metatv.gui.row_activation import connect_row_activation
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
     CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, build_chip_row, episode_code,
@@ -147,7 +146,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self.db = db
         self._has_unavailable = False
         self._build_handle: ChunkHandle | None = None  # in-flight chunked build, if any (PERF-17)
-        super().__init__("Watch Queue", config.queue_icon, config, parent)
+        super().__init__("Watch Queue", "queue", config, parent)
         self._init_background_refresh()
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
@@ -187,14 +186,14 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     def overflow_actions(self):
         return [
             SectionAction(
-                f"{self.config.watched_icon} Clear Watched",
+                "Clear Watched",
                 "Remove finished items — partially watched titles stay",
-                self.clearWatchedClicked.emit, destructive=True,
+                self.clearWatchedClicked.emit, icon="watched", destructive=True,
             ),
             SectionAction(
-                f"{self.config.delete_icon} Clear All",
+                "Clear All",
                 "Remove everything from the queue",
-                self.clearQueueClicked.emit, destructive=True,
+                self.clearQueueClicked.emit, icon="clear_all", destructive=True,
             ),
         ]
 
@@ -306,10 +305,9 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             return
         if count > 0:
             line.setText(
-                f"{_icons.watchlist_on_icon} {count} new match"
-                f"{'es' if count != 1 else ''} from your alerts  "
-                f"{_icons.see_all_arrow_icon}"
+                f"{count} new match{'es' if count != 1 else ''} from your alerts"
             )
+            _icon_utils.set_button_icon(line, "news")   # the bell with a dot: new alerts
             line.setToolTip("Open the new matched content from your watch-for alerts")
             line.show()
         else:

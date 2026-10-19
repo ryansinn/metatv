@@ -79,7 +79,7 @@ def test_background_refresh_mixin_refresh_adds_loading_row(qapp):
     # Exactly one row: the non-selectable loading placeholder.
     assert sec._list.count() == 1
     item = sec._list.item(0)
-    assert _icons.loading_icon in item.text()
+    assert not item.icon().isNull(), "the loading row carries the loading icon"
     from PyQt6.QtCore import Qt
     assert item.flags() == Qt.ItemFlag.NoItemFlags
     sec._executor.submit.assert_called_once()
@@ -89,14 +89,14 @@ def test_background_refresh_mixin_on_data_ready_replaces_loading_row(qapp):
     sec = _make_mixin_section(qapp)
     sec._executor = MagicMock()
     sec.refresh()  # places the loading row
-    assert _icons.loading_icon in sec._list.item(0).text()
+    assert not sec._list.item(0).icon().isNull()
 
     sec._on_data_ready(["alpha", "beta"])
 
     # Loading row gone; real rows rendered.
     texts = [sec._list.item(i).text() for i in range(sec._list.count())]
     assert texts == ["alpha", "beta"]
-    assert all(_icons.loading_icon not in t for t in texts)
+    assert all(sec._list.item(i).icon().isNull() for i in range(sec._list.count()))
 
 
 def test_background_refresh_mixin_loading_message_default(qapp):
@@ -132,7 +132,7 @@ def test_alerts_tree_show_loading_adds_top_level_loading_row(qapp):
 
     assert tree.topLevelItemCount() == 1
     item = tree.topLevelItem(0)
-    assert _icons.loading_icon in item.text(0)
+    assert not item.icon(0).isNull()
     assert "alerts" in item.text(0).lower()        # section overrides the default message
     assert item.flags() == Qt.ItemFlag.NoItemFlags
 
@@ -161,7 +161,7 @@ def test_recommended_refresh_adds_loading_row(qapp):
 
     assert sec._list.count() == 1
     item = sec._list.item(0)
-    assert _icons.loading_icon in item.text()
+    assert not item.icon().isNull()
     assert "recommendations" in item.text().lower()
     assert item.flags() == Qt.ItemFlag.NoItemFlags
     sec._executor.submit.assert_called_once()
@@ -170,13 +170,13 @@ def test_recommended_refresh_adds_loading_row(qapp):
 def test_recommended_on_rec_data_ready_none_replaces_loading_with_empty_state(qapp):
     sec = _make_recommended(qapp)
     sec.refresh()
-    assert _icons.loading_icon in sec._list.item(0).text()
+    assert not sec._list.item(0).icon().isNull()
 
     sec._on_rec_data_ready(None)  # None = valid "no weights" empty state
 
     assert sec._list.count() == 1
     text = sec._list.item(0).text()
-    assert _icons.loading_icon not in text
+    assert "Loading" not in text
     assert "Rate movies/series" in text
 
 

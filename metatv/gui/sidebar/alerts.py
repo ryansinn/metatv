@@ -23,7 +23,6 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import (
@@ -95,7 +94,7 @@ class WatchAlertsSection(
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("Watch Alerts", _icons.alert_icon, config, parent)
+        super().__init__("Watch Alerts", "alert", config, parent)
         self._init_background_refresh()
         self._start_clock()
 

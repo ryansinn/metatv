@@ -214,7 +214,7 @@ class SectionAction(NamedTuple):
     then silently deletes someone's history.
 
     Attributes:
-        label: Menu text, glyph included.
+        label: Menu text — words only; the icon is ``icon``.
         tooltip: Hover text; reused on the button when promoted.
         run: The callable.
         icon: An ``icons.vector_key`` name. Only an action WITH one can be
@@ -794,7 +794,8 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
 
         self._overflow_menu = QMenu(self._overflow_btn)
         for entry in actions:
-            action = self._overflow_menu.addAction(entry.label)
+            action = (self._overflow_menu.addAction(_icon_utils.role_icon(entry.icon), entry.label)
+                      if entry.icon else self._overflow_menu.addAction(entry.label))
             action.setToolTip(entry.tooltip)
             action.triggered.connect(entry.run)
         self._overflow_btn.clicked.connect(self._show_overflow_menu)
@@ -1336,10 +1337,9 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         expanded so the message is seen instead of silently blanking the list.
         """
         from PyQt6.QtWidgets import QListWidgetItem
-        from metatv.gui import icons as _icons
 
         list_widget.clear()
-        item = QListWidgetItem(f"{_icons.notification_warning_icon} {message}")
+        item = QListWidgetItem(_icon_utils.role_icon("warning", _theme.COLOR_WARN), message)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         list_widget.addItem(item)
         self.set_empty(False)
@@ -1354,10 +1354,9 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         result slot clears the list and renders rows.
         """
         from PyQt6.QtWidgets import QListWidgetItem
-        from metatv.gui import icons as _icons
 
         list_widget.clear()
-        item = QListWidgetItem(f"{_icons.loading_icon} {message}")
+        item = QListWidgetItem(_icon_utils.role_icon("loading"), message)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         list_widget.addItem(item)
         self.set_empty(False)

@@ -38,7 +38,6 @@ from metatv.core.history_buckets import BUCKETS, bucket_for
 from metatv.core.repositories.channel_downloads import _file_exists
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import DENSITY_COMFORTABLE
 from metatv.gui.sidebar.base import (
@@ -104,7 +103,7 @@ class DownloadsSection(CollapsibleSection):
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("Downloads", _icons.download_icon, config, parent,
+        super().__init__("Downloads", "download", config, parent,
                          vector_role="download")
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
@@ -122,21 +121,21 @@ class DownloadsSection(CollapsibleSection):
         paused = bool(getattr(self.config, "downloads_paused", False))
         return [
             SectionAction(
-                (f"{_icons.play_icon} Resume all downloads" if paused
-                 else f"{_icons.enrich_pause_icon} Pause all downloads"),
+                ("Resume all downloads" if paused else "Pause all downloads"),
                 ("Resume every queued or paused download" if paused
                  else "Hold every download until you resume them yourself"),
                 self._toggle_downloads_paused,
+                icon="play" if paused else "enrich_pause",
             ),
             SectionAction(
-                f"{_icons.delete_icon} Clear download history",
+                "Clear download history",
                 "Remove every finished or failed download from your history "
                 "— files already saved are never deleted",
                 self.clearDownloadHistoryClicked.emit,
-                destructive=True,
+                icon="clear_all", destructive=True,
             ),
             SectionAction(
-                f"{_icons.config_folder_icon} Open downloads folder",
+                "Open downloads folder",
                 "Show the folder your downloads are saved in",
                 self.openLibraryFolderClicked.emit,
                 icon="folder_open",
@@ -245,7 +244,7 @@ class DownloadsSection(CollapsibleSection):
     @staticmethod
     def _add_gate_line(lst, text: str) -> None:
         """One non-selectable, muted note — the connection gate for one provider."""
-        item = QListWidgetItem(f"{_icons.info_icon} {text}")
+        item = QListWidgetItem(_icon_utils.role_icon("info"), text)
         item.setData(_ROLE_BUCKET, "__gate__")
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         item.setForeground(to_qcolor(_theme.COLOR_MUTED))

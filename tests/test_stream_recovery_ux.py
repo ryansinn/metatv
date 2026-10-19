@@ -20,6 +20,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from metatv.gui import theme as _theme
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +147,6 @@ def test_main_window_refresh_uses_display_read_not_pending(qapp, tmp_path):
 def test_widget_refresh_retry_renders_green_icon_and_tooltip_for_online_entry(qapp, tmp_path):
     from metatv.core.config import Config
     from metatv.core.stream_retry_manager import StreamRetryEntry
-    from metatv.gui import icons as _icons
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
     cfg = Config(config_dir=tmp_path)
@@ -161,8 +161,7 @@ def test_widget_refresh_retry_renders_green_icon_and_tooltip_for_online_entry(qa
 
     assert section._retry_list.count() == 1
     item = section._retry_list.item(0)
-    assert _icons.stream_retry_online_icon in item.text()
-    assert _icons.stream_retry_pending_icon not in item.text()
+    assert _icon_is(item, _theme.COLOR_OK), "online reads green (and its own shape)"
     assert "Back online!" in item.toolTip()
 
     section.setParent(None)
@@ -174,7 +173,6 @@ def test_widget_refresh_retry_renders_pending_icon_for_pending_entry(qapp, tmp_p
     """Sanity companion: a still-pending row keeps the red/pending icon."""
     from metatv.core.config import Config
     from metatv.core.stream_retry_manager import StreamRetryEntry
-    from metatv.gui import icons as _icons
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
     cfg = Config(config_dir=tmp_path)
@@ -188,8 +186,7 @@ def test_widget_refresh_retry_renders_pending_icon_for_pending_entry(qapp, tmp_p
     section.refresh_retry([entry])
 
     item = section._retry_list.item(0)
-    assert _icons.stream_retry_pending_icon in item.text()
-    assert _icons.stream_retry_online_icon not in item.text()
+    assert _icon_is(item, _theme.COLOR_ERR), "pending reads red (and its own shape)"
 
     section.setParent(None)
     section.deleteLater()
@@ -266,3 +263,14 @@ def test_stream_back_online_toast_play_defaults_to_empty_url_when_omitted():
     actions["Play"]()
 
     host._on_retry_play_requested.assert_called_once_with("ch-1", "", "FOX SPORTS 1")
+
+
+def _icon_is(item, color) -> bool:
+    """True when the row's icon is painted in *color* (mdi6 retry icons)."""
+    from PyQt6.QtGui import QColor
+    img = item.icon().pixmap(16, 16).toImage()
+    want = QColor(color)
+    return any(img.pixelColor(x, y).alpha() > 200
+               and abs(img.pixelColor(x, y).red() - want.red()) < 12
+               and abs(img.pixelColor(x, y).green() - want.green()) < 12
+               for x in range(16) for y in range(16))

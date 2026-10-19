@@ -80,7 +80,7 @@ class RecommendedSection(CollapsibleSection):
     def __init__(self, config, db, parent=None):
         self.db = db
         self._executor = ThreadPoolExecutor(max_workers=1)
-        super().__init__("Recommended", config.preferences_icon, config, parent,
+        super().__init__("Recommended", "recommended", config, parent,
                          vector_role="recommended")
         self._rec_data_ready.connect(self._on_rec_data_ready)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
@@ -97,7 +97,7 @@ class RecommendedSection(CollapsibleSection):
     def overflow_actions(self):
         return [
             SectionAction(
-                f"{self.config.refresh_icon} Refresh recommendations",
+                "Refresh recommendations",
                 "Recompute recommendations from your ratings and history",
                 self.refresh, icon="refresh",
             ),
@@ -239,7 +239,7 @@ class RecommendedSection(CollapsibleSection):
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
-            rating_tip = f"  {self.config.rating_star_icon}{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
+            rating_tip = f"  rated {sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
             shown_tip = f"\nShown {sc.rec_shown_count}×" if sc.rec_shown_count else ""
             variant_tip = f"\n{sc.variant_count} versions grouped" if sc.variant_count > 1 else ""
             item.setToolTip(

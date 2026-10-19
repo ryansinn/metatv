@@ -12,7 +12,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QListWidgetItem, QMenu
 from PyQt6.QtCore import Qt, QSize, QTimer
 from loguru import logger
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import series_alert_identity as _series_identity
 from metatv.gui.sidebar.alerts_rows import _VodAlertRow
 from metatv.gui.sidebar.base import GroupHeading
@@ -181,11 +181,9 @@ class MoviesSeriesMixin:
         The alternative — an empty section — is indistinguishable from a broken
         one, which is the lesson EPG learned in #480.
         """
-        from metatv.gui import icons as _icons
-
         item = QListWidgetItem(
-            f"  {_icons.info_icon}  Nothing new from {watching} "
-            f"alert{'s' if watching != 1 else ''}"
+            _icon_utils.role_icon("info"),
+            f"Nothing new from {watching} alert{'s' if watching != 1 else ''}"
         )
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         item.setData(_ROLE_KIND, "heading")
@@ -590,13 +588,13 @@ class MoviesSeriesMixin:
         # Rule administration — not channel-shaped, stays hand-appended.
         if menu.actions():
             menu.addSeparator()
-        remove_action = menu.addAction(f"{_icons.close_icon}  Remove rule")
+        remove_action = menu.addAction(_icon_utils.role_icon("close"), "Remove rule")
         remove_action.setToolTip("Delete this watch-for rule")
         remove_action.triggered.connect(
             lambda _=False, rc=rule_created: self.vodRuleRemoveRequested.emit(rc)
         )
         menu.addSeparator()
-        manage_action = menu.addAction(f"{_icons.manage_icon}  Manage rules…")
+        manage_action = menu.addAction(_icon_utils.role_icon("manage"), "Manage rules…")
         manage_action.setToolTip("View and manage all watch-for rules")
         manage_action.triggered.connect(self.manageWatchForClicked.emit)
 

@@ -95,7 +95,8 @@ def test_the_alarm_only_fires_when_nothing_is_enabled(qapp):
     """"No active sources" must mean the app genuinely has nothing to show."""
     from metatv.gui.sidebar.sources_strip import _summary_text
 
-    assert _summary_text(2, 2, 2) == "⚠ 2 expiring"
+    assert _summary_text(2, 2, 2).endswith(" 2 expiring")
+    assert "Material Design Icons" in _summary_text(2, 2, 2)   # the warning icon, inline
     assert _summary_text(2, 0, 2).endswith("2 active")
     assert "No active sources" in _summary_text(0, 0, 2)
     assert "No active sources" in _summary_text(0, 1, 2)

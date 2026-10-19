@@ -25,7 +25,6 @@ from PyQt6.QtWidgets import QListWidget, QSizePolicy
 
 from metatv.core.epg_utils import now_utc, to_local
 from metatv.core.time_display import clock_text
-from metatv.gui import icons as _icons
 from metatv.gui.sidebar.base import CollapsibleSection, SectionAction, make_seamless
 from metatv.gui.sidebar.transfer_rows import (
     ROLE_CHANNEL_ID, ROLE_DEST_PATH, ROLE_ITEM_ID, ROLE_STATE,
@@ -64,7 +63,7 @@ class RecordingsSection(CollapsibleSection):
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("Recordings", _icons.record_icon, config, parent,
+        super().__init__("Recordings", "record", config, parent,
                          vector_role="record")
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
@@ -81,7 +80,7 @@ class RecordingsSection(CollapsibleSection):
     def overflow_actions(self):
         return [
             SectionAction(
-                f"{_icons.config_folder_icon} Open recordings folder",
+                "Open recordings folder",
                 "Show the folder your recordings are saved in",
                 self.openLibraryFolderClicked.emit,
                 icon="folder_open",

@@ -22,7 +22,6 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
@@ -101,10 +100,10 @@ def _summary_text(active: int, expiring: int, total: int) -> str:
     if total == 0:
         return "No sources yet"
     if active == 0:
-        return f"{_icons.notification_warning_icon} No active sources"
+        return f"{_icon_utils.role_html('warning')} No active sources"
     if expiring:
-        return f"{_icons.notification_warning_icon} {expiring} expiring"
-    return f"{_icons.status_dot_icon} {active} active"
+        return f"{_icon_utils.role_html('warning')} {expiring} expiring"
+    return f"{_icon_utils.role_html('status_dot')} {active} active"
 
 
 class SourcesStatusStrip(QWidget):
@@ -133,11 +132,13 @@ class SourcesStatusStrip(QWidget):
         layout.setContentsMargins(12, 7, 8, 7)
         layout.setSpacing(6)
 
-        title = QLabel(f"{_icons.provider_icon} Sources")
+        title = QLabel(f"{_icon_utils.role_html('provider')} Sources")
+        title.setTextFormat(Qt.TextFormat.RichText)
         _theme.style(title, "SOURCES_STRIP_TITLE")
         layout.addWidget(title)
 
         self._summary_lbl = QLabel("")
+        self._summary_lbl.setTextFormat(Qt.TextFormat.RichText)   # carries an inline icon
         _theme.style(self._summary_lbl, "CHANNEL_NAME_DIM")
         layout.addWidget(self._summary_lbl, 1)
 

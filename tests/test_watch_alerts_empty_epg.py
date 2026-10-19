@@ -170,12 +170,11 @@ class TestTheTwoNothingsReadDifferently:
         # freshness square). The dead guide takes the warning glyph because it
         # is the actionable one; a quiet watchlist must NOT, or a working
         # feature looks like a fault.
-        from metatv.gui import icons as _icons
 
-        assert dead_icon == _icons.notification_warning_icon
-        assert quiet_icon == _icons.info_icon
+        assert dead_icon == "warning"
+        assert quiet_icon == "info"
         assert quiet_icon != dead_icon
-        assert _icons.epg_indicator_icon not in (quiet_icon, dead_icon)
+        assert quiet_icon != dead_icon
 
 
 class TestGuideCoverageIsMeasuredByStarts:
