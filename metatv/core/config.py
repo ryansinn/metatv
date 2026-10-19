@@ -551,8 +551,6 @@ class Config(BaseModel):
     unknown_icon: str = "❓"  # Unknown media type
     
     # UI Control Icons
-    expand_icon: str = ">"  # Collapsed state (accordion/tree)
-    collapse_icon: str = "⌄"  # Expanded state (accordion/tree)
     play_icon: str = "▶"  # Play button/indicator
     loading_icon: str = "⟳"  # Loading/buffering indicator
     close_icon: str = "×"  # Close/dismiss button
@@ -563,22 +561,16 @@ class Config(BaseModel):
     filter_icon: str = "⚡"  # Filter/preset indicator
     history_icon: str = "🕒"            # History indicator
     provider_icon: str = "📡"          # Provider / source section
-    watch_alerts_icon: str = "⚠"      # Alerts section
-    stream_retry_pending_icon: str = "🔴"  # Stream retry — awaiting re-check
-    stream_retry_online_icon:  str = "🟢"  # Stream retry — back online
     # Graduated play-failure ledger (roadmap S3): on a source refresh, re-probe
     # that source's flagged/degraded/dead retry-checker rows immediately
     # (instead of waiting for the next backoff-scheduled check) and restore
     # any that come back online to reliability_state="ok". Configurable in
     # Settings → Playback.
     recheck_failed_on_refresh: bool = True
-    info_icon: str = "ℹ"
     watchlist_icon: str = "⏰"         # Watchlist tab
     live_indicator_icon: str = "🟢"    # On Now / live indicator
     calendar_icon: str = "📅"          # Browse / calendar tab
     discover_icon: str = "✨"          # Discover tab
-    move_up_icon: str = "▲"            # Move item up in list
-    move_down_icon: str = "▼"          # Move item down in list
     visibility_toggle_icon: str = "👁" # Show/hide password toggle
     watched_icon: str = "✓"            # Watched / completed indicator
     rating_star_icon: str = "★"        # Star used in content rating display
@@ -590,12 +582,6 @@ class Config(BaseModel):
     preferences_icon: str = "🎯"       # Preferences / Recommended dashboard
     preferred_version_icon: str = "🎯" # Best-match version indicator (distinct semantic from favorites ★)
     queue_icon: str = "📋"             # Watch Queue section / action
-    pin_icon: str = "📌"               # Pin shelf to top in Discover
-    manage_icon: str = "⚙"            # Manage / settings button
-    watchlist_on_icon: str = "🔔"      # EPG watchlist — alert active
-    watchlist_off_icon: str = "🔕"     # EPG watchlist — alert inactive
-    prev_icon: str = "◀"              # Previous (lightbox / pagination)
-    next_icon: str = "▶"              # Next (lightbox / pagination)
     list_view_icon: str = "☰"         # Toggle to list view
     grid_view_icon: str = "⊞"         # Toggle to grid view
 
@@ -604,7 +590,6 @@ class Config(BaseModel):
     # are always visible until the user explicitly excludes them.
     global_filter_excluded_categories: list = Field(default_factory=list, json_schema_extra=PROFILE)
     global_filter_include_uncategorized: bool = Field(default=True, json_schema_extra=PROFILE)  # True = show content with no detected_prefix
-    global_filter_icon: str = Field(default="fa5s.filter", json_schema_extra=PROFILE)  # qtawesome key — resolved via icon_utils.resolve_icon()
     # Per-prefix blocklist — individual prefixes always hidden everywhere.
     # Written by the "Block [PREFIX]" quick action in the Other Versions panel.
     global_filter_excluded_prefixes: list = Field(default_factory=list, json_schema_extra=PROFILE)
@@ -684,11 +669,9 @@ class Config(BaseModel):
     rec_liked_cap: int | None = None                 # already-liked slots in the list
 
     # Notification Icons
-    notification_progress_icon: str = "⟳"  # Progress notification
     notification_success_icon: str = "✓"  # Success notification
     notification_error_icon: str = "✗"  # Error notification
     notification_warning_icon: str = "⚠"  # Warning notification
-    notification_info_icon: str = ""   # Info notification (no icon by default)
     
     # Theme & Appearance (for future theming system)
     theme: str = "auto"  # "light", "dark", "auto" (follows system)
