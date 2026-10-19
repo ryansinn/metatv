@@ -10,7 +10,7 @@ a code comment citing a row ID that is not here refers to this file's git histor
 - Say what actually differs: a pure duplicate and a policy difference need different fixes.
 - A mistake that recurs at different call sites is a **class**: log the predicate, its
   census count and the sites — or better, close it with a guard (GUARD-6, #830).
-- IDs are never reused. Next free: **D69**, **F54**.
+- IDs are never reused. Next free: **D69**, **F55**.
 
 ## Ready to build
 
@@ -32,6 +32,7 @@ Nothing queued (the last ten closed 2026-10-19).
 | F36 | List-selection palette pin freezes after the second theme switch | Qt drops palette roles after repeated stylesheet changes; try paint-time colours. |
 | F47 | `discover_collapsed_shelves` is unused data but still the dialog's backing store | Derive the Collapsed column; migrate from the raw YAML. (F48's fallback, its other reader, is gone.) |
 | F49 | Genre has two separately versioned derivations | `detected_genres` vs genre tags; couple the version counters. |
+| F54 | A source numbers a franchise in the name ("01 EN - Friday The 13th (1980)" … "14 EN - …"); the number is lost and breaks the parse | **Template: the Friday the 13th films** — 28 movies, all TREX category "\|EN\| HORROR/THRILLER", shape `NN EN - Title (year)`; no other numbering shape in the library (2026-10-19). The number blocks prefix parsing (region blank, "02 EN - …" stays in `detected_title`), and the order is not reliable even via the original-name sort: "01 EN" loses its collapse group to "EN - Friday The 13th 4K (1980)", so it shows un-numbered and sorts elsewhere. **Owner's plan (parked):** store the number at ingestion in a `franchise_order`/series-order field (from whichever copy carries one), strip it from the title, show it as a quiet visual indicator ("#01") in results when populated, and sort a franchise run by it (year as fallback). Needs: the field + ALTER TABLE entry, parser support for a leading `NN ` before the prefix, a reparse bump, the indicator and the sort. |
 | GUARD-7 | PyQt sometimes segfaults at interpreter exit | Get C frames under gdb; find the QObject that outlives the app. |
 
 ## Needs an owner decision
