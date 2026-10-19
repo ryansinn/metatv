@@ -28,7 +28,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from metatv.core.channel_name_utils import PLATFORM_SHELF_EXCLUDED_VALUES
+from metatv.core.content_labels import PLATFORM_SHELF_EXCLUDED_VALUES
 from metatv.core.platform_shelves import (
     PLATFORM_SHELF_MEDIA_TYPES, platform_shelf_values, representative_version,
 )

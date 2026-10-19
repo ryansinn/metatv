@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from metatv.core.channel_name_utils import CONF_WEAK_PRIOR
+from metatv.core.tag_confidence import CONF_WEAK_PRIOR
 from metatv.core.tag_decomposer import decompose_name_cast
 
 

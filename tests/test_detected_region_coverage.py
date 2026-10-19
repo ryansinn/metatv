@@ -11,7 +11,7 @@ list-row left ``[XX]`` chip even when the channel NAME carries no region token:
    with no leading pipe (e.g. ``"AR| BEIN SPORTS NX"``), covering codes step 1
    misses because ``CODE_FACETS`` classifies them as language-only (``AR`` =
    Arabic, never a region facet — #138). Via
-   :func:`~metatv.core.channel_name_utils.split_category_prefix`, which ALSO
+   :func:`~metatv.core.region_codes.split_category_prefix`, which ALSO
    fills ``detected_prefix`` — the field Global Exclusions checks first.
 3. **content_key sibling propagation** — a still-empty row inherits a region
    from a sibling sharing its (real) ``content_key``.
@@ -34,7 +34,7 @@ from pathlib import Path
 
 import pytest
 
-from metatv.core.channel_name_utils import split_category_prefix
+from metatv.core.region_codes import split_category_prefix
 
 
 # ---------------------------------------------------------------------------

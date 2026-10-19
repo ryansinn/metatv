@@ -28,7 +28,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
-from metatv.core.channel_name_utils import quality_display
+from metatv.core.quality_vocab import quality_display
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.similar_lightbox_card import _LightboxCard

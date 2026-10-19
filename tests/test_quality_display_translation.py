@@ -35,20 +35,20 @@ def qapp():
 # ---------------------------------------------------------------------------
 
 def test_raw_translates_to_uncompressed():
-    from metatv.core.channel_name_utils import quality_display
+    from metatv.core.quality_vocab import quality_display
     assert quality_display("RAW") == "Uncompressed"
     assert quality_display("raw") == "Uncompressed"   # case-insensitive lookup
 
 
 def test_plain_tiers_pass_through_unchanged():
-    from metatv.core.channel_name_utils import quality_display
+    from metatv.core.quality_vocab import quality_display
     for tier in ("4K", "UHD", "FHD", "HD", "SD", "HQ", "LQ", "CAM"):
         assert quality_display(tier) == tier
 
 
 def test_hevc_keeps_short_form_but_is_explained_by_tooltip():
     """HEVC stays "HEVC" (that IS its recognizable name) — the tooltip does the work."""
-    from metatv.core.channel_name_utils import quality_display, quality_tooltip
+    from metatv.core.quality_vocab import quality_display, quality_tooltip
     assert quality_display("HEVC") == "HEVC"
     tip = quality_tooltip("HEVC")
     assert "codec" in tip.lower()
@@ -56,14 +56,14 @@ def test_hevc_keeps_short_form_but_is_explained_by_tooltip():
 
 
 def test_raw_tooltip_explains_uncompressed():
-    from metatv.core.channel_name_utils import quality_tooltip
+    from metatv.core.quality_vocab import quality_tooltip
     tip = quality_tooltip("RAW")
     assert "uncompressed" in tip.lower()
     assert "not a resolution tier" in tip.lower()
 
 
 def test_unknown_token_falls_back_to_generic_quality_tooltip():
-    from metatv.core.channel_name_utils import quality_tooltip
+    from metatv.core.quality_vocab import quality_tooltip
     assert quality_tooltip("4K") == "4K quality"
     assert quality_tooltip("") == ""
 
@@ -74,14 +74,14 @@ def test_mixed_case_group_name_is_not_uppercased():
     ``quality_display`` deliberately does not uppercase unknown values, or the
     "CAM / Pre-release" filter group would render as "CAM / PRE-RELEASE".
     """
-    from metatv.core.channel_name_utils import quality_display
+    from metatv.core.quality_vocab import quality_display
     assert quality_display("CAM / Pre-release") == "CAM / Pre-release"
     assert quality_display("4K / UHD") == "4K / UHD"
 
 
 def test_display_map_never_renames_the_stored_token():
     """Identity guard: the token set the DB/parser uses is untouched by display."""
-    from metatv.core.channel_name_utils import QUALITY_TOKENS, quality_display
+    from metatv.core.quality_vocab import QUALITY_TOKENS, quality_display
     assert "RAW" in QUALITY_TOKENS and "HEVC" in QUALITY_TOKENS
     # Translating is a pure read — the source set still holds the raw tokens.
     _ = [quality_display(t) for t in QUALITY_TOKENS]
@@ -326,7 +326,7 @@ def test_on_now_plain_tier_is_unchanged_and_untooltipped_beyond_generic(qapp):
 # ---------------------------------------------------------------------------
 
 def test_quality_tier_rank_orders_resolution_tiers_descending():
-    from metatv.core.channel_name_utils import quality_tier_rank
+    from metatv.core.quality_vocab import quality_tier_rank
 
     assert quality_tier_rank("8K") > quality_tier_rank("4K")
     assert quality_tier_rank("4K") == quality_tier_rank("UHD")  # 4K/UHD synonyms
@@ -337,13 +337,13 @@ def test_quality_tier_rank_orders_resolution_tiers_descending():
 
 
 def test_quality_tier_rank_is_case_insensitive():
-    from metatv.core.channel_name_utils import quality_tier_rank
+    from metatv.core.quality_vocab import quality_tier_rank
     assert quality_tier_rank("hd") == quality_tier_rank("HD")
     assert quality_tier_rank(" 4k ") == quality_tier_rank("4K")
 
 
 def test_quality_tier_rank_unknown_and_missing_fall_to_default_between_sd_and_hd():
-    from metatv.core.channel_name_utils import quality_tier_rank
+    from metatv.core.quality_vocab import quality_tier_rank
 
     default = quality_tier_rank(None)
     assert default == quality_tier_rank("")

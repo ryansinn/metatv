@@ -46,8 +46,8 @@ from metatv.core.channel_name_utils import (
     CategoryMarker,
     collection_display,
     parse_category_marker,
-    quality_display,
 )
+from metatv.core.quality_vocab import quality_display
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui.channel_list_delegate import (
     DENSITY_COMFY,

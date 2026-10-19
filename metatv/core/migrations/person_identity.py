@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Callable
 from loguru import logger
 from sqlalchemy import text
 
-from metatv.core.channel_name_utils import CREDIT_QUALIFIER_WORDS
+from metatv.core.content_labels import CREDIT_QUALIFIER_WORDS
 from metatv.core.tag_source import ROLE_BITS
 
 if TYPE_CHECKING:

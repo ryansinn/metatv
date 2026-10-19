@@ -22,7 +22,7 @@ facet depends on ``media_type``:
 What this task does
 -------------------
 1. Finds all channels that carry ≥1 content_tag whose ``TagDB.value`` is in
-   :data:`~metatv.core.channel_name_utils.CONTENT_DESCRIPTOR_GROUPS` and whose
+   :data:`~metatv.core.content_labels.CONTENT_DESCRIPTOR_GROUPS` and whose
    ``TagDB.type`` is **not** already the correct facet for that channel's
    ``media_type``.
 2. For each affected channel (batched ~2000, one ``session_scope`` per batch),
@@ -195,7 +195,7 @@ class CategoryFacetRefacetTask:
         This is safe because ``_collect_tags`` is idempotent — re-running it on
         an already-correct channel produces the same tags.
         """
-        from metatv.core.channel_name_utils import CONTENT_DESCRIPTOR_GROUPS
+        from metatv.core.content_labels import CONTENT_DESCRIPTOR_GROUPS
         from metatv.core.database import ChannelDB, ContentTagDB, TagDB
 
         with self._db.session_scope(commit=False) as session:
@@ -309,7 +309,7 @@ class CategoryFacetRefacetTask:
         (all channels now use the correct ``category:`` or ``genre:`` facet).
         This prune keeps the ``tags`` table tidy.
         """
-        from metatv.core.channel_name_utils import CONTENT_DESCRIPTOR_GROUPS
+        from metatv.core.content_labels import CONTENT_DESCRIPTOR_GROUPS
         from metatv.core.database import ContentTagDB, TagDB
 
         # Facets that were historically used for descriptor values (wrong ones).

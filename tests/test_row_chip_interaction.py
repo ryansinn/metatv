@@ -282,7 +282,7 @@ class TestTagValueTranslation:
     """
 
     def test_quality_token_resolves_to_its_group(self):
-        from metatv.core.channel_name_utils import tag_value_for
+        from metatv.core.region_codes import tag_value_for
 
         assert tag_value_for("quality", "4K") == "4K / UHD"
         assert tag_value_for("quality", "UHD") == "4K / UHD"
@@ -290,18 +290,18 @@ class TestTagValueTranslation:
 
     def test_quality_group_name_passes_through(self):
         """Idempotent — a value already in tag vocabulary must not be re-mapped."""
-        from metatv.core.channel_name_utils import tag_value_for
+        from metatv.core.region_codes import tag_value_for
 
         assert tag_value_for("quality", "4K / UHD") == "4K / UHD"
 
     def test_language_code_resolves_to_its_name(self):
-        from metatv.core.channel_name_utils import tag_value_for
+        from metatv.core.region_codes import tag_value_for
 
         assert tag_value_for("language", "EN") == "English"
         assert tag_value_for("language", "FR") == "French"
 
     def test_region_codes_are_already_tag_values(self):
-        from metatv.core.channel_name_utils import tag_value_for
+        from metatv.core.region_codes import tag_value_for
 
         assert tag_value_for("region", "FR") == "FR"
         assert tag_value_for("region", "US") == "US"
@@ -311,7 +311,7 @@ class TestTagValueTranslation:
 
         None means "don't filter"; the caller must not substitute the input.
         """
-        from metatv.core.channel_name_utils import tag_value_for
+        from metatv.core.region_codes import tag_value_for
 
         assert tag_value_for("quality", "NOPE") is None
         assert tag_value_for("language", "ZZ") is None
@@ -319,7 +319,7 @@ class TestTagValueTranslation:
     def test_resolved_values_actually_exist_in_the_tag_vocabulary(self):
         """End-to-end: every quality group this resolves to must be a real
         group name, not something invented here."""
-        from metatv.core.channel_name_utils import tag_value_for
+        from metatv.core.region_codes import tag_value_for
         from metatv.core.config import BASE_QUALITY_GROUPS
 
         for members in BASE_QUALITY_GROUPS.values():
@@ -442,7 +442,7 @@ class TestNoDeadAffordances:
     """
 
     def test_every_filterable_chip_resolves_to_a_tag_value(self, qapp):
-        from metatv.core.channel_name_utils import tag_value_for
+        from metatv.core.region_codes import tag_value_for
 
         dto = _dto(
             detected_prefix="EN", detected_region="US", detected_quality="4K",

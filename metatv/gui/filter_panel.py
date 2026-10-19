@@ -923,7 +923,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         self.filter_changed.emit()
 
     def _region_label(self, code: str) -> str:
-        from metatv.core.channel_name_utils import REGION_FULL_NAMES
+        from metatv.core.region_codes import REGION_FULL_NAMES
         return REGION_FULL_NAMES.get(code, code)
 
     # ── Right-click context menu ────────────────────────────────────────────────

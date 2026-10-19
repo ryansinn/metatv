@@ -30,9 +30,7 @@ import pathlib
 
 import pytest
 
-from metatv.core.channel_name_utils import (
-    QUALITY_TIER_RANK, _QUALITY_TIER_RANK_DEFAULT,
-)
+from metatv.core.quality_vocab import QUALITY_TIER_RANK, _QUALITY_TIER_RANK_DEFAULT
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 CORE = REPO / "metatv" / "core"

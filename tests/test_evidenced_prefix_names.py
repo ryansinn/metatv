@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pytest
 
-from metatv.core.channel_name_utils import PLATFORM_CODES, REGION_FULL_NAMES
+from metatv.core.region_codes import PLATFORM_CODES, REGION_FULL_NAMES
 
 
 @pytest.mark.parametrize("code,name", [

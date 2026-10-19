@@ -874,7 +874,7 @@ class _NavMixin:
             facet: Tag facet type, e.g. ``"quality"``/``"region"``/``"language"``.
             value: The chip's stored value (a code, not its display label).
         """
-        from metatv.core.channel_name_utils import tag_value_for
+        from metatv.core.region_codes import tag_value_for
 
         if not facet or not value:
             return

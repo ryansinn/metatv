@@ -49,7 +49,7 @@ from typing import Callable
 
 from PyQt6.QtCore import QRect
 
-from metatv.core.channel_name_utils import normalize_region_code
+from metatv.core.region_codes import normalize_region_code
 from metatv.gui import channel_row_layout as _layout
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons

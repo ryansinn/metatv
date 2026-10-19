@@ -135,7 +135,7 @@ def test_a_wider_quality_ladder_still_elects_correctly(repo, monkeypatch):
     packs as "10…" and sorts BEFORE rank 2's "2…", so the worst copy in the
     library becomes the representative and nothing raises.
     """
-    from metatv.core import channel_name_utils
+    from metatv.core import quality_vocab
     from metatv.core.repositories import channel as channel_mod
 
     # Chosen so the WRONG width flips the winner, which a merely-wide ladder
@@ -147,9 +147,9 @@ def test_a_wider_quality_ladder_still_elects_correctly(repo, monkeypatch):
     # "02" < "10", so BETTER is elected. With a hardcoded width of 1 they pack
     # as "2" and "10", and "10" < "2" lexicographically — the WORSE copy wins,
     # silently, with nothing raising.
-    wide = dict(channel_name_utils.QUALITY_TIER_RANK)
+    wide = dict(quality_vocab.QUALITY_TIER_RANK)
     wide.update({"TOPTIER": 12, "BETTER": 10, "WORSE": 2})
-    monkeypatch.setattr(channel_name_utils, "QUALITY_TIER_RANK", wide)
+    monkeypatch.setattr(quality_vocab, "QUALITY_TIER_RANK", wide)
     monkeypatch.setattr(channel_mod, "QUALITY_TIER_RANK", wide, raising=False)
     monkeypatch.setattr(channel_mod, "_MAX_QUALITY_RANK", max(wide.values()))
 
@@ -168,7 +168,7 @@ def test_a_wider_quality_ladder_still_elects_correctly(repo, monkeypatch):
 
 def test_the_max_rank_is_read_from_the_lookup_table(repo):
     """Derived, not written down beside it."""
-    from metatv.core.channel_name_utils import QUALITY_TIER_RANK
+    from metatv.core.quality_vocab import QUALITY_TIER_RANK
     from metatv.core.repositories.channel import _MAX_QUALITY_RANK
 
     assert _MAX_QUALITY_RANK == max(QUALITY_TIER_RANK.values())

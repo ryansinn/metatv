@@ -386,7 +386,7 @@ class _GroupSection(_ExpandableSection, QWidget):
     # ── Lazy body construction ─────────────────────────────────────────────────
 
     def _build_body(self) -> None:
-        from metatv.core.channel_name_utils import REGION_FULL_NAMES
+        from metatv.core.region_codes import REGION_FULL_NAMES
 
         body_vl = QVBoxLayout(self._body)
         body_vl.setSpacing(2)
@@ -450,7 +450,7 @@ class _GroupSection(_ExpandableSection, QWidget):
         name, OR the group's own name — so "french" matches the French group
         and therefore shows its FR member even though FR's full name is
         "France"."""
-        from metatv.core.channel_name_utils import REGION_FULL_NAMES
+        from metatv.core.region_codes import REGION_FULL_NAMES
 
         full_name = REGION_FULL_NAMES.get(prefix.upper(), "")
         return bool(query in self._group_name.lower()
@@ -1216,8 +1216,10 @@ class GlobalFilterDialog(QDialog):
         when it has channels OR is already excluded (so an active exclusion is never
         hidden); when none qualify the section is omitted entirely.
         """
-        from metatv.core.channel_name_utils import (
-            AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, content_type_display,
+        from metatv.core.content_labels import (
+            AI_GENERATED_VALUE,
+            AI_VOICEOVER_VALUE,
+            content_type_display,
         )
 
         # PPV is a content type read off provider labels ("SWEDEN SOCCER PPV").
@@ -1606,7 +1608,7 @@ class GlobalFilterDialog(QDialog):
         re-scan/reset repopulate) so the search box always filters whatever is
         currently on screen.
         """
-        from metatv.core.channel_name_utils import content_type_display
+        from metatv.core.content_labels import content_type_display
 
         blocks: list[_FilterBlock] = [
             _FilterBlock(

@@ -18,9 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from metatv.core.channel_name_utils import (
-    ENCODING_NORM, RESOLUTION_TO_QUALITY, TIER_TOKENS, parse_channel_name,
-)
+from metatv.core.channel_name_utils import parse_channel_name
+from metatv.core.quality_vocab import ENCODING_NORM, RESOLUTION_TO_QUALITY, TIER_TOKENS
 
 
 # --------------------------------------------------------------------------- #
@@ -105,7 +104,7 @@ def test_one_tier_stated_twice_yields_one_chip():
     both rank 5 and either label is correct, so pinning the token would make
     this fail on a harmless change to merge order — which it did.
     """
-    from metatv.core.channel_name_utils import QUALITY_TIER_RANK
+    from metatv.core.quality_vocab import QUALITY_TIER_RANK
 
     quality = parse_channel_name("4K| RELAX ᵁᴴᴰ 3840P").quality
     assert len(quality) == 1, f"one rung, one chip: {quality}"

@@ -42,20 +42,24 @@ from loguru import logger
 from sqlalchemy import func, or_, update
 
 from metatv.core.channel_name_utils import (
-    AI_VOICEOVER_VALUE,
     _COMPOUND_PREFIX_RE,
     _PAREN_PREFIX_RE,
-    AGE_RATING_PREFIXES,
-    AUDIO_LANG_WORD_MAP,
-    CODE_FACETS,
-    QUALITY_TOKENS,
-    detect_ai_provenance,
-    is_restricted,
-    normalize_region_code,
     parse_category_marker,
     parse_channel_name,
-    split_category_prefix,
     strip_collection_noise_tokens,
+)
+from metatv.core.content_labels import (
+    AI_VOICEOVER_VALUE,
+    AGE_RATING_PREFIXES,
+    detect_ai_provenance,
+    is_restricted,
+)
+from metatv.core.quality_vocab import QUALITY_TOKENS
+from metatv.core.region_codes import (
+    AUDIO_LANG_WORD_MAP,
+    CODE_FACETS,
+    normalize_region_code,
+    split_category_prefix,
 )
 from metatv.core.content_identity import added_from_raw, content_key_for, valid_tmdb_id
 from metatv.core.fixture_titles import fixture_ingest_title
@@ -194,7 +198,7 @@ class ChannelIngestionMixin:
         2b. **Bare "XX| REST" category code** (#582) — no leading pipe (e.g.
             ``"AR| BEIN SPORTS NX"``); covers codes step 2 misses because
             ``CODE_FACETS`` treats them as language-only (``AR`` = Arabic, never a
-            region). :func:`~metatv.core.channel_name_utils.split_category_prefix`
+            region). :func:`~metatv.core.region_codes.split_category_prefix`
             also fills ``detected_prefix`` — the field Exclusions checks first.
         3. **content_key sibling** — copies a region onto any still-empty row
            from a sibling sharing the same ``content_key``. See :meth:`_propagate_region_from_siblings`.

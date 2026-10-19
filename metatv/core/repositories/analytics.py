@@ -10,11 +10,8 @@ from metatv.core.repositories.dtos import (
     UniqueChannelDTO,
     PrefixStatDTO,
 )
-from metatv.core.channel_name_utils import (
-    QUALITY_TOKENS,
-    REGION_FULL_NAMES,
-    PLATFORM_CODES,
-)
+from metatv.core.quality_vocab import QUALITY_TOKENS
+from metatv.core.region_codes import REGION_FULL_NAMES, PLATFORM_CODES
 
 
 class AnalyticsRepository:

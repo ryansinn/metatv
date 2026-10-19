@@ -29,7 +29,7 @@ country from an age rating would repeat the original mistake in a new direction.
 Empty is honest.
 
 Scope: rows whose ``detected_prefix`` IS an age rating
-(:data:`~metatv.core.channel_name_utils.AGE_RATING_PREFIXES`) and whose
+(:data:`~metatv.core.content_labels.AGE_RATING_PREFIXES`) and whose
 ``detected_region`` is non-empty. A row whose own NAME carries a region —
 ``DE - Truly Naked (2026)`` — has ``detected_prefix = "DE"``, so it is outside
 the predicate and keeps its DE.
@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING, Callable
 
 from loguru import logger
 
-from metatv.core.channel_name_utils import AGE_RATING_PREFIXES
+from metatv.core.content_labels import AGE_RATING_PREFIXES
 from metatv.core.migrations.bad_region_cleanup import clear_regions_and_derived_tags
 from metatv.core.migrations.base import VersionGatedTask
 

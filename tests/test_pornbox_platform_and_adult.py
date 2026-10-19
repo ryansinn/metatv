@@ -33,7 +33,8 @@ from __future__ import annotations
 
 import pytest
 
-from metatv.core.channel_name_utils import PLATFORM_CODES, is_restricted
+from metatv.core.content_labels import is_restricted
+from metatv.core.region_codes import PLATFORM_CODES
 from metatv.core.config import BASE_PREFIX_GROUPS
 
 
@@ -129,7 +130,7 @@ def test_a_collection_merely_containing_adult_is_not_flagged(collection):
 
 def test_the_curated_set_is_exact_labels_not_patterns():
     """A pattern would re-introduce the substring problem by the back door."""
-    from metatv.core.channel_name_utils import ADULT_COLLECTION_LABELS
+    from metatv.core.content_labels import ADULT_COLLECTION_LABELS
 
     for label in ADULT_COLLECTION_LABELS:
         assert label == label.strip().upper(), f"{label!r} is not normalised"

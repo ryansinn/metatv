@@ -15,7 +15,7 @@ Two things were wrong, and the tests here pin both:
 
 import pytest
 
-from metatv.core.channel_name_utils import REGION_FULL_NAMES
+from metatv.core.region_codes import REGION_FULL_NAMES
 from metatv.gui.channel_row_cells import _code_tip
 
 

@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import re
 
-from metatv.core.channel_name_utils import FIXTURE_LEAGUE_NAME_PREFIXES
+from metatv.core.content_labels import FIXTURE_LEAGUE_NAME_PREFIXES
 
 #: A team side must be at least this uppercase to count as a name rather
 #: than a sentence fragment — see :func:`_is_uppercase_dominant`.

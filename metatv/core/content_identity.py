@@ -96,7 +96,7 @@ import re
 from abc import ABC, abstractmethod
 
 
-from metatv.core.channel_name_utils import (
+from metatv.core.quality_vocab import (
     AUDIO_KEY_NOISE_TOKENS as _AUDIO_KEY_NOISE_TOKENS,
     AUDIO_KEY_ANCHOR_TOKENS as _AUDIO_KEY_ANCHOR_TOKENS,
 )

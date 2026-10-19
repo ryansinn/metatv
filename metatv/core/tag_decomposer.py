@@ -17,7 +17,7 @@ all triples are emitted regardless of confidence; the caller (or downstream UI)
 decides what to show or prune.  A low-confidence triple must still be captured.
 
 The curated code→facet+confidence data lives in
-:data:`~metatv.core.channel_name_utils.CODE_FACETS` (single source of truth per
+:data:`~metatv.core.region_codes.CODE_FACETS` (single source of truth per
 the lookup-tables rule).  Do NOT hardcode dual-facet logic here.
 
 Feeders
@@ -58,14 +58,14 @@ Tag types (fixed namespaces)
 
 Classifier reuse map
 --------------------
-- region/language/prior ← :data:`~metatv.core.channel_name_utils.CODE_FACETS`
+- region/language/prior ← :data:`~metatv.core.region_codes.CODE_FACETS`
              (curated dual-facet table; checked BEFORE REGION_FULL_NAMES)
-- region   ← :func:`~metatv.core.channel_name_utils.normalize_region_code`
-             + :data:`~metatv.core.channel_name_utils.REGION_FULL_NAMES`
+- region   ← :func:`~metatv.core.region_codes.normalize_region_code`
+             + :data:`~metatv.core.region_codes.REGION_FULL_NAMES`
 - language + platform ← config ``filter_language_groups`` / ``filter_platform_groups``
              via :func:`~metatv.core.filter_utils.categorize_prefix`
 - quality  ← config ``filter_quality_groups`` via ``categorize_prefix``; also
-             :data:`~metatv.core.channel_name_utils.QUALITY_TOKENS` as gate
+             :data:`~metatv.core.quality_vocab.QUALITY_TOKENS` as gate
 - genre    ← :func:`~metatv.core.filter_utils.genres_from_category` (per residual
              token; strict :func:`~metatv.core.filter_utils.recognized_genre`
              allowlist underneath)
@@ -80,22 +80,22 @@ from typing import Sequence
 
 from loguru import logger
 
-from metatv.core.channel_name_utils import (
-    CODE_FACETS,
-    CONF_DENOTED,
-    CONF_STRONG_PRIOR,
-    CONF_WEAK_PRIOR,
+from metatv.core.content_labels import (
     CREDIT_QUALIFIER_WORDS,
     NON_PERSON_RESIDUAL_WORDS,
     CONTENT_TYPE_WORDS,
-    leading_country,
     CONTENT_DESCRIPTOR_GROUPS,
-    PLATFORM_CODES,
-    QUALITY_TOKENS,
-    REGION_FULL_NAMES,
     detect_ai_provenance,
+)
+from metatv.core.quality_vocab import QUALITY_TOKENS
+from metatv.core.region_codes import (
+    CODE_FACETS,
+    leading_country,
+    PLATFORM_CODES,
+    REGION_FULL_NAMES,
     normalize_region_code,
 )
+from metatv.core.tag_confidence import CONF_DENOTED, CONF_STRONG_PRIOR, CONF_WEAK_PRIOR
 from metatv.core.filter_utils import (
     _split_compound,
     categorize_prefix,
@@ -180,7 +180,7 @@ def region_code_from_category(category: str | None, *, config) -> str | None:
     ``detected_region`` from the provider category.  It runs the SAME
     ``provider_category`` decomposition that produces the region tag facet
     (:func:`decompose`) and returns the first ``region`` facet value, normalized
-    via :func:`~metatv.core.channel_name_utils.normalize_region_code`.
+    via :func:`~metatv.core.region_codes.normalize_region_code`.
 
     Only an explicit region/locale code yields a result: free-text category
     words classify as ``genre``/``collection`` (never ``region``), so they
@@ -332,7 +332,7 @@ def decompose_ai_provenance(name: str) -> list[tuple[str, str, float]]:
     """Return the ``content_type`` AI-provenance tag for a channel *name*, if any.
 
     Runs the single-source-of-truth recognizer
-    (:func:`~metatv.core.channel_name_utils.detect_ai_provenance`) over the raw
+    (:func:`~metatv.core.content_labels.detect_ai_provenance`) over the raw
     channel name and promotes a trailing AI marker to a ``content_type`` facet tag:
 
     - ``(AI Generated)`` → ``("content_type", "ai_generated", CONF_DENOTED)`` — the
@@ -377,7 +377,7 @@ def decompose_name_cast(detected_name_cast: str | None) -> list[tuple[str, str, 
 
     Only person-*shaped* candidates are emitted.  About half of the real residuals
     are not people at all (see
-    :data:`~metatv.core.channel_name_utils.NON_PERSON_RESIDUAL_WORDS` for the
+    :data:`~metatv.core.content_labels.NON_PERSON_RESIDUAL_WORDS` for the
     measured distribution), and a wrong facet is not a low-confidence guess — it
     is a false statement that pollutes filters.  A candidate must:
 
@@ -434,7 +434,7 @@ def remap_content_descriptor_facets(
 ) -> dict[tuple[str, str], set[str]]:
     """Reroute content-descriptor group tags to the correct facet by media_type.
 
-    Groups in :data:`~metatv.core.channel_name_utils.CONTENT_DESCRIPTOR_GROUPS`
+    Groups in :data:`~metatv.core.content_labels.CONTENT_DESCRIPTOR_GROUPS`
     (e.g. ``"Sports"``, ``"Adult"``, ``"Kids"``) are stored in the prefix/platform
     config dicts for display-grouping, so the decomposer initially assigns them a
     ``language:`` or ``platform:`` facet.  This function moves them to the
@@ -497,9 +497,9 @@ def reattribute_region_languages(
     shelf the title is filed under — never what language it is spoken in.
     Example: the 1,750 titles in provider category ``|SE| FILM 1900 - 2018``
     (e.g. ``"SE - 3 Days To Kill"``, an English-language film) were all tagged
-    ``language:Swedish`` at :data:`~metatv.core.channel_name_utils.CONF_DENOTED`
+    ``language:Swedish`` at :data:`~metatv.core.tag_confidence.CONF_DENOTED`
     confidence purely because ``SE`` denotes Swedish in
-    :data:`~metatv.core.channel_name_utils.CODE_FACETS` — a region guess, not a
+    :data:`~metatv.core.region_codes.CODE_FACETS` — a region guess, not a
     language statement, when the content is a FILM or SERIES.
 
     For ``media_type in ("movie", "series")`` only — a live channel's prefix

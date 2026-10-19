@@ -10,9 +10,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
 
 
-from metatv.core.channel_name_utils import (
-    normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
-)
+from metatv.core.quality_vocab import quality_display
+from metatv.core.region_codes import normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP
 from metatv.core.stream_info import (
     audio_contradicts_prefix, measured_caption, measured_quality,
 )

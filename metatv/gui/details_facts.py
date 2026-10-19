@@ -18,7 +18,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
-from metatv.core.channel_name_utils import content_type_display
+from metatv.core.content_labels import content_type_display
 from metatv.core.stream_info import display_rows, measured_caption, summarize
 from metatv.core.tag_provenance import group_label, guess_reason, strongest_kind
 from metatv.core.time_display import iso_date_text

@@ -14,8 +14,11 @@ from datetime import datetime
 from typing import Any
 
 from metatv.core.time_display import short_date_text
-from metatv.core.channel_name_utils import (
-    AUDIO_LANG_WORD_MAP, CODE_FACETS, ISO_639_1_LANGUAGE_NAMES, LANGUAGE_REGION_VARIANTS,
+from metatv.core.region_codes import (
+    AUDIO_LANG_WORD_MAP,
+    CODE_FACETS,
+    ISO_639_1_LANGUAGE_NAMES,
+    LANGUAGE_REGION_VARIANTS,
 )
 
 #: The mpv properties one capture reads.

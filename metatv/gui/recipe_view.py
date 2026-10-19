@@ -570,7 +570,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
 
         display_map: dict[str, str] | None = None
         if facet == "content_type":
-            from metatv.core.channel_name_utils import content_type_display
+            from metatv.core.content_labels import content_type_display
             display_map = {v: content_type_display(v) for v, _c, _s in items}
 
         self._cloud.set_tags(items, facet_color=color, facet_name=display,
@@ -740,7 +740,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
 
     def _render_search_cloud(self, results: list) -> None:
         """Render *results* (cross-facet matches) into the cloud, colored by facet."""
-        from metatv.core.channel_name_utils import content_type_display
+        from metatv.core.content_labels import content_type_display
         items: list[tuple[str, int, str, str, str]] = []
         display_map: dict[str, str] = {}
         for dto in results:

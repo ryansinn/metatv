@@ -17,7 +17,7 @@ import uuid
 
 import pytest
 
-from metatv.core.channel_name_utils import CONTENT_DESCRIPTOR_GROUPS
+from metatv.core.content_labels import CONTENT_DESCRIPTOR_GROUPS
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, ContentTagDB, Database, TagDB
 from metatv.core.migrations.tag_backfill import _collect_tags

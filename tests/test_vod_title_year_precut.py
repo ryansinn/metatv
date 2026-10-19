@@ -537,7 +537,7 @@ class TestNameCollectionIsKept:
 
     def test_the_tag_layer_promotes_it_below_the_denoted_one(self):
         """Emitted at CONF_STRONG_PRIOR so it ranks under a provider category."""
-        from metatv.core.channel_name_utils import CONF_DENOTED, CONF_STRONG_PRIOR
+        from metatv.core.tag_confidence import CONF_DENOTED, CONF_STRONG_PRIOR
         from metatv.core.config import Config
         from metatv.core.tag_decomposer import decompose_name_parse
 

@@ -675,7 +675,8 @@ def _subtitle_language_from_marker(category, detected_prefix, config) -> str | N
     Returns:
         The language NAME (e.g. ``"Arabic"``), or None when no override applies.
     """
-    from metatv.core.channel_name_utils import normalize_region_code, parse_category_marker
+    from metatv.core.channel_name_utils import parse_category_marker
+    from metatv.core.region_codes import normalize_region_code
     from metatv.core.tag_decomposer import _classify_prefix_token
 
     if not category or not detected_prefix:
@@ -714,7 +715,7 @@ def _collect_tags(
     confidence automatically.
 
     After all feeders run, content-descriptor group tags (see
-    :data:`~metatv.core.channel_name_utils.CONTENT_DESCRIPTOR_GROUPS` — e.g.
+    :data:`~metatv.core.content_labels.CONTENT_DESCRIPTOR_GROUPS` — e.g.
     ``"Sports"``, ``"Adult"``, ``"Kids"``) are re-faceted by *media_type* via
     :func:`~metatv.core.tag_decomposer.remap_content_descriptor_facets`:
     ``category:`` for live channels, ``genre:`` for movies / series / unknown.

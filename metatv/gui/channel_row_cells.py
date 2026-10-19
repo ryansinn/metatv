@@ -20,12 +20,9 @@ from __future__ import annotations
 
 from typing import NamedTuple, Optional
 
-from metatv.core.channel_name_utils import (
-    PLATFORM_CODES,
-    collection_display,
-    platform_display,
-    quality_display,
-)
+from metatv.core.channel_name_utils import collection_display
+from metatv.core.quality_vocab import quality_display
+from metatv.core.region_codes import PLATFORM_CODES, platform_display
 from metatv.core.event_datetime import event_is_on_now
 from metatv.gui import theme as _theme
 from metatv.gui.badge_utils import _quality_outline_colors
@@ -187,7 +184,7 @@ def _region_label(code: str) -> str:
     Reads the curated ``REGION_FULL_NAMES`` table (CLAUDE.md's lookup-table
     rule — never a parallel dict here) and falls back to the raw code.
     """
-    from metatv.core.channel_name_utils import REGION_FULL_NAMES, normalize_region_code
+    from metatv.core.region_codes import REGION_FULL_NAMES, normalize_region_code
 
     if not code:
         return ""
@@ -203,7 +200,7 @@ def _code_is_named(code: str) -> bool:
     already on and asserts a fact — that AR is a language — which the app does
     not actually know for an unmapped code.
     """
-    from metatv.core.channel_name_utils import REGION_FULL_NAMES, normalize_region_code
+    from metatv.core.region_codes import REGION_FULL_NAMES, normalize_region_code
 
     return bool(code) and bool(REGION_FULL_NAMES.get(normalize_region_code(code)))
 

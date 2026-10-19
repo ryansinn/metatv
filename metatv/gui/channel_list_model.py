@@ -30,7 +30,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QBrush, QColor
 from loguru import logger
 
-from metatv.core.channel_name_utils import quality_display
+from metatv.core.quality_vocab import quality_display
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui import channel_list_filtering as _filtering
 from metatv.gui.channel_list_grouping import (
