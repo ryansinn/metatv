@@ -3,8 +3,8 @@
 Provenance ("which of my sources is this from?") is a clickable chip. DETAILS-3b
 put it on a row of its own at the bottom of the title block; the owner moved it
 (2026-10-19) to the right end of the byline row, beside the Adult indicator, and
-the rating up to the right end of the genre row, so the block reads:
-byline + source (in small caps, above) / title / genres + rating.
+the rating to the right end of the title's line, so the block reads:
+byline + source (in small caps, above) / title + rating / genres + collection.
 
 These tests assert ORDER inside ``_MetadataSection``'s vertical layout, which
 is what would silently regress if someone re-inserted the old badge row.
@@ -85,7 +85,7 @@ def test_source_shares_the_byline_row_and_rating_shares_the_genre_row(qapp):
     assert title_idx == byline_idx + 1, "the byline sits immediately above the title"
     assert source_idx == byline_idx, "the source chip sits on the byline's row"
     assert genres_idx == title_idx + 1, "genres render under the title"
-    assert rating_idx == genres_idx, "the rating shares the genre row"
+    assert rating_idx == title_idx, "the rating shares the title's line"
 
 
 def test_source_row_still_populates_and_stays_clickable(qapp):

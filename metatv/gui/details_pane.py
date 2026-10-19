@@ -23,6 +23,7 @@ from metatv.gui.details_sections import (
 )
 from metatv.gui.details_facts import _DetailsSection
 from metatv.gui.details_title import _MetadataSection, _rating_rich_text
+from metatv.gui.flow_layout import enable_height_for_width
 from metatv.gui.episode_heading import aired_text, episode_eyebrow
 from metatv.gui.details_actions import ChannelActionState, _ActionBar, resume_state
 from metatv.gui import icons as _icons
@@ -324,6 +325,7 @@ class DetailsPaneWidget(QWidget):
         # forget any stored episode, and un-hide the movie-only affordances the
         # episode view had hidden.
         self._in_episode_mode = False
+        self._meta.set_episode_mode(False)
         self.current_episode = None
         # Forget the previous title's trailer. _apply_metadata only runs when
         # this channel HAS metadata, so without this the button would keep the
@@ -449,6 +451,7 @@ class DetailsPaneWidget(QWidget):
         self._details.load_stream_info(None)   # the series' measurement is not this episode's
         self._details.set_probe_available(True)  # an episode IS a stream
         self._in_episode_mode = True
+        self._meta.set_episode_mode(True)
 
         # Byline — the cleaned episode title (matches the tree row); fall back to the
         # DTO's raw title when the host didn't pass one.  Never overwrite the series
@@ -541,6 +544,10 @@ class DetailsPaneWidget(QWidget):
         self._scroll = scroll
 
         content = QWidget()
+        # Size the column from height-for-width, not the plain size hint: a
+        # flow of chips reports its hint as if every chip sat on its own line,
+        # and the difference showed up as a gap under the title block.
+        enable_height_for_width(content)
         self._content = content
         self._content_layout = QVBoxLayout(content)
         # Reserve a hard right gutter for the vertical scrollbar so the poster / text can
@@ -566,7 +573,7 @@ class DetailsPaneWidget(QWidget):
         # "Width discipline").
         self._byline = QLabel()
         self._byline.setWordWrap(True)
-        _theme.style(self._byline, "DETAIL_EPISODE_BYLINE")
+        _theme.style(self._byline, "DETAIL_TITLE")   # the episode is the subject
         _no_width_force(self._byline)
         self._byline.hide()
 
@@ -586,7 +593,7 @@ class DetailsPaneWidget(QWidget):
         # second fact at the right edge, as the genre/rating row above does.
         self._episode_meta_row = QWidget()
         _episode_head = QVBoxLayout(self._episode_meta_row)
-        _episode_head.setContentsMargins(0, 6, 0, 0)
+        _episode_head.setContentsMargins(0, 2, 0, 2)
         _episode_head.setSpacing(2)
 
         _eyebrow_row = QHBoxLayout()
@@ -611,6 +618,8 @@ class DetailsPaneWidget(QWidget):
         _episode_head.addLayout(_title_row)
         _episode_head.addLayout(_eyebrow_row)
         self._episode_meta_row.hide()
+        # Directly under the show's title, above its genres (owner 2026-10-19).
+        self._meta.place_under_title(self._episode_meta_row)
 
         self._versions = _VersionSection(self.config)
         self._action_bar = _ActionBar(self.config)
@@ -638,8 +647,7 @@ class DetailsPaneWidget(QWidget):
         # the logical owner of the action buttons, which are reparented into the
         # poster's left rail by set_action_buttons() below.
         for widget in (
-            self._poster, self._meta, self._source_notice_lbl,
-            self._episode_meta_row, self._versions,
+            self._poster, self._meta, self._source_notice_lbl, self._versions,
             self._plot, self._cast, self._details, self._similar,
         ):
             self._content_layout.addWidget(widget)
