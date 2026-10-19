@@ -145,3 +145,17 @@ class TestCategorizePrefix:
     def test_4k_quality(self):
         result = categorize_prefix("4K", LANG_GROUPS, QUAL_GROUPS, PLAT_GROUPS)
         assert result["quality"] == "4K / UHD"
+
+
+def test_qualifiers_then_an_all_caps_credit_are_all_cleaned():
+    """"(2012) (US) CHARLIE SHEEN": the credit after the qualifiers used to keep
+    the year, region and credit in the title (860 names in the owner's library)."""
+    from metatv.core.channel_name_utils import parse_channel_name
+
+    r = parse_channel_name("EN - Anger Management (2012) (US) CHARLIE SHEEN")
+    assert (r.bare_name, r.year, r.trailing) == ("Anger Management", "2012", "CHARLIE SHEEN")
+    r = parse_channel_name("EN - Podium (2004) (FRENCH ENG-SUB) JEAN PAUL ROUVE")
+    assert (r.bare_name, r.year) == ("Podium", "2004")
+    # Lowercase after the qualifiers may be a real subtitle: left alone, as before.
+    r = parse_channel_name("EN - Show (2020) (US) Director's Cut")
+    assert "Director's Cut" in r.bare_name

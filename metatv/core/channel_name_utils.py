@@ -2615,6 +2615,7 @@ _SCENE_MIN_HARD_MARKERS = 2
 #: surviving title, never in the tail — "DDP5.1" must keep its dot long enough
 #: to be recognised.
 _SCENE_TRAILING_YEAR_RE = re.compile(r"\s+((?:19|20)\d{2})$")
+_LEADING_QUALIFIERS_RE = re.compile(r"^((?:\s*[\(\[][^\)\]]*[\)\]])+)\s*(.*)$")  # "(US) X"
 _SCENE_SEP_RE = re.compile(r"[._]+")
 _SCENE_EDGE_RE = re.compile(r"^[\s\-–—_.|]+|[\s\-–—_.|]+$")
 
@@ -3151,25 +3152,14 @@ def parse_channel_name(name: str) -> ParsedChannel:
 
     trailing = ""
 
-    # 1b. Pre-cut: relocate a real 4-digit year in parens that has trailing FREE-TEXT
-    # junk after it (cast/extra credits, not a recognized qualifier) so the existing
-    # end-anchored steps below (quality/audio/lang/year) can extract it normally.
-    # E.g. "Title 4K (1996) HARVEY KEITEL, ..." → "Title 4K (1996)" — the "(1996)"
-    # itself is kept so step 5's _YEAR_RE still finds it at the end.  Only real
-    # (19xx)/(20xx) years trigger this — never an arbitrary parenthetical like
-    # "(Director's Cut)" or "(Soleil Noir)", and never a bare trailing number that's
-    # part of the title ("Blade Runner 2049") since this only matches parenthesized
-    # years.  When there are multiple parenthesized years, the LAST one is the cut
-    # point.  A year already at the end (nothing trailing) is left alone.  Two
-    # guards keep this from misfiring on legitimate titles:
-    #   - Skip when the trailing text is itself a parenthetical/bracket qualifier
-    #     ("Hanna (2019) (US)", "Title (2022) (ENG DUB)") — those are already
-    #     handled correctly by the later end-anchored steps (lang/bracket/
-    #     multi-qualifier), which don't care what precedes them.
-    #   - Skip when the trailing text isn't ALL-CAPS. Provider cast/extra blobs are
-    #     conventionally uppercase ("HARVEY KEITEL, TARANTINO", "BROADWAY MUSICAL");
-    #     mixed/title-case trailing text ("FBI (2024) Reboot") is a real subtitle
-    #     that's part of the title, not metadata junk, and must be left intact.
+    # 1b. Pre-cut free text after the LAST real "(19xx)"/"(20xx)" year so the
+    # end-anchored steps below can extract it: "Title 4K (1996) HARVEY KEITEL, ..."
+    # → "Title 4K (1996)", year kept for step 5. Never an arbitrary parenthetical
+    # ("(Director's Cut)") or a bare number in the title ("Blade Runner 2049").
+    #   - Qualifier tails ("Hanna (2019) (US)") are left to the later steps,
+    #     unless an all-caps credit follows them (handled first, below).
+    #   - Only ALL-CAPS text is a provider credit ("HARVEY KEITEL", "BROADWAY
+    #     MUSICAL"); mixed case ("FBI (2024) Reboot") is a real subtitle.
     trailing_meta: Optional[tuple[str, str]] = None
     _early_year = ""
     _year_matches = list(_PAREN_YEAR_ANYWHERE_RE.finditer(bare))
@@ -3180,7 +3170,14 @@ def parse_channel_name(name: str) -> ParsedChannel:
             any(ch.isupper() for ch in _trailing)
             and not any(ch.islower() for ch in _trailing)
         )
-        if _trailing and not _trailing.startswith(("(", "[")):
+        # "(2012) (US) CHARLIE SHEEN": an all-caps credit AFTER qualifiers is cut
+        # like one after the year; the year is stashed as the branch below does.
+        _q = _LEADING_QUALIFIERS_RE.match(_trailing)
+        if _q and _q.group(2).isupper():
+            trailing, _g1, _g2 = _q.group(2).strip(), *_last_year_match.group(1, 2)
+            bare = f"{bare[: _last_year_match.end()]} {_q.group(1).strip()}"
+            _early_year = f"{_g1}-{_g2}" if _g2 else _g1
+        elif _trailing and not _trailing.startswith(("(", "[")):
             if _trailing_is_upper_junk:
                 # Keep it. This span is already known to be provider-appended
                 # extra credits ("HARVEY KEITEL, TARANTINO", "NICOLAS CAGE") —
