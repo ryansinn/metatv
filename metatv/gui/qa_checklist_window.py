@@ -112,6 +112,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.build_info import git
+from metatv.core.time_display import iso_date_text
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.whats_new import step_target, step_text
@@ -1027,7 +1028,7 @@ class QAChecklistWindow(QWidget):
             _theme.style(fail_badge, "QA_FAIL_BADGE")
             header_layout.addWidget(fail_badge)
 
-        ref_lbl = QLabel(entry.date)
+        ref_lbl = QLabel(iso_date_text(entry.date))
         _theme.style(ref_lbl, "TEXT_SM_MUTED")
         ref_lbl.setOpenExternalLinks(True)
         header_layout.addWidget(ref_lbl)
@@ -1297,7 +1298,7 @@ class QAChecklistWindow(QWidget):
 
         last_retested = rec.get("last_retested")
         if last_retested:
-            retested_lbl = QLabel(f"re-reviewed {last_retested[:10]}")
+            retested_lbl = QLabel(f"re-reviewed {iso_date_text(last_retested)}")
             retested_lbl.setToolTip(f"Last re-reviewed at {last_retested}")
             _theme.style_fn(retested_lbl, lambda: f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_OK};")
             chips_layout.addWidget(retested_lbl)
@@ -1724,10 +1725,9 @@ class QAChecklistWindow(QWidget):
 
         chips_layout.addStretch(1)
 
-        # meta: build sha + created timestamp
         sha = item.get("build_sha", "") or "?"
         created = item.get("created", "") or "?"
-        meta_lbl = QLabel(f"build {sha} · {created[:10]}")
+        meta_lbl = QLabel(f"build {sha} · {iso_date_text(created) or '?'}")
         meta_lbl.setToolTip(f"Flagged on build {sha} at {created}")
         _theme.style_fn(meta_lbl, lambda: f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_TEXT};")
         chips_layout.addWidget(meta_lbl)

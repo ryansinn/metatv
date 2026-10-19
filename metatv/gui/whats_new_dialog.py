@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core.time_display import iso_date_text
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui.dialog_chrome import dialog_buttons
@@ -239,7 +240,7 @@ class WhatsNewDialog(QDialog):
         layout.addWidget(title_label)
 
         # Version + date meta line
-        meta_label = QLabel(f"v{entry.version}  ·  {entry.date}")
+        meta_label = QLabel(f"v{entry.version}  ·  {iso_date_text(entry.date)}")
         _theme.style(meta_label, "WHATS_NEW_META")
         layout.addWidget(meta_label)
 

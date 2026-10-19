@@ -8,9 +8,7 @@ The pane upper-cases both; they are written here in sentence case.
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from metatv.core.time_display import date_text
+from metatv.core.time_display import iso_date_text
 
 
 def episode_eyebrow(episode, season_episode_count: int | None = None) -> str:
@@ -54,9 +52,5 @@ def aired_text(air_date: str | None) -> str:
     Returns:
         The caption, or ``""`` when there is no date.
     """
-    if not air_date:
-        return ""
-    try:
-        return f"Aired {date_text(datetime.fromisoformat(air_date.strip()))}"
-    except ValueError:
-        return f"Aired {air_date.strip()}"
+    text = iso_date_text(air_date)
+    return f"Aired {text}" if text else ""
