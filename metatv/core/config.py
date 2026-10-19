@@ -567,7 +567,6 @@ class Config(BaseModel):
     # any that come back online to reliability_state="ok". Configurable in
     # Settings → Playback.
     recheck_failed_on_refresh: bool = True
-    discover_icon: str = "✨"          # Discover tab
     watched_icon: str = "✓"            # Watched / completed indicator
     rating_star_icon: str = "★"        # Star used in content rating display
     like_icon: str = "👍"              # Like / positive rating
@@ -661,7 +660,6 @@ class Config(BaseModel):
     rec_liked_cap: int | None = None                 # already-liked slots in the list
 
     # Notification Icons
-    notification_success_icon: str = "✓"  # Success notification
     notification_error_icon: str = "✗"  # Error notification
     notification_warning_icon: str = "⚠"  # Warning notification
     

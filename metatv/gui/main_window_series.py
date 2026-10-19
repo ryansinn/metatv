@@ -33,6 +33,7 @@ from metatv.gui.detail_chips import display_code
 from metatv.core.provider_loader import SeriesLoadThread
 from metatv.core.repositories.dtos import EpisodeDTO
 from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 import re
@@ -237,9 +238,14 @@ class _SeriesMixin:
         return ""
 
     def _season_label(self, season_name: Optional[str], episode_dtos: "list[EpisodeDTO]") -> str:
-        """Compose the season column-0 text including any watch-rollup glyph."""
-        glyph = self._season_glyph(episode_dtos)
-        return f"{_icons.season_icon}{glyph} {season_name or '?'}"
+        """The season's column-0 text: its name (the state is the row's icon)."""
+        return season_name or "?"
+
+    def _season_icon(self, episode_dtos: "list[EpisodeDTO]"):
+        """One icon carrying the season's state: watched, partly watched, or a folder."""
+        glyph = self._season_glyph(episode_dtos).strip()
+        role = {_icons.watched_icon: "watched", _icons.partial_watched_icon: "partial_watched"}.get(glyph, "season")
+        return _icon_utils.role_icon(role)
 
     def _update_episode_item_icon(self, item: "QTreeWidgetItem", episode: "EpisodeDTO") -> None:
         """Rewrite the column-0 text of an episode tree item in-place.
@@ -267,6 +273,7 @@ class _SeriesMixin:
         season_dto = season_data.get("data") if season_data else None
         season_name = season_dto.name if season_dto is not None else None
         season_item.setText(0, self._season_label(season_name, child_dtos))
+        season_item.setIcon(0, self._season_icon(child_dtos))
 
     def _find_episode_items(self) -> "list[tuple[QTreeWidgetItem, QTreeWidgetItem]]":
         """Collect all (season_item, episode_item) pairs currently in the tree."""
@@ -302,7 +309,8 @@ class _SeriesMixin:
             status = (f"has {n} episodes" if n else
                       "not checked yet" if not copy.episodes_by_season else "doesn't have it either")
             row = QTreeWidgetItem(season_item)
-            row.setText(0, f"{_icons.redirect_icon} Open the {label} copy · {source} — {status}")
+            row.setText(0, f"Open the {label} copy · {source} — {status}")
+            row.setIcon(0, _icon_utils.role_icon("redirect"))
             row.setToolTip(0, f"A different version of this series: the {label} copy from "
                               f"{source}.\nDouble-click to switch the tree to that copy.")
             row.setData(0, Qt.ItemDataRole.UserRole,
@@ -339,10 +347,8 @@ class _SeriesMixin:
                 gap_item = QTreeWidgetItem(self.series_tree)
                 gap_item.setFirstColumnSpanned(True)
                 gap_item.setText(
-                    0,
-                    f"{_icons.notification_warning_icon}  Seasons {_fmt_missing_ranges(_missing)} "
-                    f"not provided by this source",
-                )
+                    0, f"Seasons {_fmt_missing_ranges(_missing)} not provided by this source")
+                gap_item.setIcon(0, _icon_utils.role_icon("warning", _theme.COLOR_WARN))
                 gap_item.setForeground(0, QColor(_theme.COLOR_MUTED))
                 gap_item.setFlags(gap_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
 
@@ -357,6 +363,7 @@ class _SeriesMixin:
                 # Create season item with derived watch rollup glyph.
                 season_item = QTreeWidgetItem(self.series_tree)
                 season_item.setText(0, self._season_label(season.name, episode_dtos))
+                season_item.setIcon(0, self._season_icon(episode_dtos))
                 season_item.setText(1, f"{season.episode_count} episodes")
 
                 # Pre-extracted rating lives directly on the DTO (no raw_data access needed).
@@ -597,9 +604,9 @@ class _SeriesMixin:
 
             label_suffix = f" ({len(selected_episode_items)} episodes)" if len(selected_episode_items) > 1 else ""
             if target_watched:
-                mark_action = QAction(f"{_icons.watched_icon} Mark as Watched{label_suffix}", self)
+                mark_action = QAction(_icon_utils.role_icon("watched"), "Mark as Watched{label_suffix}", self)
             else:
-                mark_action = QAction(f"{_icons.episode_icon} Mark as Unwatched{label_suffix}", self)
+                mark_action = QAction(_icon_utils.role_icon("episode"), "Mark as Unwatched{label_suffix}", self)
 
             mark_action.triggered.connect(
                 lambda: self._toggle_episodes_watched(selected_episode_items, target_watched)
@@ -630,7 +637,7 @@ class _SeriesMixin:
                 # Multi-select: offer Play All Selected above the mark action.
                 n = len(selected_episode_items)
                 play_all_action = QAction(
-                    f"{_icons.play_all_icon} Play All Selected ({n})", self
+                    _icon_utils.role_icon("play_all"), f"Play All Selected ({n})", self
                 )
                 play_all_action.setToolTip(
                     "Play first selected episode, queue the rest in tree order"
@@ -654,14 +661,14 @@ class _SeriesMixin:
 
             if all_completed:
                 mark_season_action = QAction(
-                    f"{_icons.episode_icon} Mark Season as Unwatched", self
+                    _icon_utils.role_icon("unwatched"), "Mark Season as Unwatched", self
                 )
                 mark_season_action.triggered.connect(
                     lambda: self._mark_season_watched(item, watched=False)
                 )
             else:
                 mark_season_action = QAction(
-                    f"{_icons.watched_icon} Mark Season as Watched", self
+                    _icon_utils.role_icon("watched"), "Mark Season as Watched", self
                 )
                 mark_season_action.triggered.connect(
                     lambda: self._mark_season_watched(item, watched=True)
@@ -682,7 +689,7 @@ class _SeriesMixin:
     def _make_play_episode_action(self, parent_menu, episode: "EpisodeDTO"):
         """Create a Play Episode action for the context menu."""
         from PyQt6.QtGui import QAction
-        play_action = QAction(f"{_icons.play_icon} Play Episode", parent_menu)
+        play_action = QAction(_icon_utils.role_icon("play"), "Play Episode", parent_menu)
         play_action.triggered.connect(lambda: self.play_episode(episode))
         return play_action
 
@@ -693,7 +700,7 @@ class _SeriesMixin:
         season is NOT queued regardless of the ``autoplay_season_episodes`` setting.
         """
         from PyQt6.QtGui import QAction
-        action = QAction(f"{_icons.play_icon} Play This Episode Only", parent_menu)
+        action = QAction(_icon_utils.role_icon("play"), "Play This Episode Only", parent_menu)
         action.setToolTip("Play just this episode without queuing the rest of the season")
         action.triggered.connect(lambda: self.play_episode(episode, queue_season=False))
         return action
@@ -707,8 +714,7 @@ class _SeriesMixin:
         from PyQt6.QtGui import QAction
         is_fav = bool(getattr(episode, "is_favorite", False))
         label = "Unfavorite Episode" if is_fav else "Favorite Episode"
-        glyph = _icons.favorite_icon if is_fav else _icons.unfavorite_icon
-        action = QAction(f"{glyph} {label}", parent_menu)
+        action = QAction(_icon_utils.role_icon("unfavorite" if is_fav else "favorite"), label, parent_menu)
         action.triggered.connect(lambda: self._toggle_episode_favorite(item, episode))
         return action
 

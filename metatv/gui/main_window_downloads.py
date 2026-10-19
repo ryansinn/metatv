@@ -230,7 +230,7 @@ class _DownloadsMixin:
                 (r.ends_at - r.programme_end).total_seconds() / 60))
             name = r.programme_title or r.channel_name
             source = self._recording_source_name(r.provider_id)
-            title = f"{_icons.recording_active_icon} RECORDING {name}"
+            title = f"RECORDING {name}"
             message = (
                 f"{elapsed} / ~{remaining} · {used_gb:.1f} GB used, "
                 f"{free_gb:.1f} GB free · ends {clock_text(to_local(r.ends_at))} "
@@ -477,19 +477,19 @@ class _DownloadsMixin:
         menu = QMenu(self)
 
         if state == "completed" and file_exists:
-            act = menu.addAction(_icons.glyph_icon(_icons.play_icon), "Play")
+            act = menu.addAction(_icon_utils.role_icon("play", _theme.COLOR_MUTED), "Play")
             act.triggered.connect(lambda: self.play_downloaded(download_id))
 
         if state in ("queued", "running"):
-            act = menu.addAction(_icons.glyph_icon(_icons.enrich_pause_icon), "Pause")
+            act = menu.addAction(_icon_utils.role_icon("enrich_pause", _theme.COLOR_MUTED), "Pause")
             act.triggered.connect(lambda: self._pause_download(download_id))
         elif state == "paused":
-            act = menu.addAction(_icons.glyph_icon(_icons.play_icon), "Resume")
+            act = menu.addAction(_icon_utils.role_icon("play", _theme.COLOR_MUTED), "Resume")
             act.triggered.connect(lambda: self._resume_download(download_id))
 
         if state in ("queued", "running", "paused"):
             act = menu.addAction(
-                _icons.glyph_icon(_icons.enrich_cancel_icon), "Cancel download")
+                _icon_utils.role_icon("enrich_cancel", _theme.COLOR_MUTED), "Cancel download")
             act.triggered.connect(lambda: self._cancel_download(download_id))
 
         if dest_path:
@@ -502,7 +502,7 @@ class _DownloadsMixin:
             act.triggered.connect(lambda: self._reveal_in_file_manager(dest_path))
 
         if state == "completed" and file_exists:
-            act = menu.addAction(_icons.glyph_icon(_icons.delete_icon), "Delete file…")
+            act = menu.addAction(_icon_utils.role_icon("delete", _theme.COLOR_MUTED), "Delete file…")
             act.triggered.connect(lambda: self._delete_download_file(download_id))
 
         if not menu.actions():
@@ -530,19 +530,19 @@ class _DownloadsMixin:
         menu = QMenu(self)
 
         if state == "recording" or (state == "completed" and file_exists):
-            act = menu.addAction(_icons.glyph_icon(_icons.play_icon), "Watch")
+            act = menu.addAction(_icon_utils.role_icon("play", _theme.COLOR_MUTED), "Watch")
             act.setToolTip("Play this recording")
             act.triggered.connect(lambda: self._watch_recording(recording_id))
 
         if state == "recording":
             act = menu.addAction(
-                _icons.glyph_icon(_icons.enrich_cancel_icon), "Stop recording")
+                _icon_utils.role_icon("enrich_cancel", _theme.COLOR_MUTED), "Stop recording")
             act.setToolTip("Stop recording now — what's already recorded is kept")
             act.triggered.connect(lambda: self._cancel_recording(recording_id))
 
             minutes = int(getattr(self.config, "recording_extend_minutes", 15) or 15)
             act = menu.addAction(
-                _icons.glyph_icon(_icons.record_window_icon), f"Extend +{minutes} min")
+                _icon_utils.role_icon("record_window", _theme.COLOR_MUTED), f"Extend +{minutes} min")
             act.setToolTip(f"Push this recording's end time out by {minutes} minutes")
             act.triggered.connect(lambda: self._extend_recording(recording_id))
 

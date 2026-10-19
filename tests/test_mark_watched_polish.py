@@ -381,16 +381,14 @@ def test_effective_watch_pct_zero_for_truly_unwatched(owned_widgets):
 # 9. icons.watch_icon uses FONT_LG token — no raw pixel literal
 # ---------------------------------------------------------------------------
 
-def test_watch_icon_uses_font_lg_token_not_literal(owned_widgets):
-    """icons.py must not contain a raw setPixelSize(12) call — use FONT_LG."""
+def test_watch_icon_draws_an_mdi6_role_not_a_sized_glyph(owned_widgets):
+    """watch_icon draws the one icon set (an mdi6 role), never a font-sized glyph."""
     import inspect
     from metatv.gui import icons
     src = inspect.getsource(icons.watch_icon)
-    assert "setPixelSize(12)" not in src, (
-        "watch_icon must not use the hardcoded literal setPixelSize(12); "
-        "use int(_theme.FONT_LG.replace('px','')) instead"
-    )
-    assert "FONT_LG" in src, "watch_icon must reference the FONT_LG token"
+    assert "setPixelSize(12)" not in src
+    assert "role_icon" in src, "watch_icon must draw an icons.VECTOR_KEYS role"
+    assert not icons.watch_icon(icons.watched_icon, muted=False).isNull()
 
 
 # ---------------------------------------------------------------------------

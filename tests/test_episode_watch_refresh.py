@@ -30,7 +30,6 @@ from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
 from metatv.core.database import Database, EpisodeDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import EpisodeDTO
-from metatv.gui import icons as _icons
 from metatv.gui.main_window_series import _SeriesMixin
 
 
@@ -105,6 +104,7 @@ def _build_tree(host, episodes) -> tuple[QTreeWidgetItem, dict[str, QTreeWidgetI
         items[ep_id] = child
     season_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "season", "data": None})
     season_item.setText(0, host._season_label("Season 1", dtos))
+    season_item.setIcon(0, host._season_icon(dtos))   # as the tree builder does
     return season_item, items
 
 
@@ -129,7 +129,7 @@ def test_offthread_write_repaints_row_and_season_rollup(qapp, tmp_path, owned_wi
     season_item, items = _build_tree(host, [("e1", 1, True), ("e2", 2, False)])
 
     # The season starts PARTIAL and e2's row is painted unwatched.
-    assert _icons.partial_watched_icon in season_item.text(0)
+    assert _season_shows(season_item, "partial_watched")
     before = _icon_bytes(items["e2"])
 
     # A worker marks e2 complete — exactly what the queue's auto-advance does.
@@ -138,7 +138,7 @@ def test_offthread_write_repaints_row_and_season_rollup(qapp, tmp_path, owned_wi
 
     # Nothing has told the tree yet: it still shows the stale state.
     assert _icon_bytes(items["e2"]) == before
-    assert _icons.partial_watched_icon in season_item.text(0)
+    assert _season_shows(season_item, "partial_watched")
 
     host.refresh_episode_watch_state(["e2"])
 
@@ -147,8 +147,7 @@ def test_offthread_write_repaints_row_and_season_rollup(qapp, tmp_path, owned_wi
     assert items["e2"].data(0, Qt.ItemDataRole.UserRole)["data"].watch_completed is True
     assert items["e2"].data(0, Qt.ItemDataRole.UserRole)["data"].last_played_via == "queue"
     # Season rolled up from partial to all-watched.
-    assert _icons.watched_icon in season_item.text(0)
-    assert _icons.partial_watched_icon not in season_item.text(0)
+    assert _season_shows(season_item, "watched")
     # Untouched fields survive the round trip (dataclasses.replace, not a rebuild).
     assert items["e2"].data(0, Qt.ItemDataRole.UserRole)["data"].rating == 8.0
 
@@ -163,7 +162,7 @@ def test_refresh_carries_unwatch_back_to_the_row(qapp, tmp_path, owned_widgets):
     host = _SeriesHost(db, tree)
     season_item, items = _build_tree(host, [("e1", 1, True)])
     before = _icon_bytes(items["e1"])
-    assert _icons.watched_icon in season_item.text(0)
+    assert _season_shows(season_item, "watched")
 
     with db.session_scope() as session:
         RepositoryFactory(session).episodes.mark_watched_bulk(["e1"], False)
@@ -172,7 +171,7 @@ def test_refresh_carries_unwatch_back_to_the_row(qapp, tmp_path, owned_widgets):
     assert _icon_bytes(items["e1"]) != before
     dto = items["e1"].data(0, Qt.ItemDataRole.UserRole)["data"]
     assert dto.watch_completed is False and dto.last_played_via is None
-    assert _icons.watched_icon not in season_item.text(0)
+    assert not _season_shows(season_item, "watched")
 
 
 # ---------------------------------------------------------------------------
@@ -285,3 +284,10 @@ def test_bulk_unmark_clears_played_via(tmp_path):
         ep = RepositoryFactory(session).episodes.get_by_id("e1")
         assert ep.last_played_via is None
         assert ep.watch_progress == 0
+
+
+def _season_shows(item, role: str) -> bool:
+    """The season row's icon is *role* (the rollup state is the icon now)."""
+    from metatv.gui import icon_utils
+    return (item.icon(0).pixmap(16, 16).toImage()
+            == icon_utils.role_icon(role).pixmap(16, 16).toImage())
