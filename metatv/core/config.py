@@ -567,9 +567,6 @@ class Config(BaseModel):
     # any that come back online to reliability_state="ok". Configurable in
     # Settings → Playback.
     recheck_failed_on_refresh: bool = True
-    watchlist_icon: str = "⏰"         # Watchlist tab
-    live_indicator_icon: str = "🟢"    # On Now / live indicator
-    calendar_icon: str = "📅"          # Browse / calendar tab
     discover_icon: str = "✨"          # Discover tab
     visibility_toggle_icon: str = "👁" # Show/hide password toggle
     watched_icon: str = "✓"            # Watched / completed indicator

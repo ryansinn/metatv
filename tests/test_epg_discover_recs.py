@@ -15,6 +15,7 @@ import pytest
 from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
 from metatv.core.epg_utils import now_utc
 from metatv.core.repositories.epg import EpgRepository
+from metatv.gui import icon_utils as _icon_utils
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +180,6 @@ class TestMakeRecommendationItem:
 
     def test_count_label_toggles_sub_list_and_loads_on_first_expand(self, qapp, file_db):
         """Clicking the matches count label toggles the sub-list and lazy-loads once."""
-        from metatv.gui import icons as _icons
 
         view = _make_view(qapp, file_db)
 
@@ -207,19 +207,19 @@ class TestMakeRecommendationItem:
         sub_lists = [w for w in widget.findChildren(QWidget) if w.parent() is widget]
         sub_widget = sub_lists[1]  # second child (after header_w)
         assert sub_widget.isHidden(), "Sub-list should be hidden initially"
-        assert _icons.expand_icon in count_lbl.text()
+        assert _icon_utils.role_html("expand") in count_lbl.text()
 
         # First expand
         count_lbl.mousePressEvent(None)
         assert not sub_widget.isHidden(), "Sub-list should not be hidden after expand"
-        assert _icons.collapse_icon in count_lbl.text()
+        assert _icon_utils.role_html("collapse") in count_lbl.text()
         assert len(load_calls) == 1, f"_load_rec_matches should be called once on first expand, got {len(load_calls)}"
         assert load_calls[0][0] == "ch-3"
 
         # Second expand (collapse) — no additional load
         count_lbl.mousePressEvent(None)
         assert sub_widget.isHidden(), "Sub-list should be hidden after collapse"
-        assert _icons.expand_icon in count_lbl.text()
+        assert _icon_utils.role_html("expand") in count_lbl.text()
         assert len(load_calls) == 1, "Second expand triggered another load (should not)"
 
         # Third (re-expand) — still no additional load

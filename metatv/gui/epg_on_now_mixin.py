@@ -67,6 +67,7 @@ from metatv.core.epg_utils import (
     remaining_str as _remaining_str,
 )
 from metatv.gui import deferred_config_save as _cfgsave
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.details_versions import resolve_category_name
@@ -417,8 +418,9 @@ class _EpgOnNowMixin:
             # and explains codec tokens (HEVC) in its tooltip — the stored token is
             # untouched in _channel_quality_map, which the rest of the view keys on.
             item = _EpgTreeItem(
-                [category, bare_name, quality_display(quality), title, "", self.config.hide_icon, ""]
+                [category, bare_name, quality_display(quality), title, "", "", ""]
             )
+            item.setIcon(5, _icon_utils.role_icon("hide"))   # the hide column's control
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
             item.setData(0, Qt.ItemDataRole.UserRole + 1, category)  # store category for dialog
             item.setData(0, _PROG_START_ROLE, prog.start_time)

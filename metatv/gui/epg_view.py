@@ -8,6 +8,8 @@ Three tabs:
 
 from __future__ import annotations
 
+import html as _html
+
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -41,7 +43,6 @@ from metatv.core.epg_utils import (
     now_utc as _now_utc,
     fmt_guide_day as _fmt_guide_day,
 )
-from metatv.gui import icons as _icons
 from metatv.gui import icon_utils as _icon_utils
 
 # Re-export shared EPG widget primitives (moved to epg_widgets.py).
@@ -193,13 +194,14 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         header_layout.setSpacing(8)
 
         self.tab_bar = QTabBar()
-        self.tab_bar.addTab(f"{self.config.watchlist_icon} Watchlist")      # 0
-        self.tab_bar.addTab(f"{self.config.series_icon} My Channels")      # 1
-        self.tab_bar.addTab(f"{self.config.discover_icon} Discover")       # 2
-        self.tab_bar.addTab(f"{self.config.live_indicator_icon} On Now")   # 3
-        self.tab_bar.addTab(f"{self.config.calendar_icon} Browse")         # 4
-        self.tab_bar.addTab(f"{self.config.hide_icon} Manage")             # 5
-        self.tab_bar.addTab(f"{_icons.events_icon} Events")                # 6
+        for role, text in (("watchlist", "Watchlist"),      # 0
+                           ("series", "My Channels"),       # 1
+                           ("discover", "Discover"),        # 2
+                           ("live", "On Now"),              # 3
+                           ("epg", "Browse"),               # 4
+                           ("hide", "Manage"),              # 5
+                           ("events", "Events")):           # 6
+            self.tab_bar.addTab(_icon_utils.role_icon(role), text)
         self.tab_bar.currentChanged.connect(self._on_tab_changed)
         header_layout.addWidget(self.tab_bar)
         header_layout.addStretch()
@@ -216,6 +218,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         # Surfaces sources whose provider feed serves out-of-date guide data, so an
         # empty On Now reads as "provider's guide is stale" rather than "EPG is broken".
         self._stale_epg_notice = QLabel("")
+        self._stale_epg_notice.setTextFormat(Qt.TextFormat.RichText)   # leads with an inline icon
         self._stale_epg_notice.setWordWrap(True)
         _theme.style(self._stale_epg_notice, "EPG_STALE_NOTICE")
         self._stale_epg_notice.setContentsMargins(12, 6, 12, 6)
@@ -464,9 +467,9 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         for _id, name, data_end in stale:
             parts.append(f"{name} (guide ends {_fmt_guide_day(data_end)})")
         self._stale_epg_notice.setText(
-            f"{_icons.notification_warning_icon}  Stale guide data — these sources' "
+            f"{_icon_utils.role_html('warning')}&nbsp; Stale guide data — these sources' "
             f"providers aren't supplying current EPG, so they won't show in On Now: "
-            + "; ".join(parts)
+            + _html.escape("; ".join(parts))
         )
         self._stale_epg_notice.show()
 

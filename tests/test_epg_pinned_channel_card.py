@@ -159,7 +159,7 @@ def test_remove_button_still_unwatches(card):
     view, widget = card
     removed = []
     view._unwatch_channel = lambda cid: removed.append(cid)
-    close_btn = next(b for b in _buttons(widget) if b.text() == "×")
+    close_btn = next(b for b in _buttons(widget) if b.toolTip().startswith("Stop watching"))
     close_btn.click()
     assert removed == ["ch1"]
 

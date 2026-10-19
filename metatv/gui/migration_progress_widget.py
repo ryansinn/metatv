@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 # Auto-hide delay after all_finished fires (ms)
@@ -45,7 +45,8 @@ class _TaskRow(QWidget):
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(6)
 
-        self._glyph = QLabel(_icons.migration_pending_icon)
+        self._glyph = QLabel()
+        self._glyph.setPixmap(_icon_utils.role_pixmap("migration_pending", _theme.COLOR_DIM, 12))
         self._glyph.setFixedWidth(14)
         self._glyph.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self._glyph.setToolTip("Migration in progress")
@@ -105,8 +106,7 @@ class _TaskRow(QWidget):
     def on_finished(self) -> None:
         """Flip to the done glyph and fill the bar to 100%."""
         self._done = True
-        self._glyph.setText(_icons.migration_done_icon)
-        _theme.style_fn(self._glyph, lambda: f"color: {_theme.COLOR_OK}; font-size: {_theme.FONT_MD};")
+        self._glyph.setPixmap(_icon_utils.role_pixmap("notification_success", _theme.COLOR_OK, 12))
         self._glyph.setToolTip("Migration complete")
         if self._bar.maximum() > 0:
             self._bar.setValue(self._bar.maximum())
@@ -164,7 +164,8 @@ class MigrationProgressWidget(QFrame):
         self._outer.setSpacing(4)
 
         # Header row
-        self._header = QLabel(f"{_icons.notification_progress_icon}  Migration in progress")
+        self._header = QLabel(f"{_icon_utils.role_html('loading')}&nbsp; Migration in progress")
+        self._header.setTextFormat(Qt.TextFormat.RichText)
         _font = self._header.font()
         _font.setBold(True)
         self._header.setFont(_font)
