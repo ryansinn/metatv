@@ -48,7 +48,7 @@ RATING_ROLE = Qt.ItemDataRole.UserRole + 12       # user_rating: -1, 0, or 1 (in
 CATEGORY_ROLE = Qt.ItemDataRole.UserRole + 13     # category or "" (str)
 MEDIA_ICON_ROLE = Qt.ItemDataRole.UserRole + 14   # resolved media-type glyph (str)
 FAV_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 15    # "favorite"/"unfavorite" icon role (str)
-PLAYBACK_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 16  # playback icon role ("watched"/"playback_in_progress"), "" = neutral dot
+PLAYBACK_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 16  # playback icon role ("watched"/"playback_in_progress"), or the neutral "·"
 PLAYBACK_GLYPH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 17  # playback glyph color token or None
 MATCH_MARKER_ROLE = Qt.ItemDataRole.UserRole + 18  # "new_match" icon role for an unviewed watch-for match, else ""
 PLOT_ROLE = Qt.ItemDataRole.UserRole + 19          # MetadataDB.plot text or "" (str) — Comfy+ only

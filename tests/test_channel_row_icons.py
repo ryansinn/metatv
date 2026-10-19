@@ -40,12 +40,12 @@ def _has(img, color, x0=0, x1=200):
 
 
 def test_a_favourite_row_paints_a_pink_heart(qapp):
-    img, _ = _paint(_Index({FAV_GLYPH_ROLE: "favorite", PLAYBACK_GLYPH_ROLE: ""}))
+    img, _ = _paint(_Index({FAV_GLYPH_ROLE: "favorite", PLAYBACK_GLYPH_ROLE: "·"}))
     assert _has(img, _theme.COLOR_FAVORITE, 0, 20)
 
 
 def test_a_plain_row_paints_no_pink(qapp):
-    img, _ = _paint(_Index({FAV_GLYPH_ROLE: "unfavorite", PLAYBACK_GLYPH_ROLE: ""}))
+    img, _ = _paint(_Index({FAV_GLYPH_ROLE: "unfavorite", PLAYBACK_GLYPH_ROLE: "·"}))
     assert not _has(img, _theme.COLOR_FAVORITE)
 
 
@@ -58,7 +58,7 @@ def test_in_progress_is_an_icon_in_the_resume_colour(qapp):
 
 
 def test_a_new_match_adds_a_mark_and_moves_the_title(qapp):
-    _, without = _paint(_Index({FAV_GLYPH_ROLE: "unfavorite", PLAYBACK_GLYPH_ROLE: ""}))
-    _, with_mark = _paint(_Index({FAV_GLYPH_ROLE: "unfavorite", PLAYBACK_GLYPH_ROLE: "",
+    _, without = _paint(_Index({FAV_GLYPH_ROLE: "unfavorite", PLAYBACK_GLYPH_ROLE: "·"}))
+    _, with_mark = _paint(_Index({FAV_GLYPH_ROLE: "unfavorite", PLAYBACK_GLYPH_ROLE: "·",
                                     MATCH_MARKER_ROLE: "new_match"}))
     assert with_mark > without

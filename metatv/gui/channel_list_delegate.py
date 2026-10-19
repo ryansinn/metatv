@@ -808,15 +808,14 @@ class ChannelRowDelegate(RowCellPaintMixin, QStyledItemDelegate):
             _icon(fav_role, _theme.COLOR_FAVORITE if fav_role == "favorite"
                   else _theme.COLOR_ROW_META)
 
-        playback_role = index.data(PLAYBACK_GLYPH_ROLE) or ""
-        if playback_role:
+        playback = index.data(PLAYBACK_GLYPH_ROLE) or ""
+        if playback in _icons.VECTOR_KEYS:
             playback_color = index.data(PLAYBACK_GLYPH_COLOR_ROLE)
-            _icon(playback_role, playback_color or _theme.COLOR_ROW_META)
-        else:
+            _icon(playback, playback_color or _theme.COLOR_ROW_META)
+        elif playback:
             # Not started: the neutral separator dot, which is typography.
-            dot = _icons.playback_neutral_icon
-            w = fm.horizontalAdvance(dot)
-            self._draw_text(painter, QRect(x, line.top(), w, line.height()), dot,
+            w = fm.horizontalAdvance(playback)
+            self._draw_text(painter, QRect(x, line.top(), w, line.height()), playback,
                             _theme.COLOR_ROW_META, font)
             x += w + _CELL_GAP
 
