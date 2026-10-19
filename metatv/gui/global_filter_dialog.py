@@ -28,7 +28,6 @@ from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui.fonts import monospace_family
 from metatv.gui.scoped_filter_box import ScopedFilterBox
@@ -255,8 +254,7 @@ class _ExpandableSection:
 
     def _sync_expand_affordance(self) -> None:
         """Caret and hover text together — the tooltip names what it opens."""
-        self._expand_lbl.setText(
-            _icons.collapse_icon if self._expanded else _icons.expand_icon)
+        _icon_utils.set_label_icon(self._expand_lbl, "collapse" if self._expanded else "expand", 12)
         self._header.setToolTip(
             ("Collapse " if self._expanded else "Expand ") + self._toggle_label)
 
@@ -351,8 +349,9 @@ class _GroupSection(_ExpandableSection, QWidget):
         _theme.style(self._group_cb, "FILTER_ITEM_TEXT")
         hl.addWidget(self._group_cb)
 
-        self._expand_lbl = QLabel(_icons.expand_icon)
+        self._expand_lbl = QLabel()
         _theme.style(self._expand_lbl, "EXPAND_HINT")
+        _icon_utils.set_label_icon(self._expand_lbl, "expand", 12)
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
 
@@ -548,8 +547,9 @@ class _ContentTypeSection(_ExpandableSection, QWidget):
         _theme.style(self._group_cb, "FILTER_ITEM_TEXT")
         hl.addWidget(self._group_cb)
 
-        self._expand_lbl = QLabel(_icons.expand_icon)
+        self._expand_lbl = QLabel()
         _theme.style(self._expand_lbl, "EXPAND_HINT")
+        _icon_utils.set_label_icon(self._expand_lbl, "expand", 12)
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
 

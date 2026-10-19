@@ -27,7 +27,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
 
-from metatv.gui import icons as _icons
 from tests.conftest import wire_nav_host, wire_status_method
 
 
@@ -185,7 +184,8 @@ def test_toggle_busy_renders_on_action_button(qapp, file_db):
     assert ed._action_toggle_btn.text() == "Disable"
 
     view.set_provider_busy(pid, True)
-    assert _icons.loading_icon in ed._action_toggle_btn.text()
+    from metatv.gui import icon_utils
+    assert icon_utils.button_role(ed._action_toggle_btn) == "loading"
     assert not ed._action_toggle_btn.isEnabled()
     assert view.is_provider_busy(pid)
 
@@ -203,7 +203,8 @@ def test_epg_busy_renders_on_action_button(qapp, file_db):
     ed = view._provider_editor
 
     view.set_provider_epg_refreshing(pid, True)
-    assert _icons.loading_icon in ed._epg_refresh_btn.text()
+    from metatv.gui import icon_utils
+    assert icon_utils.button_role(ed._epg_refresh_btn) == "loading"
     assert not ed._epg_refresh_btn.isEnabled()
 
     view.set_provider_epg_refreshing(pid, False)
@@ -392,7 +393,8 @@ def test_provider_name_row_carries_status_dot(qapp, file_db):
 
     assert isinstance(ed._status_dot_lbl, QLabel)
     assert _tab_content(ed, 0).isAncestorOf(ed._status_dot_lbl)
-    assert ed._status_dot_lbl.text() == _icons.status_dot_icon
+    from metatv.gui import icon_utils
+    assert icon_utils.label_role(ed._status_dot_lbl) == "status_dot"
     assert "Active" in ed._status_dot_lbl.toolTip()
 
 

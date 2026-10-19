@@ -44,7 +44,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.runtime_env import os_description
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.fonts import monospace_family
@@ -152,21 +152,22 @@ class LogViewerWindow(QWidget):
 
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
-        for label, tip, slot in (
-            (f"{_icons.save_log_icon}  Save log…",
+        for role, label, tip, slot in (
+            ("save_log", "Save log…",
              "Write everything currently in this window to a file",
              self.save_log),
-            (f"{_icons.copy_icon}  Copy diagnostics",
+            ("copy", "Copy diagnostics",
              "Copy version, platform and data-location details for a bug report",
              self.copy_diagnostics),
-            (f"{_icons.config_folder_icon}  Open log folder",
+            ("folder_open", "Open log folder",
              "Reveal the folder holding every log file, including rotated ones",
              self.open_log_folder),
-            (f"{_icons.clear_log_icon}  Clear log files",
+            ("clear_log", "Clear log files",
              "Delete every log file on disk, including rotated copies",
              self.clear_log_files),
         ):
             btn = QPushButton(label)
+            _icon_utils.set_button_icon(btn, role)
             btn.setToolTip(tip)
             btn.clicked.connect(slot)
             set_clickable(btn)

@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.component_versions import ComponentVersions, collect
 from metatv.gui.dialog_chrome import action_button, dialog_buttons
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 #: Third-party components redistributed with a packaged build.
@@ -75,7 +75,7 @@ class AboutDialog(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(12)
 
-        title = QLabel(f"{_icons.info_icon}  MetaTV")
+        title = QLabel(f"{_icon_utils.role_html('info')}&nbsp;MetaTV")
         _theme.style(title, "DIALOG_TITLE")
         root.addWidget(title)
 

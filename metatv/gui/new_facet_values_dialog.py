@@ -17,8 +17,8 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui import cursor_affordance
-from metatv.gui import icons as _icons
 from metatv.gui.dialog_chrome import dialog_buttons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 
@@ -52,7 +52,7 @@ class NewFacetValuesDialog(QDialog):
         vl = QVBoxLayout(self)
         vl.setSpacing(10)
 
-        header = QLabel(f"{_icons.discover_icon} New filter values found")
+        header = QLabel(f"{_icon_utils.role_html('discover')}&nbsp;New filter values found")
         _theme.style_fn(header, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT};")
         vl.addWidget(header)
 

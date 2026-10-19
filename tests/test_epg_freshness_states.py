@@ -327,7 +327,7 @@ def test_the_two_status_labels_show_the_failure_and_carry_the_full_cause(qapp):
 
 def test_a_plain_source_lag_still_reads_as_a_warning_not_an_error(qapp):
     """The state that IS the provider's fault keeps the warning colour + glyph."""
-    from metatv.gui import icons as _icons
+    from metatv.gui import icon_utils as _icon_utils
     from metatv.gui import theme as _theme
     from metatv.gui.provider_editor_tabs import _ProviderEditorTabsMixin
 
@@ -336,7 +336,7 @@ def test_a_plain_source_lag_still_reads_as_a_warning_not_an_error(qapp):
         host, "http://e/xmltv.php", now_utc() - timedelta(hours=3),
     )
     lbl = host._epg_freshness_lbl
-    assert lbl.text().startswith(_icons.notification_warning_icon)
+    assert lbl.text().startswith(_icon_utils.role_html("warning"))
     assert "the source has not published further" in lbl.text()
     assert _theme.COLOR_WARN in lbl.styleSheet()
 

@@ -30,6 +30,8 @@ rather than a module-level one, so this module never imports
 """
 from __future__ import annotations
 
+import html as _html
+
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QSize
@@ -44,7 +46,7 @@ from metatv.core.models import ProviderURL
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.time_display import date_text
 from metatv.gui import cursor_affordance
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.url_row_widget import URLRowWidget
 
@@ -58,9 +60,9 @@ _EPG_FRESHNESS_LOOK: dict[str, tuple[str, str]] = {
     "not_configured":  ("",                              "COLOR_TEXT"),
     "no_data":         ("",                              "COLOR_TEXT"),
     "current":         ("",                              "COLOR_OK"),
-    "source_lagging":  (_icons.notification_warning_icon, "COLOR_WARN"),
-    "fetch_failed":    (_icons.notification_error_icon,   "COLOR_ERR"),
-    "override_failed": (_icons.notification_error_icon,   "COLOR_ERR"),
+    "source_lagging":  ("warning",            "COLOR_WARN"),
+    "fetch_failed":    ("notification_error", "COLOR_ERR"),
+    "override_failed": ("notification_error", "COLOR_ERR"),
 }
 
 #: Tooltip for the states that have nothing more to say than the line already does.
@@ -345,9 +347,9 @@ class _ProviderEditorTabsMixin:
         self._username_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._username_input.setPlaceholderText("username")
         un_row.addWidget(self._username_input, 1)
-        self._username_eye_btn = QPushButton(
-            self.config.visibility_toggle_icon if self.config else _icons.visibility_toggle_icon
-        )
+        self._username_eye_btn = QPushButton()
+        _icon_utils.set_button_icon(self._username_eye_btn, "visibility_toggle")
+        self._username_eye_btn.setToolTip("Show or hide the username")
         self._username_eye_btn.setFixedWidth(28)
         self._username_eye_btn.setCheckable(True)
         _theme.style(self._username_eye_btn, "EYE_BTN")
@@ -365,9 +367,9 @@ class _ProviderEditorTabsMixin:
         self._password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._password_input.setPlaceholderText("password")
         pw_row.addWidget(self._password_input, 1)
-        self._password_eye_btn = QPushButton(
-            self.config.visibility_toggle_icon if self.config else _icons.visibility_toggle_icon
-        )
+        self._password_eye_btn = QPushButton()
+        _icon_utils.set_button_icon(self._password_eye_btn, "visibility_toggle")
+        self._password_eye_btn.setToolTip("Show or hide the password")
         self._password_eye_btn.setFixedWidth(28)
         self._password_eye_btn.setCheckable(True)
         _theme.style(self._password_eye_btn, "EYE_BTN")
@@ -646,7 +648,7 @@ class _ProviderEditorTabsMixin:
         auto_url = getattr(self, "_loaded_epg_url", "") or ""
         if auto_url:
             self._epg_detect_badge.setText(
-                f'<span style="color:{_theme.COLOR_OK}">{_icons.status_dot_icon}</span> AUTODETECTED'
+                f"{_icon_utils.role_html('status_dot', color=_theme.COLOR_OK)} AUTODETECTED"
             )
             self._epg_detect_badge.setToolTip(
                 "An XMLTV guide URL was auto-detected from this source's credentials."
@@ -655,7 +657,7 @@ class _ProviderEditorTabsMixin:
             self._epg_autodetected_lbl.setVisible(True)
         else:
             self._epg_detect_badge.setText(
-                f'<span style="color:{_theme.COLOR_ERR}">{_icons.status_dot_icon}</span> NOT FOUND'
+                f"{_icon_utils.role_html('status_dot', color=_theme.COLOR_ERR)} NOT FOUND"
             )
             self._epg_detect_badge.setToolTip(
                 "No XMLTV guide URL could be auto-detected. Add a URL override to fetch EPG."
@@ -698,8 +700,9 @@ class _ProviderEditorTabsMixin:
             last_fetch_error_at=last_fetch_error_at,
             has_url_override=has_url_override,
         )
-        glyph, colour_token = _EPG_FRESHNESS_LOOK[fresh.state]
-        text = f"{glyph} {fresh.text}" if glyph else fresh.text
+        role, colour_token = _EPG_FRESHNESS_LOOK[fresh.state]
+        text = (f"{_icon_utils.role_html(role)}&nbsp;{_html.escape(fresh.text, quote=False)}"
+                if role else fresh.text)
         tooltip = fresh.detail or _EPG_FRESHNESS_DEFAULT_TIP
 
         for lbl in (self._acct_epg_lbl, self._epg_freshness_lbl):

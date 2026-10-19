@@ -7,6 +7,8 @@ Change Category (reassigns via CategoryPickerDialog) actions.
 
 from __future__ import annotations
 
+import html as _html
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog, QFrame, QHBoxLayout, QLabel,
@@ -63,7 +65,8 @@ class _CategorySection(QWidget):
         self._sync_expand_btn()
 
         mood_icon = self._mood_icon()
-        name_lbl = QLabel(f"{mood_icon}  {self._name}")
+        name_lbl = QLabel(f"{mood_icon}&nbsp; {_html.escape(self._name, quote=False)}")
+        name_lbl.setTextFormat(Qt.TextFormat.RichText)
         _theme.style_fn(name_lbl, lambda: f"font-weight: bold; font-size: {_theme.FONT_LG};")
         hl.addWidget(name_lbl)
 
@@ -95,12 +98,10 @@ class _CategorySection(QWidget):
     # ── Helpers ────────────────────────────────────────────────────────────────
 
     def _mood_icon(self) -> str:
-        return {
-            "like":         self._config.like_icon,
-            "curious":      self._config.curious_icon,
-            "not_interested": self._config.not_interested_icon,
-            "dislike":      self._config.dislike_icon,
-        }.get(self._mood or "", "·")
+        """The mood as an inline icon (rich text), or a neutral dot."""
+        role = {"like": "like", "curious": "curious", "not_interested": "not_interested",
+                "dislike": "dislike"}.get(self._mood or "")
+        return _icon_utils.role_html(role) if role else "·"
 
     # ── Expand / collapse ──────────────────────────────────────────────────────
 
@@ -156,7 +157,8 @@ class _CategorySection(QWidget):
         move_btn.clicked.connect(lambda _, cid=channel.id: self._change_category(cid))
         hl.addWidget(move_btn)
 
-        remove_btn = QPushButton(f"{self._config.close_icon} Remove")
+        remove_btn = QPushButton("Remove")
+        _icon_utils.set_button_icon(remove_btn, "close")
         remove_btn.setFlat(True)
         _theme.style_fn(remove_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ERR_2}; padding: 1px 6px; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_RED_BRIGHT}; }}")

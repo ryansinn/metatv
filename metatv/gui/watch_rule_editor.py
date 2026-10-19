@@ -43,7 +43,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.watchlist_matching import (
     ALL_WORDS, ANY_WORD, MATCH_MODES, PHRASE, WatchRule,
 )
-from metatv.gui import icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.chips import ToggleChip
 
@@ -391,7 +391,8 @@ def attach_rule_editor(host, layout, pattern: str, toggle_btn) -> None:
     def _toggle(_checked=False, ed=editor, btn=toggle_btn, p=pattern):
         showing = not ed.isVisible()
         ed.setVisible(showing)
-        btn.setText(f"Edit {icons.collapse_icon if showing else icons.expand_icon}")
+        btn.setText("Edit")
+        _icon_utils.set_button_icon(btn, "collapse" if showing else "expand")
         verb = "Close" if showing else "Open"
         btn.setToolTip(verb + ' the rule editor for "' + p + '"')
 
