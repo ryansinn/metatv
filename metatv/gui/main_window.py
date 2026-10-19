@@ -226,31 +226,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
                 duration_ms=5000
             )
         
-        # UI Icons from config - Media Types
-        self.favorite_icon = config.favorite_icon
-        self.unfavorite_icon = config.unfavorite_icon
-        self.live_icon = config.live_icon
-        self.movie_icon = config.movie_icon
-        self.series_icon = config.series_icon
-        self.season_icon = config.season_icon
-        self.episode_icon = config.episode_icon
-        self.unknown_icon = config.unknown_icon
-        
-        # UI Control Icons
-        self.play_icon = config.play_icon
-        self.loading_icon = config.loading_icon
-        self.close_icon = config.close_icon
-        self.delete_icon = config.delete_icon
-        self.hide_icon = config.hide_icon
-        self.refresh_icon = config.refresh_icon
-        self.settings_icon = config.settings_icon
-        self.search_icon = config.search_icon
-        self.filter_icon = config.filter_icon
-        self.watched_icon = config.watched_icon
-        self.rating_star_icon = config.rating_star_icon
-        self.history_icon = config.history_icon
-        self.queue_icon = config.queue_icon
-
         # Store active threads to prevent garbage collection
         self.active_threads = []
         
@@ -1768,14 +1743,15 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         """Get icon for media type"""
         from metatv.core.models import MediaType
         
+        # An icon ROLE (icons.VECTOR_KEYS), not a glyph: one icon set.
         if media_type == MediaType.LIVE:
-            return self.live_icon
+            return "live"
         elif media_type == MediaType.MOVIE:
-            return self.movie_icon
+            return "movie"
         elif media_type == MediaType.SERIES:
-            return self.series_icon
+            return "series"
         else:
-            return self.unknown_icon
+            return "unknown"
     
     def _enqueue_tmdb_enrichment(self, channel_ids) -> None:
         """Single seam every result surface calls to feed lazy TMDb enrichment.

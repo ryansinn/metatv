@@ -368,7 +368,8 @@ class _SeriesMixin:
 
                 # Pre-extracted rating lives directly on the DTO (no raw_data access needed).
                 if season.rating:
-                    season_item.setText(3, f"{self.rating_star_icon} {season.rating}")
+                    season_item.setText(3, f"{season.rating}")
+                    season_item.setIcon(3, _icon_utils.role_icon("rating_star", _theme.COLOR_GOLD))
 
                 # Store the SeasonDTO directly — no live ORM object in UserRole data.
                 season_item.setData(
@@ -388,7 +389,8 @@ class _SeriesMixin:
                     if episode.duration:
                         episode_item.setText(2, _format_episode_duration(episode.duration))
                     if episode.rating:
-                        episode_item.setText(3, f"{self.rating_star_icon} {episode.rating}")
+                        episode_item.setText(3, f"{episode.rating}")
+                        episode_item.setIcon(3, _icon_utils.role_icon("rating_star", _theme.COLOR_GOLD))
                     episode_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": episode})
 
                 if not episode_dtos:

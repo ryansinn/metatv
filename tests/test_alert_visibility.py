@@ -24,7 +24,6 @@ import pytest
 import metatv.gui.theme as _theme
 
 from metatv.core.config import Config
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
@@ -178,10 +177,12 @@ class TestChannelListRows:
         m = self._model_with({"chA"})
         html_a = m.data(m.index(0), CHANNEL_HTML_ROLE)
         html_b = m.data(m.index(1), CHANNEL_HTML_ROLE)
-        assert _icons.new_match_icon in html_a
+        # The colourblind-safe cue is the painted marker icon (MATCH_MARKER_ROLE).
+        from metatv.gui.channel_list_roles import MATCH_MARKER_ROLE
+        assert m.data(m.index(0), MATCH_MARKER_ROLE) == "new_match"
         assert _theme.COLOR_OK in html_a
         # The non-matched row carries neither cue.
-        assert _icons.new_match_icon not in html_b
+        assert not m.data(m.index(1), MATCH_MARKER_ROLE)
         assert _theme.COLOR_OK not in html_b
 
     def test_clearing_match_drops_marker_live(self, qapp):
@@ -189,7 +190,8 @@ class TestChannelListRows:
         m = self._model_with({"chA"})
         m.update_new_match_ids(set())
         html_a = m.data(m.index(0), CHANNEL_HTML_ROLE)
-        assert _icons.new_match_icon not in html_a
+        from metatv.gui.channel_list_roles import MATCH_MARKER_ROLE
+        assert not m.data(m.index(0), MATCH_MARKER_ROLE)
         assert _theme.COLOR_OK not in html_a
 
 

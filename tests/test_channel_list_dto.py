@@ -198,7 +198,7 @@ def test_on_channels_loaded_builds_all_channels_from_dtos(qapp):
     display_text, stored = host.all_channels[0]
     assert stored is dto
     # Display reflects DTO fields: favorite icon, detected_title (not raw name), prefix, year, category.
-    assert "★" in display_text                 # favorite icon (is_favorite=True)
+    assert "★" not in display_text             # no glyph: the heart is a painted role
     assert "The Matrix" in display_text        # detected_title
     assert "Raw Name" not in display_text      # raw name suppressed in favor of detected_title
     assert "[EN]" in display_text              # detected_prefix
@@ -207,14 +207,14 @@ def test_on_channels_loaded_builds_all_channels_from_dtos(qapp):
     host._clear_provider_busy.assert_called_once()
 
 
-def test_on_channels_loaded_uses_unfavorite_icon_when_not_favorite(qapp):
+def test_on_channels_loaded_text_carries_no_favourite_glyph(qapp):
     host = _make_render_host(qapp)
     dto = _make_dto(is_favorite=False, detected_title="Plain Title")
     params = {"total_channels": 1, "hidden_only": False, "bypassing_tier1": False}
     host._on_channels_loaded(([dto], params))
     display_text, _ = host.all_channels[0]
-    assert "☆" in display_text
-    assert "★" not in display_text
+    assert "☆" not in display_text and "★" not in display_text
+    assert "Plain Title" in display_text
 
 
 def test_on_channels_loaded_empty_sets_stats(qapp):

@@ -46,8 +46,7 @@ def _model(qapp, dtos, search="cage"):
     model = ChannelListModel()
     model.set_channels(
         dtos, provider_icon_map={}, show_provider_icon=False, has_more=False,
-        query_params={"search_query": search}, favorite_icon="★",
-        unfavorite_icon="☆",
+        query_params={"search_query": search},
     )
     return model
 

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from loguru import logger
 
-from metatv.gui import icons as _icons
 
 #: The three status levels ``status()`` accepts.
 _LEVELS = ("info", "warn", "error")
@@ -63,10 +62,10 @@ class _StatusMixin:
 
         shown = text
         if level == "warn":
-            shown = f"{_icons.notification_warning_icon} {text}"
+            shown = f"Warning: {text}"   # the status bar is plain text: words, not an icon
             logger.warning(text)
         elif level == "error":
-            shown = f"{_icons.notification_error_icon} {text}"
+            shown = f"Error: {text}"
             logger.error(text)
 
         self.status_bar.showMessage(shown, ms)

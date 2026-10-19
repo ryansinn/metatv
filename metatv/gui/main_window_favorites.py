@@ -860,24 +860,17 @@ class _FavoritesMixin:
         if not channel_id:
             return
 
-        current_text = item.text()
-        new_is_favorite = self.favorite_icon not in current_text
-
-        # Update the icon on the current item only (fast, no database query)
-        if new_is_favorite:
-            updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
-        else:
-            updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
-        item.setText(updated_text)
+        # The state comes from the cached DTO, not from a glyph in the row's
+        # text — the row paints its heart from FAV_GLYPH_ROLE (one icon set).
+        cached = next((ch for _t, ch in self.all_channels if ch.id == channel_id), None)
+        new_is_favorite = not (cached.is_favorite if cached is not None else False)
 
         # Also update in all_channels cache for filtering. The cached entries are frozen ChannelListDTOs, so build a new one with
         # the flipped flag rather than mutating in place (a frozen dataclass would raise on assignment).
         for i, (_text, ch) in enumerate(self.all_channels):
             if ch.id == channel_id:
                 new_ch = replace(ch, is_favorite=new_is_favorite)
-                media_icon = self.get_media_type_icon(new_ch.media_type)
-                fav_icon = self.favorite_icon if new_ch.is_favorite else self.unfavorite_icon
-                display_text = f"{media_icon}{fav_icon} {new_ch.name}"
+                display_text = new_ch.name
                 if new_ch.category:
                     display_text += f" [{new_ch.category}]"
                 if new_ch.quality and new_ch.quality != "unknown":

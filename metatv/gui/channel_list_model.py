@@ -141,8 +141,6 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         # Display helpers (set along with channels so data() can compose text)
         self._provider_icon_map: dict[str, str] = {}
         self._show_provider_icon: bool = False
-        self._favorite_icon: str = _icons.favorite_icon
-        self._unfavorite_icon: str = _icons.unfavorite_icon
         self._get_media_type_icon: Optional[Callable[[str | None], str]] = None
         # Graduated-watch lower bound (int 0–100; default 10% = config default 0.10)
         self._partial_threshold_pct: int = 10
@@ -257,9 +255,9 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
                 return _watched_dim_brush()
         if role == Qt.ItemDataRole.ToolTipRole:
             if channel.user_rating == 1:
-                return f"You rated this {_icons.like_icon}"
+                return "You rated this: liked"
             if channel.user_rating == -1:
-                return f"You rated this {_icons.dislike_icon}"
+                return "You rated this: disliked"
             # Opt-in: the PROVIDER'S RAW NAME when the row shows a cleaned
             # title. OFF by default — the main list deliberately shows no
             # tooltip on an unrated row (test_tooltip_role_unrated_channel_
@@ -392,8 +390,6 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         has_more: bool,
         query_params: dict,
         next_offset: Optional[int] = None,
-        favorite_icon: str = _icons.favorite_icon,
-        unfavorite_icon: str = _icons.unfavorite_icon,
         get_media_type_icon: Optional[Callable[[str | None], str]] = None,
         partial_threshold_pct: int = 10,
         new_match_ids: Optional[set[str]] = None,
@@ -418,8 +414,6 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
                          Python-side exclusions). Defaults to ``len(dtos)`` only
                          when omitted; the host must pass the raw count so an
                          active exclusion doesn't desync paging.
-            favorite_icon: Glyph for favorited channels.
-            unfavorite_icon: Glyph for non-favorited channels.
             get_media_type_icon: Callable (media_type → glyph) injected from
                                  MainWindow so the model can produce the same
                                  icons without importing GUI state.
@@ -442,8 +436,6 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         self._current_offset = next_offset if next_offset is not None else len(dtos)
         self._provider_icon_map = dict(provider_icon_map)
         self._show_provider_icon = show_provider_icon
-        self._favorite_icon = favorite_icon
-        self._unfavorite_icon = unfavorite_icon
         self._get_media_type_icon = get_media_type_icon
         self._partial_threshold_pct = partial_threshold_pct
         self._raw_name_tooltip = bool(raw_name_tooltip)
@@ -724,14 +716,8 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         from the playback ▶/✓ separator (it sits in the title text, not the
         indicator slot) so the two never collide.
         """
-        media_icon = (
-            self._get_media_type_icon(channel.media_type)
-            if self._get_media_type_icon is not None
-            else ""
-        )
-        fav_icon = (
-            self._favorite_icon if channel.is_favorite else self._unfavorite_icon
-        )
+        # The plain row carries words, not icons: the delegate paints the
+        # favourite, kind and rating marks from their own roles (one icon set).
         src_badge = ""
         if self._show_provider_icon and channel.provider_id in self._provider_icon_map:
             src_badge = self._provider_icon_map[channel.provider_id] + " "
@@ -749,24 +735,27 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         glyph, colour = self._playback_indicator(channel)
 
         new_match = channel.id in self._new_match_ids
-        match_marker = f"{_icons.new_match_icon} " if new_match else ""
-
-        left = f"{src_badge}{media_icon}{fav_icon} {prefix_group}"
-        right = f" {match_marker}{bare}{quality_str}{year_str}"
+        left = f"{src_badge}{prefix_group}"
+        right = f" {bare}{quality_str}{year_str}"
         if channel.category:
             right += f" [{channel.category}]"
-        # Trailing rating glyph — only shown when the user has rated this channel.
+        # Trailing rating, in words — only when the user has rated this channel.
         if channel.user_rating == 1:
-            right += f" {_icons.like_icon}"
+            right += " · liked"
         elif channel.user_rating == -1:
-            right += f" {_icons.dislike_icon}"
+            right += " · disliked"
         return left, glyph, colour, right, new_match
 
     def _compose_display_text(self, channel: ChannelListDTO) -> str:
         """Compose the plain-text row (DisplayRole).
 
         Format:
-            ``{src_badge}{media_icon}{fav_icon} {prefix_group}{indicator} {bare}{quality_str}{year_str}[ [{category}]][ {rating_glyph}]``
+            ``{src_badge}{prefix_group}{indicator} {bare}{quality_str}{year_str}[ [{category}]][ · liked|disliked]``
+
+        Words, not icons: channel rows paint favourite, kind, rating and the
+        new-match mark from their structured roles (``FAV_GLYPH_ROLE``,
+        ``RATING_ROLE``, ``MATCH_MARKER_ROLE``); this string is for header rows,
+        accessibility and tests.
 
         The ``{indicator}`` is the 3-state playback separator (·/▶/✓) — always
         present at the same position so the title column never shifts.  Colour is
@@ -783,8 +772,8 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         is wrapped in a colour ``<span>`` (Resume-orange for in-progress,
         watched-green for completed) so ``ChannelRowDelegate`` can paint it as
         reinforcement.  An unviewed watch-for match additionally greens its title
-        (``COLOR_OK``); the 🚨 marker already in ``right`` is the colourblind-safe
-        cue.  All non-glyph text is HTML-escaped (titles can contain ``&``/``<``/``>``).
+        (``COLOR_OK``); the delegate's ``MATCH_MARKER_ROLE`` icon is the
+        colourblind-safe cue.  All non-glyph text is HTML-escaped (titles can contain ``&``/``<``/``>``).
         """
         left, glyph, colour, right, new_match = self._compose_parts(channel)
         glyph_html = _html.escape(glyph)

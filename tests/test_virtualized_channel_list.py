@@ -140,8 +140,6 @@ def test_set_channels_resets_model_and_exposes_rows(qapp):
         show_provider_icon=False,
         has_more=False,
         query_params={},
-        favorite_icon="★",
-        unfavorite_icon="☆",
     )
 
     assert model.rowCount() == 2
@@ -150,11 +148,12 @@ def test_set_channels_resets_model_and_exposes_rows(qapp):
     # UserRole carries channel id
     assert idx0.data(Qt.ItemDataRole.UserRole) == "id-a"
     assert idx1.data(Qt.ItemDataRole.UserRole) == "id-b"
-    # DisplayRole carries composed text including fav icon and title
-    text_a = idx0.data(Qt.ItemDataRole.DisplayRole)
-    assert "★" in text_a and "Alpha" in text_a
-    text_b = idx1.data(Qt.ItemDataRole.DisplayRole)
-    assert "☆" in text_b and "Beta" in text_b
+    # DisplayRole carries the title; the heart is painted from FAV_GLYPH_ROLE
+    from metatv.gui.channel_list_roles import FAV_GLYPH_ROLE
+    assert "Alpha" in idx0.data(Qt.ItemDataRole.DisplayRole)
+    assert idx0.data(FAV_GLYPH_ROLE) == "favorite"
+    assert "Beta" in idx1.data(Qt.ItemDataRole.DisplayRole)
+    assert idx1.data(FAV_GLYPH_ROLE) == "unfavorite"
 
 
 def test_set_channels_includes_provider_badge_when_show_provider_icon(qapp):
@@ -191,8 +190,7 @@ def test_set_channels_includes_prefix_region_quality_year_category(qapp):
         is_favorite=False,
     )
     model.set_channels([dto], provider_icon_map={}, show_provider_icon=False,
-                       has_more=False, query_params={},
-                       favorite_icon="★", unfavorite_icon="☆")
+                       has_more=False, query_params={},)
     text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
     assert "[EN]" in text
     assert "The Matrix" in text
@@ -324,7 +322,6 @@ def test_append_page_drops_stale_generation(qapp):
 
 def test_update_favorite_flips_icon_in_data(qapp):
     """update_favorite() replaces the frozen DTO so DisplayRole text reflects new state."""
-    from PyQt6.QtCore import Qt
     from metatv.gui.channel_list_model import ChannelListModel
 
     model = ChannelListModel()
@@ -333,18 +330,14 @@ def test_update_favorite_flips_icon_in_data(qapp):
         [dto],
         provider_icon_map={}, show_provider_icon=False,
         has_more=False, query_params={},
-        favorite_icon="★", unfavorite_icon="☆",
     )
     # Before toggle — unfavorite icon
-    text_before = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
-    assert "☆" in text_before
-    assert "★" not in text_before
+    from metatv.gui.channel_list_roles import FAV_GLYPH_ROLE
+    assert model.index(0, 0).data(FAV_GLYPH_ROLE) == "unfavorite"
 
     model.update_favorite("fav-chan", True)
 
-    text_after = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
-    assert "★" in text_after
-    assert "☆" not in text_after
+    assert model.index(0, 0).data(FAV_GLYPH_ROLE) == "favorite"
 
 
 def test_update_favorite_unknown_id_is_noop(qapp):

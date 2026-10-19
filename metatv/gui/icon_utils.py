@@ -301,13 +301,19 @@ class _FollowTextColour(QObject):
     """
 
     def eventFilter(self, obj, event):  # noqa: N802 (Qt API)
-        if event.type() == QEvent.Type.PaletteChange:
+        if event.type() != QEvent.Type.PaletteChange:
+            return False
+        # Never raise from here: an exception escaping an event filter is a
+        # qFatal in PyQt, and this runs for widgets mid-teardown too.
+        try:
             entry = _registered_icon_buttons.get(obj)
             if entry is not None and entry[1] is None:
                 _paint(obj, entry[0], obj.palette().color(QPalette.ColorRole.ButtonText).name())
             label = _registered_icon_labels.get(obj)
             if label is not None:
                 _paint_label(obj, *label)
+        except Exception:
+            logger.debug("icon repaint skipped for a widget being torn down")
         return False
 
 

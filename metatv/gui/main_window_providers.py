@@ -19,7 +19,7 @@ from loguru import logger
 
 from metatv.core.notifications import StepStatus
 from metatv.core.repositories import RepositoryFactory
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.dialogs import AddProviderDialog
 
@@ -227,7 +227,8 @@ class _ProviderMixin:
         self._no_sources_lbl.setWordWrap(True)
         _nsb_layout.addWidget(self._no_sources_lbl)
         _nsb_layout.addStretch()
-        self._no_sources_add_btn = QPushButton(f"{_icons.provider_icon} Add Source")
+        self._no_sources_add_btn = QPushButton("Add Source")
+        _icon_utils.set_button_icon(self._no_sources_add_btn, "provider")
         self._no_sources_add_btn.setToolTip("Add Source…")
         _theme.style_fn(self._no_sources_add_btn, lambda: f"QPushButton {{ border: 1px solid {_theme.COLOR_ACCENT_BLUE}; border-radius: 4px;"
             f" padding: 4px 12px; font-size: {_theme.FONT_MD}; font-weight: 600;"

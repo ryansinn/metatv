@@ -12,6 +12,8 @@ from datetime import datetime
 from time import monotonic
 from urllib.parse import urlparse
 
+import html as _html
+
 import requests
 from loguru import logger
 from PyQt6.QtCore import QTimer
@@ -25,9 +27,9 @@ from metatv.gui.stale_source_offer import read_last_refresh, stale_source_offer
 from metatv.core.stream_diagnostics import _redact, explain_stream_error
 from metatv.core.stream_url_derivation import derive_channel_stream_url
 from metatv.core.url_cycle import UrlCycler, rebase_stream_url
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import playback_start_watch as _startwatch
 from metatv.gui import stream_capture as _stream_capture
-from metatv.gui import icons as _icons
 from metatv.gui import stream_switch as _stream_switch
 from metatv.gui.watch_capture import _WatchCaptureMixin
 from metatv.providers.xtream import _DEFAULT_HEADERS
@@ -65,7 +67,7 @@ def format_playback_health(cache_duration_s, cache_speed_bytes, drop_count) -> s
     else:
         drops_part = f"{int(drop_count)} drops"
 
-    return f"{_icons.play_icon} " + " · ".join((buffer_part, speed_part, drops_part))
+    return " · ".join((buffer_part, speed_part, drops_part))
 
 
 # ISO-BMFF (MP4/MOV) top-level box types that legitimately appear at the very start of
@@ -1336,7 +1338,10 @@ class _StreamingMixin(_WatchCaptureMixin):
                 "Live playback health (buffer · download speed · dropped frames)"
             )
 
-        self._playback_health_label.setText(prefix + text)
+        # Rich text so the play mark is the one icon set; the source glyph is
+        # user data (F43) and stays text.
+        self._playback_health_label.setText(
+            f"{_html.escape(prefix, quote=False)}{_icon_utils.role_html('play')}&nbsp;{text}")
         self._playback_health_label.show()
 
     def _notify_details_playing(self, channel_id: str | None, position_seconds: float) -> None:

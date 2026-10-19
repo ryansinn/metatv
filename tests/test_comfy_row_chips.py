@@ -358,8 +358,6 @@ def _model(dtos) -> ChannelListModel:
         show_provider_icon=False,
         has_more=False,
         query_params={},
-        favorite_icon="",
-        unfavorite_icon="",
         get_media_type_icon=lambda mt: "",
     )
     return model

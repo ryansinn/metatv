@@ -30,6 +30,7 @@ from loguru import logger
 from metatv.core.repositories.channel_list_rows import rows_to_dtos
 from metatv.core.quality_vocab import quality_display
 from metatv.gui import deferred_config_save as _cfgsave
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import downloaded_scope as _dl_scope
 from metatv.gui import ui_phase as _phase
 from metatv.gui.channel_transparency import AT_LEAST as _transparency_at_least
@@ -324,8 +325,7 @@ class _ChannelListMixin:
                 has_more=False,
                 query_params={},
             )
-            from metatv.gui import icons as _icons
-            self._show_channel_banner(f"{_icons.loading_icon} Loading channels…")
+            self._show_channel_banner(f"{_icon_utils.role_html('loading')}&nbsp;Loading channels…")
             self.stats_label.setText("Loading channels…")
         self.status("Refreshing…" if keep_rows else "Loading channels…", ms=0)
 
@@ -966,8 +966,6 @@ class _ChannelListMixin:
         # favorites cache update in _apply_favorite_toggle path).
         self.all_channels = []
         for channel in channels:
-            media_icon = self.get_media_type_icon(channel.media_type)
-            fav_icon   = self.favorite_icon if channel.is_favorite else self.unfavorite_icon
             src_badge  = ""
             if show_provider_icon and channel.provider_id in provider_icon_map:
                 src_badge = provider_icon_map[channel.provider_id] + " "
@@ -979,7 +977,7 @@ class _ChannelListMixin:
                             if channel.detected_quality else "")
             year_str     = f" · {channel.detected_year}" if channel.detected_year else ""
             bare         = channel.detected_title or channel.name
-            display_text = f"{src_badge}{media_icon}{fav_icon} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}"
+            display_text = f"{src_badge}{prefix_group}{dot_sep}{bare}{quality_str}{year_str}"
             if channel.category:
                 display_text += f" [{channel.category}]"
             self.all_channels.append((display_text, channel))
@@ -1002,8 +1000,6 @@ class _ChannelListMixin:
             has_more=has_more,
             next_offset=raw_fetched,
             query_params=params,
-            favorite_icon=self.favorite_icon,
-            unfavorite_icon=self.unfavorite_icon,
             get_media_type_icon=self.get_media_type_icon,
             partial_threshold_pct=int(
                 getattr(self.config, "watch_partial_threshold", 0.10) * 100
@@ -1123,28 +1119,28 @@ class _ChannelListMixin:
         and the status bar message.  The _unused parameter is kept for callers
         that still pass a text argument (e.g., search-input signal connections).
         """
-        from metatv.gui import icons as _icons
+        from metatv.gui import icon_utils as _icon_utils
 
         if self._currently_bypassing:
             self._show_channel_banner(
-                f"{_icons.watch_alerts_icon}  Showing results from filtered categories — "
+                f"{_icon_utils.role_html('alert')}&nbsp; Showing results from filtered categories — "
                 "filters suspended. Change search or filters to restore."
             )
         elif getattr(self, '_currently_bypassing_exclusions', False):
             self._show_channel_banner(
-                f"{_icons.global_exclusion_icon}  Showing content your Global Exclusions "
+                f"{_icon_utils.role_html('global_exclusion')}&nbsp; Showing content your Global Exclusions "
                 "normally hide — exclusions suspended for this view. "
                 "Change search or filters to restore."
             )
         elif getattr(self, '_currently_bypassing_dead', False):
             self._show_channel_banner(
-                f"{_icons.dead_stream_icon}  Showing channels held back by repeated "
+                f"{_icon_utils.role_html('dead_stream')}&nbsp; Showing channels held back by repeated "
                 "play failures — the dead-stream gate is suspended for this view. "
                 "Change search or filters to restore."
             )
         elif getattr(self, '_currently_bypassing_keywords', False):
             self._show_channel_banner(
-                f"{_icons.keyword_exclusion_icon}  Showing content your Global Exclusions "
+                f"{_icon_utils.role_html('keyword_exclusion')}&nbsp; Showing content your Global Exclusions "
                 "keyword list normally hides — the keyword axis is suspended for this view. "
                 "Change search or filters to restore."
             )

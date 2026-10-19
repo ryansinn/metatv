@@ -310,7 +310,8 @@ def test_load_channels_shows_loading_placeholder(qapp, monkeypatch):
     assert host.channel_model.rowCount() == 0
     # Loading banner is visible and contains the loading text.
     assert host._channel_banner.isVisible()
-    assert _icons.loading_icon in host._channel_banner.text()
+    from metatv.gui import icon_utils
+    assert icon_utils.role_html("loading") in host._channel_banner.text()
     assert "Loading" in host._channel_banner.text()
     # Stats label was set to the loading text.
     stats_texts = [c.args[0] for c in host.stats_label.setText.call_args_list]

@@ -59,8 +59,7 @@ def _model(qapp, dtos):
     from metatv.gui.channel_list_model import ChannelListModel
     m = ChannelListModel()
     m.set_channels(dtos, provider_icon_map={}, show_provider_icon=False,
-                   has_more=False, query_params={"search_query": "cage"},
-                   favorite_icon="*", unfavorite_icon="o")
+                   has_more=False, query_params={"search_query": "cage"},)
     return m
 
 

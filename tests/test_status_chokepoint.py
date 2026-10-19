@@ -10,7 +10,6 @@ from __future__ import annotations
 import pytest
 from loguru import logger
 
-from metatv.gui import icons as _icons
 from metatv.gui.main_window_status import _StatusMixin
 
 
@@ -88,7 +87,7 @@ def test_warn_prefixes_the_glyph_and_logs_a_warning(host):
         logger.remove(handle)
 
     shown = host.status_bar.currentMessage()
-    assert shown.startswith(_icons.notification_warning_icon)
+    assert shown.startswith("Warning: ")
     assert "Source unreachable" in shown
     assert sink == ["Source unreachable"], "must log the UNPREFIXED text"
 
@@ -102,7 +101,7 @@ def test_error_prefixes_the_glyph_and_logs_an_error(host):
         logger.remove(handle)
 
     shown = host.status_bar.currentMessage()
-    assert shown.startswith(_icons.notification_error_icon)
+    assert shown.startswith("Error: ")
     assert "Could not save your rating" in shown
     assert sink == ["Could not save your rating"]
 
@@ -117,15 +116,18 @@ def test_info_carries_no_glyph_and_does_not_log(host):
 
     shown = host.status_bar.currentMessage()
     assert shown == "Favorite added", "info must not gain a glyph prefix"
-    assert not shown.startswith(_icons.notification_warning_icon)
-    assert not shown.startswith(_icons.notification_error_icon)
+    assert not shown.startswith(("Warning: ", "Error: "))
     assert sink == [], "info must not reach the log via status()"
 
 
-def test_warn_and_error_glyphs_are_distinct(host):
-    """Colour is never the only cue — the glyph itself must differ between
-    the two non-info levels, not just some shared cue plus colour."""
-    assert _icons.notification_warning_icon != _icons.notification_error_icon
+def test_warn_and_error_prefixes_are_distinct(host):
+    """Colour is never the only cue — the two non-info levels are told apart
+    in words, not by colour."""
+    host.status("x", level="warn")
+    warn = host.status_bar.currentMessage()
+    host.status("x", level="error")
+    err = host.status_bar.currentMessage()
+    assert warn != err
 
 
 def test_unknown_level_raises(host):
