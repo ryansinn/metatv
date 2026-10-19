@@ -326,6 +326,7 @@ class DetailsPaneWidget(QWidget):
         # episode view had hidden.
         self._in_episode_mode = False
         self._meta.set_episode_mode(False)
+        self._plot.rekey("overview", "Overview", self.config.details_pane_collapsed_sections)
         self.current_episode = None
         # Forget the previous title's trailer. _apply_metadata only runs when
         # this channel HAS metadata, so without this the button would keep the
@@ -494,6 +495,11 @@ class DetailsPaneWidget(QWidget):
 
         # Plot — episode plot if the DTO carries one, else keep the series plot.
         ep_plot = getattr(episode, "plot", None)
+        # No overview of its own (most sources send none): the series' stays,
+        # headed "Series overview" so it is not mistaken for the episode's.
+        self._plot.rekey(*(("overview", "Overview") if ep_plot else
+                           ("overview_series", "Series overview")),
+                         self.config.details_pane_collapsed_sections)
         if ep_plot:
             self._plot.load(ep_plot)
 
