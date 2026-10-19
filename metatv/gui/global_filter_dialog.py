@@ -34,6 +34,15 @@ from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui import theme as _theme
 
 
+def _info_label(tooltip: str) -> QLabel:
+    """The info mark beside a heading — its words live in *tooltip*."""
+    lbl = QLabel()
+    _icon_utils.set_label_icon(lbl, "info", px=16)
+    _theme.style(lbl, "INFO_LABEL")
+    lbl.setToolTip(tooltip)
+    return lbl
+
+
 @dataclass
 class _FilterBlock:
     """One filterable unit of the exclusion list: a top-level type (Languages,
@@ -781,7 +790,8 @@ class GlobalFilterDialog(QDialog):
         _theme.style_fn(header_lbl, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         header_row.addWidget(header_lbl)
 
-        info_lbl = QLabel("ⓘ")
+        info_lbl = QLabel()
+        _icon_utils.set_label_icon(info_lbl, "info", px=16)
         _theme.style_fn(info_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_LG}; padding-left: 4px;")
         info_lbl.setToolTip(
             "Categories are detected from the prefix in each title\n"
@@ -951,9 +961,7 @@ class GlobalFilterDialog(QDialog):
             lang_hdr = QLabel("Languages")
             _theme.style(lang_hdr, "SECTION_TITLE_SM")
             lang_row.addWidget(lang_hdr)
-            lang_info = QLabel("ⓘ")
-            _theme.style(lang_info, "INFO_LABEL")
-            lang_info.setToolTip(
+            lang_info = _info_label(
                 "Language / region groups detected from channel name prefixes.\n"
                 "Check a group to globally exclude its channels."
             )
@@ -1004,9 +1012,7 @@ class GlobalFilterDialog(QDialog):
             hdr = QLabel("Platforms")
             _theme.style(hdr, "SECTION_TITLE_SM")
             hdr_row.addWidget(hdr)
-            info = QLabel("ⓘ")
-            _theme.style(info, "INFO_LABEL")
-            info.setToolTip(
+            info = _info_label(
                 "Streaming services and broadcast platforms detected from channel\n"
                 "name prefixes (Netflix, Disney+, Sports, etc.).\n"
                 "Check a platform to globally exclude its channels."
@@ -1076,9 +1082,7 @@ class GlobalFilterDialog(QDialog):
         hdr = QLabel("User Categories")
         _theme.style(hdr, "SECTION_TITLE_SM")
         hdr_row.addWidget(hdr)
-        info = QLabel("ⓘ")
-        _theme.style(info, "INFO_LABEL")
-        info.setToolTip(
+        info = _info_label(
             "Categories you've created via right-click → Assign Category.\n"
             "Check a category to hide its channels everywhere (Global Exclusion)."
         )
@@ -1146,9 +1150,7 @@ class GlobalFilterDialog(QDialog):
         _theme.style(type_hdr, "SECTION_TITLE_SM")
         hdr_row.addWidget(type_hdr)
 
-        info_lbl = QLabel("ⓘ")
-        _theme.style(info_lbl, "INFO_LABEL")
-        info_lbl.setToolTip(
+        info_lbl = _info_label(
             "Content types are derived from category headers in the source's\n"
             "channel list (e.g. ##### SPORTS NETWORK #####).\n"
             "Check a type to hide all matching live channels from Discovery."
@@ -1246,9 +1248,7 @@ class GlobalFilterDialog(QDialog):
         _theme.style(hdr, "SECTION_TITLE_SM")
         hdr_row.addWidget(hdr)
 
-        info_lbl = QLabel("ⓘ")
-        _theme.style(info_lbl, "INFO_LABEL")
-        info_lbl.setToolTip(
+        info_lbl = _info_label(
             "How the content was produced, detected from a trailing marker on the\n"
             "channel/title name:\n"
             "  • \"(AI Generated)\" name suffix  →  AI Generated (the content itself)\n"
@@ -1318,9 +1318,7 @@ class GlobalFilterDialog(QDialog):
         hdr = QLabel("Keywords")
         _theme.style(hdr, "SECTION_TITLE_SM")
         hdr_row.addWidget(hdr)
-        info_lbl = QLabel("ⓘ")
-        _theme.style(info_lbl, "INFO_LABEL")
-        info_lbl.setToolTip(
+        info_lbl = _info_label(
             "Hide any channel whose title contains one of your own words or\n"
             "phrases (e.g. \"wrestling\", \"telenovela\") — matched case-\n"
             "insensitively, everywhere (search, Discovery, Recommendations, EPG).\n"
