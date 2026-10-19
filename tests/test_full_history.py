@@ -462,7 +462,11 @@ class TestHistoryFullWidth:
 # ---------------------------------------------------------------------------
 
 class TestCollapsibleSplitterHandle:
-    def test_handle_is_discoverable_and_round_trips(self, qapp):
+    def test_handle_is_discoverable_and_round_trips(self, qapp, monkeypatch):
+        # The Linux/Windows handle: clickable, 7px. macOS draws a wider handle
+        # with the resize cursor instead — tests/test_splitter_handle_macos.py.
+        from metatv.core import runtime_env
+        monkeypatch.setattr(runtime_env, "is_macos", lambda: False)
         splitter = _real_splitter(qapp, sizes=(300, 400, 200))
         handle = splitter.handle(1)
         assert handle is not None
