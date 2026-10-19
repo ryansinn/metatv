@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.epg_utils import now_utc as _now_utc
 from metatv.core.epg_utils import remaining_str as _remaining_str
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.badge_utils import (
     make_audio_chip,
@@ -111,8 +112,8 @@ def build_pinned_channel_card(view, channel_db_id: str, channel_name: str,
     year = view._channel_year_map.get(channel_db_id, "")
 
     header = QHBoxLayout()
-    icon_lbl = QLabel(f"{view.config.series_icon} ")
-    _theme.style_fn(icon_lbl, lambda: f"font-size: {_theme.FONT_XL};")
+    icon_lbl = QLabel()
+    icon_lbl.setPixmap(_icon_utils.role_pixmap("series", _theme.COLOR_TEXT, 18))
     header.addWidget(icon_lbl)
     if region:
         header.addWidget(make_region_chip(region, w))
@@ -132,7 +133,9 @@ def build_pinned_channel_card(view, channel_db_id: str, channel_name: str,
     # Play is unconditional. It used to be gated on ``prog``, which made
     # playability depend on whether the guide happened to know what was on —
     # two unrelated facts. A pinned channel is a channel; it plays.
-    play_btn = QPushButton(f"{view.config.play_icon} Play")
+    play_btn = QPushButton("Play")
+    _icon_utils.set_button_icon(play_btn, "play",
+                                color=lambda: _theme.on_fill(_theme.COLOR_ACCENT_GREEN))
     play_btn.setFixedWidth(70)
     play_btn.setToolTip(f"Play {channel_name}")
     _theme.style_fn(play_btn, lambda: (
@@ -143,7 +146,8 @@ def build_pinned_channel_card(view, channel_db_id: str, channel_name: str,
     play_btn.clicked.connect(lambda _=False, cid=channel_db_id: view._play_channel(cid))
     header.addWidget(play_btn)
 
-    remove_btn = QPushButton(view.config.close_icon)
+    remove_btn = QPushButton()
+    _icon_utils.set_button_icon(remove_btn, "close")
     remove_btn.setFixedWidth(24)
     remove_btn.setToolTip(f"Stop watching '{channel_name}'")
     _theme.style(remove_btn, "CLOSE_BTN")

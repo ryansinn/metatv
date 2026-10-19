@@ -47,6 +47,8 @@ render-parse here is now removed.
 
 from __future__ import annotations
 
+import html as _html
+
 from datetime import datetime, timedelta, timezone
 
 from PyQt6.QtCore import Qt
@@ -100,8 +102,8 @@ def _more_toggle_button(container, n: int, noun: str, *, indent: int = 8) -> QPu
         if flip:
             container.setVisible(container.isHidden())
         shut = container.isHidden()
-        caret = _icons.expand_icon if shut else _icons.collapse_icon
-        btn.setText(f"{caret}  {n} more {noun}" if shut else f"{caret}  fewer {noun}")
+        btn.setText(f"{n} more {noun}" if shut else f"fewer {noun}")
+        _icon_utils.set_button_icon(btn, "expand" if shut else "collapse")
 
     btn.clicked.connect(lambda _checked=False: _sync(flip=True))
     _sync()
@@ -133,8 +135,8 @@ class _EpgWatchlistMixin:
         # in is the form you come back to.
         from metatv.gui.watch_rule_editor import WatchRuleEditor
 
-        self._new_item_btn = QPushButton(
-            f"{_icons.add_icon}  Track Something New")
+        self._new_item_btn = QPushButton("Track Something New")
+        _icon_utils.set_button_icon(self._new_item_btn, "add")
         _theme.style(self._new_item_btn, "WATCHLIST_TRACK_CTA")
         cursor_affordance.set_clickable(self._new_item_btn)
         self._new_item_btn.setToolTip(
@@ -252,7 +254,8 @@ class _EpgWatchlistMixin:
         placeholder = QWidget()
         layout = QVBoxLayout(placeholder)
         layout.setContentsMargins(12, 20, 12, 12)
-        loading = QLabel(f"{_icons.loading_icon} Loading watchlist…")
+        loading = QLabel(f"{_icon_utils.role_html('loading')}&nbsp;Loading watchlist…")
+        loading.setTextFormat(Qt.TextFormat.RichText)
         loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         _theme.style(loading, "LOADING_TEXT")
         layout.addWidget(loading)
@@ -301,19 +304,12 @@ class _EpgWatchlistMixin:
             channel_ids = self.config.epg_watchlist_channels
             channel_now: dict[str, EpgProgramDB | None] = {}
             channel_names: dict[str, str] = {}
-            # Why each pinned channel can or cannot produce an alert.
-            #
-            # The card said "No EPG data" for every channel without a current
-            # programme, which conflates three different situations: a guide
-            # that simply does not cover it right now (transient, worth
-            # waiting for), a source the user has switched off, and a provider
-            # that no longer exists. The last two can NEVER fire, and the owner
-            # had one of each pinned with nothing on screen saying so.
-            #
-            # excluded_ch_provider_ids is get_hidden_provider_ids() — inactive
-            # ∪ expired ∪ orphaned — the canonical gate, already computed above
-            # for the queries. Read here rather than re-derived (CLAUDE.md:
-            # never rebuild that set ad hoc).
+            # Why each pinned channel can or cannot produce an alert. "No EPG
+            # data" conflated three cases: a guide not covering it right now
+            # (transient), a source switched off, and a provider that no longer
+            # exists — the last two can NEVER fire. excluded_ch_provider_ids is
+            # get_hidden_provider_ids() (inactive ∪ expired ∪ orphaned), the
+            # canonical gate computed above; read, never re-derived (CLAUDE.md).
             channel_state: dict[str, str] = {}
             for cid in channel_ids:
                 channel_now[cid] = repo.get_now_for_channel(cid)
@@ -598,7 +594,7 @@ class _EpgWatchlistMixin:
 
         # ── Header ──────────────────────────────────────────────────────── #
         is_live = bool(live)
-        icon = self.config.live_indicator_icon if is_live else self.config.watchlist_icon
+        icon = _icon_utils.role_html("live" if is_live else "watchlist")
 
         # Group live programmes by show title (most channels = most popular first).
         # Within each group, rank channels (best quality tier, then previously-
@@ -612,7 +608,8 @@ class _EpgWatchlistMixin:
         title_groups = dict(sorted(title_groups.items(), key=lambda kv: -len(kv[1])))
 
         header = QHBoxLayout()
-        pattern_lbl = QLabel(f"{icon}  {pattern}")
+        pattern_lbl = QLabel(f"{icon}&nbsp; {_html.escape(pattern)}")
+        pattern_lbl.setTextFormat(Qt.TextFormat.RichText)
         _theme.style(pattern_lbl, "LIST_TITLE")
         header.addWidget(pattern_lbl)
 
@@ -632,7 +629,8 @@ class _EpgWatchlistMixin:
             header.addWidget(live_lbl)
 
         # A real (initially-closed) disclosure toggle, not decoration — CHV-2.
-        edit_btn = QPushButton(f"Edit {_icons.expand_icon}")
+        edit_btn = QPushButton("Edit")
+        _icon_utils.set_button_icon(edit_btn, "expand")
         edit_btn.setFlat(True)
         _theme.style(edit_btn, "LINK_BTN_SM")
         edit_btn.setToolTip(f'Open the rule editor for "{pattern}"')
@@ -873,7 +871,8 @@ class _EpgWatchlistMixin:
 
         def _update_label():
             shut = cards_container.isHidden()
-            toggle_btn.setText(f"{_icons.expand_icon if shut else _icons.collapse_icon}  OFF AIR  ·  {n}")
+            toggle_btn.setText(f"OFF AIR  ·  {n}")
+            _icon_utils.set_button_icon(toggle_btn, "expand" if shut else "collapse")
             toggle_btn.setToolTip(f"{'Expand' if shut else 'Collapse'} OFF AIR ({n} not on right now)")
 
         def _toggle(checked=False):
@@ -950,7 +949,8 @@ class _EpgWatchlistMixin:
         # Expandable count toggle label
         _collapsed_state = [True]  # mutable cell to capture toggle state in closures
 
-        count_lbl = QLabel(f"{_icons.expand_icon} {count} matches")
+        count_lbl = QLabel(f"{_icon_utils.role_html('expand')} {count} matches")
+        count_lbl.setTextFormat(Qt.TextFormat.RichText)
         _theme.style(count_lbl, "DISCOVER_REC_COUNT")
         count_lbl.setToolTip(f"Expand the {count} matching programmes")
         cursor_affordance.set_clickable(count_lbl, keyboard=True)
@@ -997,7 +997,7 @@ class _EpgWatchlistMixin:
             if _collapsed_state[0]:
                 # Expand
                 _collapsed_state[0] = False
-                count_lbl.setText(f"{_icons.collapse_icon} {count} matches")
+                count_lbl.setText(f"{_icon_utils.role_html('collapse')} {count} matches")
                 count_lbl.setToolTip(f"Collapse the {count} matching programmes")
                 if not _loaded[0]:
                     _loaded[0] = True
@@ -1006,7 +1006,7 @@ class _EpgWatchlistMixin:
             else:
                 # Collapse
                 _collapsed_state[0] = True
-                count_lbl.setText(f"{_icons.expand_icon} {count} matches")
+                count_lbl.setText(f"{_icon_utils.role_html('expand')} {count} matches")
                 count_lbl.setToolTip(f"Expand the {count} matching programmes")
                 sub_list.hide()
 
@@ -1070,8 +1070,7 @@ class _EpgWatchlistMixin:
         """Show or hide the new-entry form."""
         showing = not self._compose_editor.isVisible()
         self._compose_editor.setVisible(showing)
-        glyph = _icons.collapse_icon if showing else _icons.add_icon
-        self._new_item_btn.setText(f"{glyph}  Track Something New")
+        _icon_utils.set_button_icon(self._new_item_btn, "collapse" if showing else "add")
         if showing:
             self._compose_editor.include_input.setFocus()
 
@@ -1081,8 +1080,7 @@ class _EpgWatchlistMixin:
 
         self._compose_editor.set_rule(WatchRule(term=""))
         self._compose_editor.setVisible(False)
-        self._new_item_btn.setText(
-            f"{_icons.add_icon}  Track Something New")
+        _icon_utils.set_button_icon(self._new_item_btn, "add")
 
     def _on_compose_committed(self, rule) -> None:
         """Store a newly composed entry with every field it was given.

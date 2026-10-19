@@ -225,27 +225,23 @@ class TestNotificationCardSteps:
 
     def test_pending_step_has_pending_glyph(self, qapp):
         """A PENDING step row carries the migration_pending_icon glyph."""
-        from metatv.gui import icons as _icons
         steps = _make_steps(epg=False)
         card = self._make_card(qapp, steps)
-        glyph = card._step_rows[0]._glyph.text()
-        assert glyph == _icons.migration_pending_icon
+        assert _is_step(card._step_rows[0], "PENDING")
 
     def test_active_step_has_progress_glyph(self, qapp):
         """An ACTIVE step row carries the notification_progress_icon glyph."""
-        from metatv.gui import icons as _icons
         steps = _advance_steps(_make_steps(epg=False), "Connecting…", 5)
         card = self._make_card(qapp, steps)
         # Step 0 = FETCH = ACTIVE at pct 5
-        assert card._step_rows[0]._glyph.text() == _icons.notification_progress_icon
+        assert _is_step(card._step_rows[0], "ACTIVE")
 
     def test_done_step_has_done_glyph(self, qapp):
         """A DONE step row carries the migration_done_icon glyph."""
-        from metatv.gui import icons as _icons
         steps = _advance_steps(_make_steps(epg=False), "Stored 10,000 channels", 70)
         card = self._make_card(qapp, steps)
         # Step 0 = FETCH = DONE at pct 70 (in_storing → True)
-        assert card._step_rows[0]._glyph.text() == _icons.migration_done_icon
+        assert _is_step(card._step_rows[0], "DONE")
 
     def test_no_steps_card_has_progress_bar_not_step_rows(self, qapp):
         """A card without steps renders the classic progress bar."""
@@ -322,13 +318,12 @@ class TestNotificationCardSteps:
 
     def test_update_notification_advances_row_glyph(self, qapp):
         """update_notification transitions a PENDING row to ACTIVE in-place."""
-        from metatv.gui import icons as _icons
 
         steps = _make_steps(epg=False)
         card = self._make_card(qapp, steps)
 
         # Initially the FETCH row is PENDING
-        assert card._step_rows[0]._glyph.text() == _icons.migration_pending_icon
+        assert _is_step(card._step_rows[0], "PENDING")
 
         # Simulate progress update
         new_steps = _advance_steps(steps, "Connecting…", 5)
@@ -336,7 +331,7 @@ class TestNotificationCardSteps:
         card.update_notification(card.notification)
 
         # Now FETCH should show the ACTIVE (progress) glyph
-        assert card._step_rows[0]._glyph.text() == _icons.notification_progress_icon
+        assert _is_step(card._step_rows[0], "ACTIVE")
 
     def test_update_notification_rebuilds_rows_on_count_change(self, qapp):
         """Adding EPG steps mid-refresh rebuilds the row list."""
@@ -348,3 +343,13 @@ class TestNotificationCardSteps:
         card.notification.steps = steps_5
         card.update_notification(card.notification)
         assert len(card._step_rows) == 5
+
+
+def _is_step(row, status_name: str) -> bool:
+    """The row shows the icon for *status_name*: the same cached pixmap the
+    widget draws (role + state colour), compared by cache key."""
+    from metatv.core.notifications import StepStatus
+    from metatv.gui import icon_utils, notification_widget as nw
+    status = StepStatus[status_name]
+    want = icon_utils.role_pixmap(nw._STEP_ROLE[status], nw._step_color()[status], 12)
+    return row._glyph.pixmap().cacheKey() == want.cacheKey()

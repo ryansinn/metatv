@@ -9,16 +9,34 @@ from PyQt6.QtCore import Qt, QTimer
 from metatv.core.notifications import Notification, NotificationType, StepStatus
 from metatv.core.config import Config
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
+import html as _html
+
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import FlowLayout, enable_height_for_width
 
-# Status glyph for each step state — reuses migration icons for visual consistency.
-_STEP_GLYPH: dict[StepStatus, str] = {
-    StepStatus.PENDING: _icons.migration_pending_icon,
-    StepStatus.ACTIVE:  _icons.notification_progress_icon,
-    StepStatus.DONE:    _icons.migration_done_icon,
+# Status icon role for each step state — the same roles the migration view uses.
+_STEP_ROLE: dict[StepStatus, str] = {
+    StepStatus.PENDING: "migration_pending",
+    StepStatus.ACTIVE:  "loading",
+    StepStatus.DONE:    "notification_success",
 }
+
+# Title icon role for each notification type.
+_TYPE_ROLE: dict[NotificationType, str] = {
+    NotificationType.PROGRESS: "loading",
+    NotificationType.SUCCESS: "notification_success",
+    NotificationType.ERROR: "notification_error",
+    NotificationType.WARNING: "warning",
+    NotificationType.INFO: "info",
+}
+
+
+def _title_html(notification) -> str:
+    """The card title: the type's icon inline, then the escaped title."""
+    role = _TYPE_ROLE.get(notification.type)
+    lead = f"{_icon_utils.role_html(role)}&nbsp;" if role else ""
+    return lead + _html.escape(notification.title)
 
 def _step_color() -> dict[StepStatus, str]:
     """Color for each glyph state, re-read fresh so a live theme switch applies."""
@@ -38,12 +56,10 @@ class _StepRow(QWidget):
         layout.setContentsMargins(0, 1, 0, 1)
         layout.setSpacing(5)
 
-        self._glyph = QLabel(_STEP_GLYPH[status])
+        self._glyph = QLabel()
         self._glyph.setFixedWidth(14)
         self._glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._glyph.setStyleSheet(
-            f"color: {_step_color()[status]}; font-size: {_theme.FONT_MD};"
-        )
+        self.update_status(status)
         layout.addWidget(self._glyph)
 
         self._label = QLabel(label)
@@ -52,11 +68,8 @@ class _StepRow(QWidget):
         layout.addWidget(self._label)
 
     def update_status(self, status: StepStatus) -> None:
-        """Update the glyph and its color for the new status."""
-        self._glyph.setText(_STEP_GLYPH[status])
-        self._glyph.setStyleSheet(
-            f"color: {_step_color()[status]}; font-size: {_theme.FONT_MD};"
-        )
+        """Update the step's icon and its colour for the new status."""
+        self._glyph.setPixmap(_icon_utils.role_pixmap(_STEP_ROLE[status], _step_color()[status], 12))
 
 
 class NotificationCard(QFrame):
@@ -122,16 +135,8 @@ class NotificationCard(QFrame):
         # Header with title and close button
         header_layout = QHBoxLayout()
 
-        icon_map = {
-            NotificationType.PROGRESS: _icons.notification_progress_icon,
-            NotificationType.SUCCESS: _icons.notification_success_icon,
-            NotificationType.ERROR: _icons.notification_error_icon,
-            NotificationType.WARNING: _icons.notification_warning_icon,
-            NotificationType.INFO: _icons.notification_info_icon
-        }
-        icon = icon_map.get(self.notification.type, "")
-
-        self.title_label = QLabel(f"{icon} {self.notification.title}")
+        self.title_label = QLabel(_title_html(self.notification))
+        self.title_label.setTextFormat(Qt.TextFormat.RichText)
         _bold = self.title_label.font()
         _bold.setBold(True)
         self.title_label.setFont(_bold)
@@ -259,15 +264,7 @@ class NotificationCard(QFrame):
         self.notification = notification
 
         # Update title
-        icon_map = {
-            NotificationType.PROGRESS: _icons.notification_progress_icon,
-            NotificationType.SUCCESS: _icons.notification_success_icon,
-            NotificationType.ERROR: _icons.notification_error_icon,
-            NotificationType.WARNING: _icons.notification_warning_icon,
-            NotificationType.INFO: _icons.notification_info_icon
-        }
-        icon = icon_map.get(notification.type, "")
-        self.title_label.setText(f"{icon} {notification.title}")
+        self.title_label.setText(_title_html(notification))
 
         # Update message if exists
         if hasattr(self, 'message_label') and notification.message:

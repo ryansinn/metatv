@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from tests.conftest import wire_status_method
 
@@ -367,7 +368,7 @@ def test_epg_watchlist_show_loading_swaps_placeholder_widget(qapp):
     labels = inner.findChildren(QLabel)
     assert labels, "expected a loading label in the watchlist placeholder"
     joined = " ".join(l.text() for l in labels)
-    assert _icons.loading_icon in joined
+    assert _icon_utils.role_html("loading") in joined
     assert "watchlist" in joined.lower()
 
 
@@ -388,5 +389,5 @@ def test_epg_reload_watchlist_shows_loading_then_submits(qapp):
     # Loading placeholder installed before the worker is submitted.
     inner = view.watchlist_scroll.widget()
     joined = " ".join(l.text() for l in inner.findChildren(QLabel))
-    assert _icons.loading_icon in joined
+    assert _icon_utils.role_html("loading") in joined
     view._executor.submit.assert_called_once()

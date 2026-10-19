@@ -15,6 +15,8 @@ from typing import Callable
 from unittest.mock import MagicMock
 
 import pytest
+from metatv.gui import icon_utils as _icon_utils
+from metatv.gui import theme as _theme
 
 
 # ---------------------------------------------------------------------------
@@ -1102,7 +1104,6 @@ class TestMigrationProgressWidget:
     def test_task_finished_flips_to_done_glyph(self, qapp):
         """on_task_finished sets _done=True and updates the glyph."""
         from metatv.gui.migration_progress_widget import MigrationProgressWidget
-        from metatv.gui import icons as _icons
         w = MigrationProgressWidget()
         w.on_task_started("t1", "Scanning")
         w.on_task_progress("t1", 200, 200)
@@ -1110,10 +1111,7 @@ class TestMigrationProgressWidget:
 
         row = w._rows["t1"]
         assert row._done is True, "row._done should be True after on_task_finished"
-        assert row._glyph.text() == _icons.migration_done_icon, (
-            f"glyph should be done icon {_icons.migration_done_icon!r}; "
-            f"got {row._glyph.text()!r}"
-        )
+        assert row._glyph.pixmap().cacheKey() == _icon_utils.role_pixmap("notification_success", _theme.COLOR_OK, 12).cacheKey(), "the done icon, in the OK colour"
 
     def test_task_finished_sets_bar_to_full(self, qapp):
         """on_task_finished sets the progress bar to 100% even if progress was partial."""
@@ -1146,15 +1144,11 @@ class TestMigrationProgressWidget:
     def test_pending_glyph_before_finish(self, qapp):
         """Before on_task_finished, the glyph is the pending icon."""
         from metatv.gui.migration_progress_widget import MigrationProgressWidget
-        from metatv.gui import icons as _icons
         w = MigrationProgressWidget()
         w.on_task_started("t1", "Scanning")
 
         row = w._rows["t1"]
-        assert row._glyph.text() == _icons.migration_pending_icon, (
-            f"pending glyph should be {_icons.migration_pending_icon!r}; "
-            f"got {row._glyph.text()!r}"
-        )
+        assert row._glyph.pixmap().cacheKey() == _icon_utils.role_pixmap("migration_pending", _theme.COLOR_DIM, 12).cacheKey(), "the pending icon"
 
 
 # ---------------------------------------------------------------------------

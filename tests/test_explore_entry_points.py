@@ -32,6 +32,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from tests.conftest import wire_nav_host
+from metatv.gui import icons as _icons
 
 
 # ---------------------------------------------------------------------------
@@ -638,7 +639,7 @@ class TestSidebarExploreLinks:
         assert btn.text() == "", "the explore link should carry an icon, not text"
         assert not btn.icon().isNull(), \
             "one shared glyph across every entry point"
-        assert btn.text() != section.config.expand_icon, (
+        assert btn.text() != _icons.expand_icon, (
             "the collapse toggle in this same header renders expand_icon — two "
             "identical glyphs meaning different things"
         )
