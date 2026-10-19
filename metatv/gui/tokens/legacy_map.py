@@ -78,6 +78,8 @@ LEGACY_TOKEN_MAP: dict[str, str] = {
     "COLOR_FACET_SUBTITLE": "{teal.10}",
     "COLOR_FAINT": "on-surface.placeholder",
     "COLOR_GOLD": "{amber.9}",
+    # The favourite heart (2026-10-19). Pink, not red: red is the error state.
+    "COLOR_FAVORITE": "{pink.9}",
     "COLOR_GOLD_LIGHT": "{yellow.9}",
     "COLOR_GRAY": "{neutral.9}",
     "COLOR_LIGHTGRAY": "{neutral.11}",

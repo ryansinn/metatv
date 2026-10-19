@@ -3,12 +3,12 @@ import time
 from dataclasses import dataclass
 
 from PyQt6.QtWidgets import QWidget, QPushButton
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import QSize, Qt, pyqtSignal, QTimer
 
 from metatv.core.models import MediaType
 
 from metatv.gui import cursor_affordance as _cursor
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 
@@ -121,6 +121,8 @@ class _SteppedLabelButton(QPushButton):
         if self.width() <= 0:
             return          # not laid out yet — the full form stands
         avail = self.width() - self._CHROME_PX
+        if not self.icon().isNull():
+            avail -= self.iconSize().width() + 4   # the icon sits beside the words
         metrics = self.fontMetrics()
         chosen = self._labels[-1]
         for text in self._labels:
@@ -209,12 +211,27 @@ class _ActionBar(QWidget):
         self._epg_link_blocked: bool = False
         self._setup()
 
+    #: Rail icon edge (px). The emoji they replace were drawn at FONT_2XL.
+    _RAIL_ICON_PX = 18
+    #: Icon edge on the labelled primary/secondary buttons.
+    _LABEL_ICON_PX = 15
+
+    @staticmethod
+    def _icon(btn: QPushButton, role: str, color=lambda: _theme.COLOR_TEXT,
+              px: int = _RAIL_ICON_PX) -> None:
+        """Paint *role* (an mdi6 role) on *btn*; *color* is a token builder so
+        the icon follows theme switches, like the button's own stylesheet."""
+        btn.setIconSize(QSize(px, px))
+        _icon_utils.set_button_icon(btn, role, color=color)
+
     def _mk(
-        self, icon: str, tooltip: str, *, checkable: bool = False, style: str | None = None
+        self, role: str, tooltip: str, *, checkable: bool = False, style: str | None = None
     ) -> QPushButton:
         """Build one icon-only rail button (parented to self until reparented)."""
-        btn = QPushButton(icon, self)
+        btn = QPushButton(self)
+        self._icon(btn, role)
         btn.setToolTip(tooltip)
+        btn.setAccessibleName(tooltip)
         _theme.style_fn(btn, lambda: style or _theme.DETAIL_RAIL_BTN)
         if checkable:
             btn.setCheckable(True)
@@ -230,19 +247,23 @@ class _ActionBar(QWidget):
         # continues from the saved position (dominant filled-orange) and is shown
         # only when there's a saved position (movies with watch_progress > 0);
         # set_resume() toggles it and stamps the M:SS label.
-        self.play_button = QPushButton(f"{self.config.play_icon} Play", self)
+        self.play_button = QPushButton("Play", self)
+        self._icon(self.play_button, "play", px=self._LABEL_ICON_PX)
         self.play_button.setToolTip("Play from the beginning")
         _theme.style(self.play_button, "DETAIL_PLAY_BTN")
         self.play_button.clicked.connect(self.play_clicked)
 
-        self.resume_button = QPushButton(f"{_icons.resume_from_icon} Resume", self)
+        self.resume_button = QPushButton("Resume", self)
+        # On the filled resume button the words are COLOR_BG_SECTION; so is the icon.
+        self._icon(self.resume_button, "resume_from", color=lambda: _theme.COLOR_BG_SECTION,
+                   px=self._LABEL_ICON_PX)
         self.resume_button.setToolTip("Resume from where you left off")
         _theme.style(self.resume_button, "DETAIL_RESUME_BTN")
         self.resume_button.clicked.connect(self.resume_clicked)
         self.resume_button.hide()
 
         # --- Rail: infrequent icon-only actions --------------------------------
-        self.favorite_button = self._mk(self.config.unfavorite_icon, "Add to Favorites")
+        self.favorite_button = self._mk("unfavorite", "Add to Favorites")
         self.favorite_button.clicked.connect(self.favorite_clicked)
 
         # Queue ("Watch Later") is a tier-2 action: a full-width labeled button in
@@ -250,13 +271,10 @@ class _ActionBar(QWidget):
         # most-likely follow-up to "not right now".  _PosterSection.set_action_buttons
         # reparents it there; state reads via :checked + tooltip.
         self.queue_button = _SteppedLabelButton(
-            (
-                f"{self.config.queue_icon} Watch Later",
-                f"{self.config.queue_icon} Later",
-                self.config.queue_icon,
-            ),
+            ("Watch Later", "Later", ""),
             self,
         )
+        self._icon(self.queue_button, "watch_later", px=self._LABEL_ICON_PX)
         self.queue_button.setCheckable(True)
         _theme.style(self.queue_button, "DETAIL_SECONDARY_BTN")
         self.queue_button.setToolTip("Add to Watch Later")
@@ -274,7 +292,8 @@ class _ActionBar(QWidget):
         # the times mpv's extractor is out of date or the viewer wants the page
         # (comments, related, a different quality). The icon trails the word
         # because the label is the noun and the glyph is the verb applied to it.
-        self.trailer_button = QPushButton(f"Trailer {self.config.play_icon}", self)
+        self.trailer_button = QPushButton("Trailer", self)
+        self._icon(self.trailer_button, "play", px=self._LABEL_ICON_PX)
         self.trailer_button.setToolTip(
             "Play the trailer  ·  right-click for more")
         _theme.style(self.trailer_button, "DETAIL_SECONDARY_BTN")
@@ -286,29 +305,31 @@ class _ActionBar(QWidget):
         _cursor.set_clickable(self.trailer_button)
         self.trailer_button.hide()
 
-        self.hide_button = self._mk(self.config.hide_icon, "Hide this channel from all views")
+        self.hide_button = self._mk("hide", "Hide this channel from all views")
         # hide/unhide wired in _sync_hide_button (it reconnects on state change)
 
         # Sentiment actions — VOD only (shown via set_mode)
-        self.like_button = self._mk(self.config.like_icon, "Like", checkable=True)
+        self.like_button = self._mk("like", "Like", checkable=True)
         self.like_button.clicked.connect(self._on_like_clicked)
         self.like_button.hide()
 
         self.not_interested_button = self._mk(
-            self.config.not_interested_icon,
+            "not_interested",
             "Not Interested — suppress from recommendations",
             checkable=True,
         )
         self.not_interested_button.clicked.connect(self._on_not_interested_clicked)
         self.not_interested_button.hide()
 
-        self.dislike_button = self._mk(self.config.dislike_icon, "Dislike", checkable=True)
+        self.dislike_button = self._mk("dislike", "Dislike", checkable=True)
         self.dislike_button.clicked.connect(self._on_dislike_clicked)
         self.dislike_button.hide()
 
         # Watchlist — live only (shown via set_mode)
         self.watchlist_button = self._mk(
-            _icons.watch_later_icon, "Add current show to watchlist patterns", checkable=True
+            # The EPG watchlist (alarm), not Watch Later (bookmark): it shared
+            # Watch Later's glyph while meaning something else.
+            "watchlist", "Add current show to watchlist patterns", checkable=True
         )
         self.watchlist_button.clicked.connect(self.watchlist_clicked)
         self.watchlist_button.hide()
@@ -317,7 +338,7 @@ class _ActionBar(QWidget):
         # for a wrong/mismatched guide link. set_epg_link_blocked() flips the tooltip
         # to the "Re-link EPG data" inverse once the channel is blocked.
         self.clear_epg_link_button = self._mk(
-            _icons.clear_epg_link_icon,
+            "clear_epg_link",
             "Clear wrong guide data — unlink this channel's EPG",
         )
         self.clear_epg_link_button.clicked.connect(self.clear_epg_link_clicked)
@@ -326,7 +347,7 @@ class _ActionBar(QWidget):
         # Alert / monitor — series only (shown via set_monitorable).  Uses the
         # alert style: the siren glows red when alerting (:checked).
         self.monitor_button = self._mk(
-            _icons.alert_icon, "Alert me to new episodes of this series",
+            "alert", "Alert me to new episodes of this series",
             checkable=True, style=_theme.DETAIL_RAIL_BTN_ALERT,
         )
         self.monitor_button.clicked.connect(self._on_monitor_clicked)
@@ -390,7 +411,7 @@ class _ActionBar(QWidget):
         # themes a widget with no stylesheet, which is what it is for.
         menu = QMenu(self.trailer_button)
         menu.addAction(
-            f"Play trailer {self.config.play_icon}"
+            _icon_utils.role_icon("play"), "Play trailer"
         ).triggered.connect(self.trailer_clicked)
         menu.addAction(
             "Play trailer on YouTube"
@@ -433,10 +454,10 @@ class _ActionBar(QWidget):
         self.resume_button.setVisible(can_resume)
         if can_resume and position_s > 0:
             minutes, secs = divmod(int(position_s), 60)
-            self.resume_button.setText(f"{_icons.resume_from_icon} Resume {minutes}:{secs:02d}")
+            self.resume_button.setText(f"Resume {minutes}:{secs:02d}")
             self.resume_button.setToolTip(f"Resume from {minutes}:{secs:02d}")
         else:
-            self.resume_button.setText(f"{_icons.resume_from_icon} Resume")
+            self.resume_button.setText("Resume")
             self.resume_button.setToolTip("Resume from where you left off")
 
     # ------------------------------------------------------------------ #
@@ -464,20 +485,25 @@ class _ActionBar(QWidget):
     def _apply_primary_label(self) -> None:
         """Stamp the primary button's text + tooltip for the current ``_primary_mode``."""
         if self._primary_mode == "browse":
-            self.play_button.setText(f"{_icons.browse_icon} Browse")
+            self.play_button.setText("Browse")
+            self._paint_primary_icon("browse")
             self.play_button.setToolTip("Browse seasons & episodes")
         elif self._primary_mode == "episode":
             code = self._episode_code
-            self.play_button.setText(
-                f"{_icons.play_icon} Play Episode: {code}" if code
-                else f"{_icons.play_icon} Play Episode"
-            )
+            self.play_button.setText(f"Play Episode: {code}" if code else "Play Episode")
+            self._paint_primary_icon("play")
             self.play_button.setToolTip(
                 f"Play this episode ({code})" if code else "Play this episode"
             )
         else:
-            self.play_button.setText(f"{self.config.play_icon} Play")
+            self.play_button.setText("Play")
+            self._paint_primary_icon("play")
             self.play_button.setToolTip("Play from the beginning")
+
+    def _paint_primary_icon(self, role: str) -> None:
+        """The primary button's icon, in the colour its current style gives the words."""
+        color = (lambda: _theme.COLOR_OK) if self._is_playing else (lambda: _theme.COLOR_TEXT)
+        self._icon(self.play_button, role, color=color, px=self._LABEL_ICON_PX)
 
     def enter_episode_mode(self, episode_code: str = "") -> None:
         """Configure the action bar for an episode selected in the series tree.
@@ -572,6 +598,7 @@ class _ActionBar(QWidget):
         self._playing_base_pos = float(position_seconds or 0.0)
         self._playing_base_ts = time.monotonic()
         _theme.style(self.play_button, "DETAIL_PLAY_BTN_PLAYING")
+        self._paint_primary_icon("play")   # green with the words
         if self._playing_timer is None:
             self._playing_timer = QTimer(self)
             self._playing_timer.setInterval(1000)
@@ -588,7 +615,8 @@ class _ActionBar(QWidget):
         if self._playing_timer is not None:
             self._playing_timer.stop()
         _theme.style(self.play_button, "DETAIL_PLAY_BTN")
-        self.play_button.setText(f"{self.config.play_icon} Play")
+        self.play_button.setText("Play")
+        self._paint_primary_icon("play")
         self.play_button.setToolTip("Play from the beginning")
 
     def _current_playing_position(self) -> float:
@@ -600,7 +628,7 @@ class _ActionBar(QWidget):
         if not self._is_playing:
             return
         elapsed = _fmt_elapsed(self._current_playing_position())
-        self.play_button.setText(f"{_icons.play_icon} {elapsed}")
+        self.play_button.setText(elapsed)
         self.play_button.setToolTip(f"Now playing — {elapsed}")
 
     def update_favorite(self, is_favorite: bool) -> None:
@@ -609,14 +637,14 @@ class _ActionBar(QWidget):
         """
         suffix = f" {self._episode_code}" if (self._primary_mode == "episode" and self._episode_code) else ""
         if is_favorite:
-            self.favorite_button.setText(self.config.favorite_icon)
+            # A filled heart in the favourite colour (owner, 2026-10-19: hearts,
+            # in colour; stars are ratings now). Not :checkable, so the state is
+            # the icon + DETAIL_RAIL_BTN_FAV's border, swapped here directly.
+            self._icon(self.favorite_button, "favorite", color=lambda: _theme.COLOR_FAVORITE)
             self.favorite_button.setToolTip(f"Remove{suffix} from Favorites")
-            # Favorited glows GOLD (the star fills yellow) — the favorite button is
-            # NOT :checkable, so the accent :checked rule can't reach it; swap the
-            # whole style directly (mirrors the alert/monitor button's style swap).
             _theme.style(self.favorite_button, "DETAIL_RAIL_BTN_FAV")
         else:
-            self.favorite_button.setText(self.config.unfavorite_icon)
+            self._icon(self.favorite_button, "unfavorite")
             self.favorite_button.setToolTip(f"Add{suffix} to Favorites")
             _theme.style(self.favorite_button, "DETAIL_RAIL_BTN")
 

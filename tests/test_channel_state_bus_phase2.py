@@ -46,26 +46,27 @@ def test_action_bar_load_applies_favorite_star(qtbot):
     qtbot.addWidget(ab)
 
     ab.load(ChannelActionState(channel_id="c1", is_favorite=True))
-    fav_text = ab.favorite_button.text()
+    from metatv.gui import icon_utils
+    fav_role = icon_utils.button_role(ab.favorite_button)
     fav_tooltip = ab.favorite_button.toolTip()
     fav_style = ab.favorite_button.styleSheet()
 
-    assert fav_text == cfg.favorite_icon
+    assert fav_role == "favorite"
     assert "Remove" in fav_tooltip and "Favorites" in fav_tooltip
     assert fav_style == _theme.DETAIL_RAIL_BTN_FAV
 
     ab.load(ChannelActionState(channel_id="c1", is_favorite=False))
-    unfav_text = ab.favorite_button.text()
+    unfav_role = icon_utils.button_role(ab.favorite_button)
     unfav_tooltip = ab.favorite_button.toolTip()
     unfav_style = ab.favorite_button.styleSheet()
 
-    assert unfav_text == cfg.unfavorite_icon
+    assert unfav_role == "unfavorite"
     assert "Add" in unfav_tooltip and "Favorites" in unfav_tooltip
     assert unfav_style == _theme.DETAIL_RAIL_BTN
 
     # The two states must be genuinely distinct — a rendering where both
     # states look identical must not satisfy this test.
-    assert fav_text != unfav_text
+    assert fav_role != unfav_role
     assert fav_style != unfav_style
 
 
@@ -80,13 +81,14 @@ def test_action_bar_load_does_not_clobber_episode_favorite(qtbot):
 
     ab.set_primary_mode("episode")
     ab.set_episode_queue_favorite(in_queue=False, is_favorite=True)
-    assert ab.favorite_button.text() == cfg.favorite_icon
+    from metatv.gui import icon_utils
+    assert icon_utils.button_role(ab.favorite_button) == "favorite"
 
     # A late-arriving SERIES-level fetch with is_favorite=False races in —
     # must not clobber the episode-scoped star.
     ab.load(ChannelActionState(channel_id="series-1", is_favorite=False))
 
-    assert ab.favorite_button.text() == cfg.favorite_icon  # unchanged
+    assert icon_utils.button_role(ab.favorite_button) == "favorite"  # unchanged
     assert ab.favorite_button.styleSheet() == _theme.DETAIL_RAIL_BTN_FAV  # unchanged
 
 

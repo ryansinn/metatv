@@ -38,12 +38,11 @@ def _make_config():
     return Config()
 
 
-def test_favorite_button_is_gold_when_favorited(qapp):
-    """Favorited state must be an unmistakable GOLD star, not gray-on-gray.
-
-    The favorite rail button is not ``:checkable`` (state = icon-swap ☆→★), so the
-    accent ``:checked`` rule can't reach it — ``update_favorite`` swaps in the gold
-    ``DETAIL_RAIL_BTN_FAV`` style and reverts to the plain rail style when cleared.
+def test_favorite_button_is_a_coloured_heart_when_favorited(qapp):
+    """Favorited state is a filled heart in COLOR_FAVORITE (owner, 2026-10-19:
+    hearts, in colour; stars are ratings), with the favourite-coloured border
+    of ``DETAIL_RAIL_BTN_FAV``; cleared, it is the outline heart and the plain
+    rail style. The button is not ``:checkable``, so the state is swapped here.
     """
     from metatv.gui.details_actions import _ActionBar
     from metatv.gui import theme as _theme
@@ -52,13 +51,12 @@ def test_favorite_button_is_gold_when_favorited(qapp):
 
     bar.update_favorite(True)
     on = bar.favorite_button.styleSheet()
-    assert on == _theme.DETAIL_RAIL_BTN_FAV, "favorited → gold rail style"
-    # The gold TOKEN, not the CSS keyword. COLOR_GOLD was literally the string
-    # "gold" until the palette became derived; asserting the keyword pinned an
-    # implementation detail, not the requirement (that favorited reads as gold).
-    assert _theme.COLOR_GOLD.lower() in on.lower(), (
-        "favorited style must use the gold colour token"
+    assert on == _theme.DETAIL_RAIL_BTN_FAV, "favorited → favourite rail style"
+    assert _theme.COLOR_FAVORITE.lower() in on.lower(), (
+        "favorited style must use the favourite colour token"
     )
+    from metatv.gui import icon_utils
+    assert icon_utils.button_role(bar.favorite_button) == "favorite"
     assert on != _theme.DETAIL_RAIL_BTN, "favorited must look different from unfavorited"
 
     bar.update_favorite(False)

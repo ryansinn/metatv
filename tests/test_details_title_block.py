@@ -68,16 +68,20 @@ def _genre_chips(section) -> dict[str, QPushButton]:
     return out
 
 
-def test_rating_has_no_star_and_plain_text_is_number_over_ten(qapp):
+def test_rating_is_five_stars_with_the_number_on_hover(qapp):
+    """Owner, 2026-10-19: five stars, one half per point; the number moves to
+    the tooltip. 8.0 → four full stars and one empty."""
+    import qtawesome as qta
     section = _MetadataSection(_make_config())
     section.load_basic(_stub_movie())
     section.load_metadata(MetadataResult(rating=8.0))
 
-    assert not any("★" in t for t in _all_texts(section)), (
-        "no widget in the title block may show a star glyph for the rating"
-    )
-    plain = re.sub(r"<[^>]+>", "", section.rating_label.text())
-    assert plain == "8.0 / 10", f"expected plain rating text '8.0 / 10', got {plain!r}"
+    chars = re.findall(r"&#x([0-9a-f]+);", section.rating_label.text())
+    full = f"{ord(qta.charmap('mdi6.star')):x}"
+    empty = f"{ord(qta.charmap('mdi6.star-outline')):x}"
+    assert chars == [full] * 4 + [empty], chars
+    assert "8.0 / 10" in section.rating_label.toolTip()
+    assert "8.0" not in re.sub(r"<[^>]+>", "", section.rating_label.text())
 
 
 def test_byline_includes_runtime_and_content_rating(qapp):

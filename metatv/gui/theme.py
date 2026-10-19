@@ -418,22 +418,17 @@ def _build_semantic_constants() -> dict[str, object]:
     OVERLAY_GOLD_18 = "rgba(255,215,0,0.18)"
     OVERLAY_GOLD_28 = "rgba(255,215,0,0.28)"
 
-    # Favorite rail button, FAVORITED state — glows GOLD (the star fills yellow): on-brand
-    # (favorite = gold star) and unmistakable.  The favorite button is NOT :checkable
-    # (state is icon-swap ☆→★), so the accent :checked fix couldn't reach it — this whole
-    # style is swapped in via update_favorite() rather than a :checked rule.
-    # FAVOURITED is a STATE, so it gets a solid fill (the same rule the results
-    # row follows) with COLOR_ON_BRIGHT on it. It used to paint gold text on an
-    # 18% gold TINT — the same hue at two lightnesses. That reads acceptably on
-    # a dark app and collapses to 1.32:1 on Daylight, where the tint composites
-    # to pale yellow and the gold sits almost invisibly on it. Solid gold also
-    # says "on" far more clearly than a wash of the same colour.
+    # Favorite rail button, FAVORITED state. The heart itself carries the colour
+    # (COLOR_FAVORITE, filled — icon_utils paints it), so the button keeps the
+    # card surface and takes a favourite-coloured border: a coloured glyph on its
+    # own background, never the same hue on a tint of itself (the old gold fill
+    # measured 1.32:1 on Daylight before it became solid). Owner, 2026-10-19:
+    # favourites are hearts, in colour; stars are ratings.
     DETAIL_RAIL_BTN_FAV = (
-        "QPushButton { border: 1px solid " + COLOR_GOLD + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 4px " + SPACE_XS + "; font-size: " + FONT_2XL + "; background: " + COLOR_GOLD + ";"
-        " color: " + COLOR_ON_BRIGHT + "; }"
-        "QPushButton:hover { background: " + COLOR_GOLD_LIGHT + "; color: " + COLOR_ON_BRIGHT + ";"
-        " border-color: " + COLOR_GOLD_LIGHT + "; }"
+        "QPushButton { border: 1px solid " + COLOR_FAVORITE + "; border-radius: " + RADIUS_SM + ";"
+        " padding: 4px " + SPACE_XS + "; font-size: " + FONT_2XL + "; background: " + COLOR_BG_CARD + ";"
+        " color: " + COLOR_TEXT + "; }"
+        "QPushButton:hover { background: " + COLOR_SURFACE_LIGHT_2 + "; border-color: " + COLOR_FAVORITE + "; }"
     )
 
     # Alert/monitor rail button in the "new matched content" state — the reserved
