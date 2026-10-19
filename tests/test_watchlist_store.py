@@ -174,6 +174,29 @@ def test_the_seam_behaves_identically_on_either_store(config, db, scenario):
     assert watchlist.patterns(config) == ()
 
 
+def test_a_write_committing_during_a_read_is_not_lost(db, monkeypatch):
+    """The queue is snapshotted BEFORE the rows are read.
+
+    Deterministic replay of #956's macOS failure: the rows are read while a
+    remove is still queued, and the writer commits it (dropping it from the
+    queue) before the replay looks. Snapshotting after the read saw neither
+    the commit nor the queued write, and the removed rule came back.
+    """
+    watchlist.bind(db)
+    remove = watchlist._PendingWrite(op=watchlist._OP_REMOVE, text="NRL")
+    with watchlist._lock:
+        watchlist._pending.append(remove)
+
+    def stale_rows_then_commit():
+        rows = ["NRL"]                      # read before the delete committed
+        with watchlist._lock:
+            watchlist._pending.remove(remove)   # ...which now lands
+        return rows
+
+    monkeypatch.setattr(watchlist, "_db_patterns", stale_rows_then_commit)
+    assert watchlist.patterns(None) == ()
+
+
 # ── failure ─────────────────────────────────────────────────────────────────
 
 class _BrokenDb:

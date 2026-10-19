@@ -221,8 +221,15 @@ def patterns(config: "Config") -> tuple[str, ...]:
         is exactly how ``config.epg_watchlist_patterns.append(...)`` used to
         write through to config without saving it.
     """
-    stored = (_apply_pending(_db_patterns()) if _db is not None
-              else _config_patterns(config))
+    if _db is not None:
+        # Snapshot the queue BEFORE reading the rows. Read after, a write that
+        # commits in between is in neither — the rows predate it and the queue
+        # has dropped it — so a removed rule reappeared for one read (#956's
+        # macOS CI). Replaying a write the rows already hold is a no-op.
+        queued = _pending_snapshot()
+        stored = _apply_pending(_db_patterns(), queued)
+    else:
+        stored = _config_patterns(config)
     seen: set[str] = set()
     out: list[str] = []
     for raw in stored:
@@ -253,8 +260,9 @@ def rules(config: "Config") -> "tuple[WatchRule, ...]":
     """
     from metatv.core.watchlist_matching import WatchRule
 
+    pending_fields = _pending_rule_fields()   # before the read — see patterns()
     flags = _db_rule_flags() if _db is not None else {}
-    for key, queued in _pending_rule_fields().items():
+    for key, queued in pending_fields.items():
         flags.setdefault(key, {}).update(queued)
     return tuple(WatchRule(term=term, **flags.get(term.casefold(), {}))
                  for term in patterns(config))
@@ -446,17 +454,25 @@ def remove(config: "Config", pattern: str) -> bool:
 
 # ── the write queue ──────────────────────────────────────────────────────────
 
-def _apply_pending(stored: list) -> list:
+def _pending_snapshot() -> "list[_PendingWrite]":
+    """The queued writes right now — taken before the rows are read."""
+    with _lock:
+        return list(_pending)
+
+
+def _apply_pending(stored: list, queued: "list[_PendingWrite]") -> list:
     """Replay queued writes over *stored* so a read never shows a stale answer.
 
     Args:
-        stored: The rows the database currently holds.
+        stored: The rows the database held when read.
+        queued: :func:`_pending_snapshot`, taken BEFORE *stored* was read, so
+            every write the rows might be missing is in it. A write the rows
+            already include replays as a no-op (add-if-absent,
+            remove-if-present), which is what makes the early snapshot safe.
 
     Returns:
         What the list looks like once every queued write has landed.
     """
-    with _lock:
-        queued = list(_pending)
     if not queued:
         return stored
     out = list(stored)
