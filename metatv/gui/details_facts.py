@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 from metatv.core.channel_name_utils import content_type_display
 from metatv.core.stream_info import display_rows, measured_caption, summarize
 from metatv.core.tag_provenance import group_label, guess_reason, strongest_kind
+from metatv.core.time_display import iso_date_text
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.qt_text_utils import escape_mnemonic
@@ -269,7 +270,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             rows["original"] = [(self._original_language, None, None, False,
                                  "TMDb" if self._metadata_from_tmdb else "reported by source")]
         if self._release_date:
-            rows["released"] = [(self._release_date, None, None, False,
+            rows["released"] = [(iso_date_text(self._release_date), None, None, False,
                                  "TMDb" if self._metadata_from_tmdb else self._provider_name)]
         total = sum(len(v) for v in rows.values()) + len(self._stream_rows)
 

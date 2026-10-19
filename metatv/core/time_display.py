@@ -85,6 +85,32 @@ def date_text(dt: datetime) -> str:
     return local_strftime(dt, DATE_FORMATS[_style["date"]][0])
 
 
+def iso_date_text(value: "str | None") -> str:
+    """A STORED ISO date or timestamp, in the user's date style.
+
+    Providers and our own records keep dates as text (``"2025-06-05"``,
+    ``"2026-10-19T07:58:01+00:00"``); shown raw, they ignore the Date Format
+    setting. A timestamp with a zone is converted to local time first, so the
+    day is the user's day. A value that is not ISO is returned as it came.
+
+    Args:
+        value: The stored text, or ``None``.
+
+    Returns:
+        The formatted date, the original text, or ``""`` for nothing.
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    if dt.tzinfo is not None:
+        dt = dt.astimezone()
+    return date_text(dt)
+
+
 def short_date_text(dt: datetime) -> str:
     """A date in the current year: ``4 Aug`` / ``Aug 4`` / ``08-04``."""
     return local_strftime(dt, DATE_FORMATS[_style["date"]][1])
