@@ -61,7 +61,7 @@ an unbuilt slice on a future sweep.
 | 19 | Details: sections collapsible with remembered state | `details_section_header.py` | ✅ #453 — one `CollapsibleHeader`; all six sections, Overview and Also-available included, each with its own key |
 | 20 | Language badge Filled/Outline/Off setting (R12/Q5) | `settings`, delegate | ❌ |
 | 21 | Accent as its own axis — 6 hues × 2 modes (R14) | `theme_palettes` | ❌ |
-| 22 | Inter bundled (O5) | `metatv/assets/fonts/` | ✅ #445 — Inter + a 7 KB 48-glyph Material Symbols subset, with `scripts/build_font_assets.py` |
+| 22 | Inter bundled (O5) | `metatv/assets/fonts/` | ✅ #445 — Inter, with `scripts/build_font_assets.py` (the Material Symbols subset shipped here was removed 2026-10-19: icons are mdi6 only) |
 | 23 | Option D — brand becomes the switcher, as a Settings option | `main_window` | ❌ |
 | 24 | Series seasons/episode counts on the row meta line | DTO + repo | ❌ not plumbed |
 | 25 | Configurable details layout (Q20) | — | ⏸ own slice |

@@ -213,6 +213,59 @@ def _clear_vector_pixmap_cache() -> None:
     _VECTOR_PIXMAP_CACHE.clear()
 
 
+# ── A ROLE, three ways (one icon set, 2026-10-19) ───────────────────────────
+#
+# Every icon is a role in ``icons.VECTOR_KEYS`` drawn from mdi6. These are the
+# three shapes a call site needs, so none of them reaches for a text glyph:
+# a QIcon (actions, menus), a pixmap (painted rows), and an inline glyph for
+# a QLabel's rich text ("[icon] 3 new").
+
+
+def role_icon(role: str, color: str | None = None) -> QIcon:
+    """The QIcon for a semantic *role*, painted in *color* (default ``COLOR_TEXT``).
+
+    Raises:
+        KeyError: *role* is not in ``icons.VECTOR_KEYS``.
+    """
+    return resolve_icon(_icons.vector_key(role),
+                        color=color if color is not None else _theme.COLOR_TEXT)
+
+
+def role_pixmap(role: str, color: str, size: int = 16) -> object:
+    """A cached, DPR-correct pixmap of *role* — see :func:`vector_pixmap`."""
+    return vector_pixmap(_icons.vector_key(role), color, size)
+
+
+def role_html(role: str, color: str | None = None, px: int | None = None) -> str:
+    """*role* as an inline rich-text glyph, for a label that mixes icon and words.
+
+    The mdi6 font, addressed by codepoint, inside a ``<span>`` — so the icon
+    sits on the text baseline and scales with it, and the label stays one
+    widget. The label must use ``Qt.TextFormat.RichText`` and the caller must
+    HTML-escape any text around it.
+
+    Args:
+        role: A key of ``icons.VECTOR_KEYS``.
+        color: A CSS colour (a theme token's value); omitted, the glyph takes
+            the label's own colour.
+        px: Pixel size; omitted, the label's font size.
+
+    Raises:
+        KeyError: *role* is not in ``icons.VECTOR_KEYS``.
+    """
+    import qtawesome as qta
+
+    key = _icons.vector_key(role)
+    char = qta.charmap(key)
+    family = qta.font(key.split(".", 1)[0], px or 12).family()
+    style = f"font-family:'{family}';"
+    if color:
+        style += f" color:{color};"
+    if px:
+        style += f" font-size:{px}px;"
+    return f'<span style="{style}">&#x{ord(char):x};</span>'
+
+
 # ---------------------------------------------------------------------------
 # Icon-only QPushButton factory (ICON-1)
 # ---------------------------------------------------------------------------

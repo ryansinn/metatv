@@ -102,3 +102,24 @@ def test_expand_collapse_chevrons_point_the_correct_direction(_app) -> None:
         "DOWN-pointing mdi6.chevron-down glyph"
     )
     assert expand_bits != collapse_bits, "closed and open must not share a glyph"
+
+
+def test_a_role_draws_three_ways(_app) -> None:
+    """One icon set: a role is a QIcon, a pixmap, or an inline glyph in a label."""
+    from metatv.gui import icon_utils
+    assert not icon_utils.role_icon("watch_later").isNull()
+    assert not icon_utils.role_pixmap("favorite", "#e0607a", 16).isNull()
+    html = icon_utils.role_html("news", color="#ffffff", px=14)
+    assert "Material Design Icons" in html and "&#x" in html and "14px" in html
+
+
+def test_the_owners_picks_hold(_app) -> None:
+    """2026-10-19: favourite is a heart (stars are ratings now), Watch Later a
+    bookmark, new-alerts the bell with a dot, and one icon set — no Material
+    Symbols font beside mdi6."""
+    from metatv.gui import fonts, icons
+    assert icons.vector_key("favorite") == "mdi6.heart"
+    assert icons.vector_key("unfavorite") == "mdi6.heart-outline"
+    assert icons.vector_key("watch_later") == "mdi6.bookmark-outline"
+    assert icons.vector_key("news") == "mdi6.bell-badge-outline"
+    assert not list(fonts.ASSET_DIR.glob("MetaTVIcons*"))
