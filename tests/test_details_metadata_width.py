@@ -274,8 +274,10 @@ def test_genres_wrap_within_viewport_despite_forcing_sibling(qapp, tmp_path):
     # Every genre chip renders at full content width (no squeeze/elision) and sits
     # entirely within the container (no off-edge clipping).
     layout = pane._meta._genres_layout
-    assert layout.count() == 9
-    for i in range(layout.count()):
+    # The genre chips only: the (hidden) collection chip shares this row.
+    chip_idx = [i for i in range(layout.count()) if layout.itemAt(i).widget().property("genre")]
+    assert len(chip_idx) == 9
+    for i in chip_idx:
         chip = layout.itemAt(i).widget()
         geom = chip.geometry()
         assert geom.width() >= chip.sizeHint().width(), (

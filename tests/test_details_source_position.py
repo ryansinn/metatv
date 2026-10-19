@@ -27,10 +27,22 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+_MADE: list = []
+
+
+@pytest.fixture(autouse=True)
+def _destroy_sections():
+    yield
+    from tests.conftest import destroy_widget
+    destroy_widget(*_MADE)
+    _MADE.clear()
+
+
 def _section():
     from metatv.core.config import Config
     from metatv.gui.details_title import _MetadataSection
-    return _MetadataSection(Config())
+    _MADE.append(_MetadataSection(Config()))
+    return _MADE[-1]
 
 
 def _channel(**kw):
@@ -84,7 +96,8 @@ def test_source_shares_the_byline_row_and_rating_shares_the_genre_row(qapp):
 
     assert title_idx == byline_idx + 1, "the byline sits immediately above the title"
     assert source_idx == byline_idx, "the source chip sits on the byline's row"
-    assert genres_idx == title_idx + 1, "genres render under the title"
+    # Below the title, not directly: the episode line sits between them (#920).
+    assert genres_idx > title_idx, "genres render under the title"
     assert rating_idx == title_idx, "the rating shares the title's line"
 
 

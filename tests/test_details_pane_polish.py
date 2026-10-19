@@ -115,7 +115,7 @@ def test_genre_load_populates_flow_container(qapp, owned_widgets):
     assert isinstance(section._genres_layout, _FlowLayout), (
         "Genre row must use _FlowLayout so chips can wrap at the panel width"
     )
-    chip_texts = {c.text() for c in section._genres_container.findChildren(QPushButton)}
+    chip_texts = {c.text() for c in [c for c in section._genres_container.findChildren(QPushButton) if c.property("genre")]}
     assert chip_texts == {"Action", "Drama", "Science Fiction"}, (
         f"Expected one chip per genre; got {chip_texts}"
     )
@@ -133,7 +133,7 @@ def test_genre_chip_click_emits_genre_clicked(qapp, owned_widgets):
     emitted: list[str] = []
     section.genre_clicked.connect(lambda g: emitted.append(g))
 
-    chips = section._genres_container.findChildren(QPushButton)
+    chips = [c for c in section._genres_container.findChildren(QPushButton) if c.property("genre")]
     sf_chip = next((c for c in chips if c.text() == "Science Fiction"), None)
     assert sf_chip is not None, "Should have a 'Science Fiction' chip button"
     sf_chip.click()
@@ -226,7 +226,7 @@ def test_comma_joined_genres_split_into_separate_chips(qapp, owned_widgets):
     section.load_metadata(MetadataResult(
         genres=["Animation, Action, Adventure, Comedy, Drama, Science Fiction"]
     ))
-    chip_texts = {c.text() for c in section._genres_container.findChildren(QPushButton)}
+    chip_texts = {c.text() for c in [c for c in section._genres_container.findChildren(QPushButton) if c.property("genre")]}
     assert chip_texts == {
         "Animation", "Action", "Adventure", "Comedy", "Drama", "Science Fiction"
     }, f"comma-joined genres must split into one chip each; got {chip_texts}"
@@ -273,7 +273,7 @@ def test_ampersand_genre_not_split(qapp, owned_widgets):
     section.load_metadata(MetadataResult(genres=["Sci-Fi & Fantasy, Action"]))
     chip_texts = {
         c.text().replace("&&", "&")
-        for c in section._genres_container.findChildren(QPushButton)
+        for c in [c for c in section._genres_container.findChildren(QPushButton) if c.property("genre")]
     }
     assert chip_texts == {"Sci-Fi & Fantasy", "Action"}, (
         f"'&' must not split a genre; got {chip_texts}"
@@ -288,7 +288,7 @@ def test_duplicate_genres_deduped(qapp, owned_widgets):
 
     section = owned_widgets.own(_MetadataSection(_make_config()))
     section.load_metadata(MetadataResult(genres=["Action, Drama", "drama / Action"]))
-    chips = [c.text() for c in section._genres_container.findChildren(QPushButton)]
+    chips = [c.text() for c in [c for c in section._genres_container.findChildren(QPushButton) if c.property("genre")]]
     assert sorted(chips) == ["Action", "Drama"], (
         f"duplicate genres (case-insensitive) must collapse to one chip; got {chips}"
     )

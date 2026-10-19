@@ -49,10 +49,7 @@ from metatv.core.channel_name_utils import (
     strip_collection_noise_tokens,
 )
 from metatv.core.content_labels import (
-    AI_VOICEOVER_VALUE,
-    AGE_RATING_PREFIXES,
-    detect_ai_provenance,
-    is_restricted,
+    AI_VOICEOVER_VALUE, AGE_RATING_PREFIXES, detect_ai_provenance, is_restricted,
 )
 from metatv.core.quality_vocab import QUALITY_TOKENS
 from metatv.core.region_codes import (

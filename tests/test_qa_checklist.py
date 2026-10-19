@@ -714,7 +714,8 @@ def test_header_link_falls_back_to_date_when_no_git(qapp, tmp_path):
     lbl = win._ref_labels.get(102)
     assert lbl is not None
     assert "href" not in lbl.text()
-    assert "2026-06-23" in lbl.text()
+    from metatv.core.time_display import iso_date_text   # follows Settings → Date Format
+    assert iso_date_text("2026-06-23") in lbl.text()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

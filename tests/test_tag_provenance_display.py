@@ -300,7 +300,8 @@ class TestDetailsSectionRender:
         sec = self._make_section(owned_widgets)
         sec.load_metadata(SimpleNamespace(release_date="2024-12-20", provider_name="TMDb"))
         assert sec.isVisible()
-        assert any(w.text() == "2024-12-20" for w in sec.findChildren(QLabel))
+        from metatv.core.time_display import iso_date_text   # follows Settings → Date Format
+        assert any(w.text() == iso_date_text("2024-12-20") for w in sec.findChildren(QLabel))
         assert self._captions(sec) == ["· TMDb"]
 
     def test_clear_hides_section(self, qapp, owned_widgets):
