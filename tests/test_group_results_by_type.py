@@ -61,8 +61,6 @@ def _grouped_model(qapp, dtos, *, collapsed=None):
         show_provider_icon=False,
         has_more=False,
         query_params={},
-        favorite_icon="★",
-        unfavorite_icon="☆",
     )
     return model
 
@@ -198,14 +196,15 @@ def test_update_favorite_repaints_correct_grouped_row(qapp):
     ]
     model = _grouped_model(qapp, dtos)
     model.update_favorite("l1", True)
-    # Find the live channel row and confirm the favorite glyph flipped.
-    live_text = next(
-        model.index(r, 0).data(Qt.ItemDataRole.DisplayRole)
+    # Find the live channel row and confirm the favourite role flipped.
+    from metatv.gui.channel_list_roles import FAV_GLYPH_ROLE
+    live_idx = next(
+        model.index(r, 0)
         for r in range(model.rowCount())
         if model.index(r, 0).data(ROW_KIND_ROLE) == "channel"
         and "Liv" in model.index(r, 0).data(Qt.ItemDataRole.DisplayRole)
     )
-    assert "★" in live_text and "☆" not in live_text
+    assert live_idx.data(FAV_GLYPH_ROLE) == "favorite"
 
 
 # ---------------------------------------------------------------------------

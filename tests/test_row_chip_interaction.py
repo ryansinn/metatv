@@ -53,7 +53,7 @@ def _painted_delegate(qapp, dto=None) -> ChannelRowDelegate:
     model = ChannelListModel()
     model.set_channels(
         [dto or _dto()], provider_icon_map={}, show_provider_icon=False,
-        has_more=False, query_params={}, favorite_icon="", unfavorite_icon="",
+        has_more=False, query_params={},
         get_media_type_icon=lambda mt: "",
     )
     delegate = ChannelRowDelegate()
@@ -102,7 +102,7 @@ class TestHitRegions:
         model = ChannelListModel()
         model.set_channels(
             [_dto()], provider_icon_map={}, show_provider_icon=False,
-            has_more=False, query_params={}, favorite_icon="", unfavorite_icon="",
+            has_more=False, query_params={},
             get_media_type_icon=lambda mt: "",
         )
         delegate = ChannelRowDelegate()

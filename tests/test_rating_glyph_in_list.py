@@ -17,6 +17,11 @@ import pytest
 
 from metatv.core.repositories.dtos import ChannelListDTO
 
+# The plain row carries the rating as words; the delegate paints the icon
+# from RATING_ROLE.
+_LIKED = " · liked"
+_DISLIKED = " · disliked"
+
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -61,8 +66,6 @@ def _make_model(qapp, *dtos):
         show_provider_icon=False,
         has_more=False,
         query_params={},
-        favorite_icon="★",
-        unfavorite_icon="☆",
         partial_threshold_pct=10,
     )
     return model
@@ -212,52 +215,48 @@ def test_rating_repo_get_all_map_empty_when_no_ratings(tmp_path):
 def test_display_role_appends_like_glyph_for_liked_channel(qapp):
     """A liked channel (user_rating=1) must end its display text with 👍."""
     from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
 
     model = _make_model(qapp, _make_dto(user_rating=1, detected_title="Great Film"))
     text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
 
-    assert _icons.like_icon in text, f"Expected 👍 in display text, got: {text!r}"
-    assert _icons.dislike_icon not in text
+    assert _LIKED in text, f"Expected 👍 in display text, got: {text!r}"
+    assert _DISLIKED not in text
     assert "Great Film" in text
 
 
 def test_display_role_appends_dislike_glyph_for_disliked_channel(qapp):
     """A disliked channel (user_rating=-1) must end its display text with 👎."""
     from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
 
     model = _make_model(qapp, _make_dto(user_rating=-1, detected_title="Bad Film"))
     text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
 
-    assert _icons.dislike_icon in text, f"Expected 👎 in display text, got: {text!r}"
-    assert _icons.like_icon not in text
+    assert _DISLIKED in text, f"Expected 👎 in display text, got: {text!r}"
+    assert _LIKED not in text
     assert "Bad Film" in text
 
 
 def test_display_role_no_rating_glyph_for_unrated_channel(qapp):
     """An unrated channel (user_rating=0) must show neither 👍 nor 👎."""
     from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
 
     model = _make_model(qapp, _make_dto(user_rating=0, detected_title="Unrated Film"))
     text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
 
-    assert _icons.like_icon not in text, f"Unexpected 👍 in unrated row: {text!r}"
-    assert _icons.dislike_icon not in text, f"Unexpected 👎 in unrated row: {text!r}"
+    assert _LIKED not in text, f"Unexpected 👍 in unrated row: {text!r}"
+    assert _DISLIKED not in text, f"Unexpected 👎 in unrated row: {text!r}"
     assert "Unrated Film" in text
 
 
 def test_display_role_rating_glyph_is_trailing(qapp):
     """The rating glyph must appear after the title (not before it)."""
     from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
 
     model = _make_model(qapp, _make_dto(user_rating=1, detected_title="My Movie"))
     text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
 
     title_pos = text.find("My Movie")
-    glyph_pos = text.find(_icons.like_icon)
+    glyph_pos = text.find(_LIKED)
     assert title_pos != -1, "Title not in display text"
     assert glyph_pos > title_pos, (
         f"Rating glyph at {glyph_pos} must be after title at {title_pos} in {text!r}"
@@ -271,26 +270,24 @@ def test_display_role_rating_glyph_is_trailing(qapp):
 def test_tooltip_role_liked_channel(qapp):
     """A liked channel must return the 👍 tooltip string."""
     from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
 
     model = _make_model(qapp, _make_dto(user_rating=1))
     tip = model.index(0, 0).data(Qt.ItemDataRole.ToolTipRole)
 
     assert tip is not None
-    assert _icons.like_icon in tip
+    assert tip == "You rated this: liked"
     assert "rated" in tip.lower()
 
 
 def test_tooltip_role_disliked_channel(qapp):
     """A disliked channel must return the 👎 tooltip string."""
     from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
 
     model = _make_model(qapp, _make_dto(user_rating=-1))
     tip = model.index(0, 0).data(Qt.ItemDataRole.ToolTipRole)
 
     assert tip is not None
-    assert _icons.dislike_icon in tip
+    assert tip == "You rated this: disliked"
     assert "rated" in tip.lower()
 
 
@@ -311,7 +308,6 @@ def test_tooltip_role_unrated_channel_returns_none(qapp):
 def test_update_rating_like_updates_dto_and_display(qapp):
     """update_rating(id, 1) must update the DTO user_rating and show the like glyph."""
     from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
 
     dto = _make_dto(user_rating=0, detected_title="Good Film")
     model = _make_model(qapp, dto)
@@ -322,14 +318,13 @@ def test_update_rating_like_updates_dto_and_display(qapp):
     assert model._channels[0].user_rating == 1
     # DisplayRole must now contain the like glyph.
     text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
-    assert _icons.like_icon in text, f"Expected 👍 in display after update_rating(1), got: {text!r}"
-    assert _icons.dislike_icon not in text
+    assert _LIKED in text, f"Expected 👍 in display after update_rating(1), got: {text!r}"
+    assert _DISLIKED not in text
 
 
 def test_update_rating_clear_removes_glyph(qapp):
     """update_rating(id, 0) must clear user_rating and remove both glyphs from display."""
     from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
 
     dto = _make_dto(user_rating=1, detected_title="Cleared Film")
     model = _make_model(qapp, dto)
@@ -338,14 +333,13 @@ def test_update_rating_clear_removes_glyph(qapp):
 
     assert model._channels[0].user_rating == 0
     text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
-    assert _icons.like_icon not in text, f"Unexpected 👍 after clearing rating: {text!r}"
-    assert _icons.dislike_icon not in text, f"Unexpected 👎 after clearing rating: {text!r}"
+    assert _LIKED not in text, f"Unexpected 👍 after clearing rating: {text!r}"
+    assert _DISLIKED not in text, f"Unexpected 👎 after clearing rating: {text!r}"
 
 
 def test_update_rating_dislike_updates_dto_and_display(qapp):
     """update_rating(id, -1) must update the DTO user_rating and show the dislike glyph."""
     from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
 
     dto = _make_dto(user_rating=0, detected_title="Bad Film")
     model = _make_model(qapp, dto)
@@ -354,8 +348,8 @@ def test_update_rating_dislike_updates_dto_and_display(qapp):
 
     assert model._channels[0].user_rating == -1
     text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
-    assert _icons.dislike_icon in text, f"Expected 👎 in display after update_rating(-1), got: {text!r}"
-    assert _icons.like_icon not in text
+    assert _DISLIKED in text, f"Expected 👎 in display after update_rating(-1), got: {text!r}"
+    assert _LIKED not in text
 
 
 def test_update_rating_nonexistent_channel_no_exception(qapp):

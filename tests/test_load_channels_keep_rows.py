@@ -12,7 +12,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.gui import icons as _icons
 
 
 def _make_load_channels_host(qapp):
@@ -138,7 +137,8 @@ def test_default_load_still_clears_first(qapp, monkeypatch):
     assert host.all_channels == []
     # Loading banner is visible with loading icon/text.
     assert host._channel_banner.isVisible()
-    assert _icons.loading_icon in host._channel_banner.text()
+    from metatv.gui import icon_utils
+    assert icon_utils.role_html("loading") in host._channel_banner.text()
     assert "Loading" in host._channel_banner.text()
     # Stats label set to "Loading channels…".
     stats_texts = [c.args[0] for c in host.stats_label.setText.call_args_list]

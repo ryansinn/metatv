@@ -10,9 +10,12 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 
 from __future__ import annotations
 
+import html as _html
+
 from loguru import logger
 
 from metatv.gui import deferred_config_save as _cfgsave
+from metatv.gui import icon_utils as _icon_utils
 
 
 #: Every host-owned widget that occupies the content area, in no particular
@@ -185,7 +188,7 @@ class _NavMixin:
         self._series_nav_bar.setVisible(showing)
         self.back_button.setVisible(showing)
         self.breadcrumb_label.setText(
-            f"{self.series_icon} {series_name}" if showing else ""
+            f"{_icon_utils.role_html('series')}&nbsp;{_html.escape(series_name, quote=False)}" if showing else ""
         )
 
     # ── Switch-to helpers ───────────────────────────────────────────────────

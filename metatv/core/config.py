@@ -541,25 +541,11 @@ class Config(BaseModel):
     max_stacked_notifications: int = 3
     
     # UI Icons/Indicators
-    favorite_icon: str = "★"  # Filled star - is favorited
-    unfavorite_icon: str = "☆"  # Outline star - not favorited
-    live_icon: str = "📡"  # Live broadcast indicator
-    movie_icon: str = "🎬"  # Movie indicator
-    series_icon: str = "📺"  # TV series indicator
-    season_icon: str = "📁"  # Season folder indicator
     episode_icon: str = "▶"  # Episode indicator
-    unknown_icon: str = "❓"  # Unknown media type
     
     # UI Control Icons
-    play_icon: str = "▶"  # Play button/indicator
     loading_icon: str = "⟳"  # Loading/buffering indicator
     close_icon: str = "×"  # Close/dismiss button
-    delete_icon: str = "🗑"  # Delete/clear button
-    refresh_icon: str = "⟳"  # Refresh button
-    settings_icon: str = "⚙"  # Settings button
-    search_icon: str = "🔍"  # Search indicator
-    filter_icon: str = "⚡"  # Filter/preset indicator
-    history_icon: str = "🕒"            # History indicator
     provider_icon: str = "📡"          # Provider / source section
     # Graduated play-failure ledger (roadmap S3): on a source refresh, re-probe
     # that source's flagged/degraded/dead retry-checker rows immediately
@@ -568,13 +554,10 @@ class Config(BaseModel):
     # Settings → Playback.
     recheck_failed_on_refresh: bool = True
     watched_icon: str = "✓"            # Watched / completed indicator
-    rating_star_icon: str = "★"        # Star used in content rating display
     like_icon: str = "👍"              # Like / positive rating
-    dislike_icon: str = "👎"           # Dislike / negative rating
     hide_icon: str = "🚫"              # Hide channel from all views
     preferences_icon: str = "🎯"       # Preferences / Recommended dashboard
     preferred_version_icon: str = "🎯" # Best-match version indicator (distinct semantic from favorites ★)
-    queue_icon: str = "📋"             # Watch Queue section / action
 
     # Global Exclusions — opt-out blacklist (applies to discovery + recommendations everywhere)
     # Prefix codes to HIDE. Empty list = hide nothing (show all). Opt-out model: new prefixes
@@ -660,8 +643,6 @@ class Config(BaseModel):
     rec_liked_cap: int | None = None                 # already-liked slots in the list
 
     # Notification Icons
-    notification_error_icon: str = "✗"  # Error notification
-    notification_warning_icon: str = "⚠"  # Warning notification
     
     # Theme & Appearance (for future theming system)
     theme: str = "auto"  # "light", "dark", "auto" (follows system)

@@ -65,8 +65,6 @@ def _make_model(qapp, *dtos):
         show_provider_icon=False,
         has_more=False,
         query_params={},
-        favorite_icon="star",
-        unfavorite_icon="nostar",
         partial_threshold_pct=10,
     )
     return model

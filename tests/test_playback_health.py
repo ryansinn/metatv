@@ -22,7 +22,6 @@ import json
 import socket
 
 
-from metatv.gui import icons as _icons
 from metatv.gui.main_window import MainWindow
 from metatv.gui.main_window_streaming import format_playback_health
 
@@ -37,7 +36,7 @@ def test_format_playback_health_full():
     assert "18s buffer" in s        # int(round(18.4)) == 18
     assert "6.2 Mbps" in s
     assert "0 drops" in s
-    assert s.startswith(_icons.play_icon)
+    assert not s.startswith(" ")   # the play mark is the label's icon, not text
     assert " · " in s
 
 
@@ -52,7 +51,7 @@ def test_format_playback_health_all_none_is_well_formed():
     s = format_playback_health(None, None, None)
     assert "—" in s                 # placeholders present, no crash
     assert "buffer" in s and "Mbps" in s and "drops" in s
-    assert s.startswith(_icons.play_icon)
+    assert not s.startswith(" ")   # the play mark is the label's icon, not text
     # Still a single well-formed " · "-joined line.
     assert s.count(" · ") == 2
 
@@ -354,7 +353,8 @@ def test_on_playback_health_ready_unknown_source_omits_glyph():
     host = _host_for_result(keys=["__shared__"], last_key="__shared__")
     MainWindow._on_playback_health_ready(host, ("__shared__", _PLAYING))
 
-    assert host._playback_health_label.text.startswith(_icons.play_icon)
+    from metatv.gui import icon_utils
+    assert host._playback_health_label.text.startswith(icon_utils.role_html("play"))
 
 
 # ---------------------------------------------------------------------------

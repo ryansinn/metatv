@@ -50,8 +50,7 @@ def rows(qapp):
         [_dto("Cage", "title"),
          _dto("Con Air", "cast", match_person="Nicolas Cage")],
         provider_icon_map={}, show_provider_icon=False, has_more=False,
-        query_params={"search_query": "cage"}, favorite_icon="★",
-        unfavorite_icon="☆",
+        query_params={"search_query": "cage"},
     )
     delegate = ChannelRowDelegate()
     by_kind = {}
