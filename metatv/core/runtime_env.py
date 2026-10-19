@@ -35,9 +35,14 @@ def is_macos() -> bool:
     return sys.platform == "darwin"
 
 
-def os_description() -> str:
-    """The OS name and release for an About box or a log, e.g. ``"Linux 6.9.1"``."""
-    return f"{platform.system()} {platform.release()}"
+def os_description(*, detailed: bool = False) -> str:
+    """The OS name and release for an About box, e.g. ``"Linux 6.9.1"``.
+
+    ``detailed=True`` is the support form — architecture and libc too, e.g.
+    ``"Linux-6.9.1-x86_64-with-glibc2.41"`` — for the log viewer's header. One
+    function, so the two can never describe different machines (ledger D66).
+    """
+    return platform.platform() if detailed else f"{platform.system()} {platform.release()}"
 
 
 def is_frozen() -> bool:

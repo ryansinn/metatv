@@ -70,6 +70,17 @@ class ContentTagCrudMixin:
     Composed into ``TagRepository`` (``tag.py``), which supplies
     ``self.session`` and ``self.get_or_create_tag_id`` — every method here
     runs inside the caller's session, same contract as the rest of that class.
+
+    Two write APIs, both public (ledger D44, owner 2026-10-19). The app writes
+    through ``set_content_tags_bulk`` — the production chokepoint. The
+    single-item methods are the repository's per-row API, and the test suite
+    is their main caller (it seeds a tagged channel with ``set_content_tags``);
+    "only tests call it" does not make them residue for a dead-code sweep:
+    ``set_content_tags``, ``tags_for``, ``channels_for_tag``,
+    ``reprocess_delete_generated``, ``delete_generated_for_channel`` here, and
+    ``get_or_create_tag``, ``get_or_create_tag_id``,
+    ``get_channel_ids_by_tag_facets``, ``sample_channel_names_by_tag_facets``
+    on ``TagRepository``.
     """
 
     # DB-9 chokepoint: resolve the public ChannelDB.id API boundary to the

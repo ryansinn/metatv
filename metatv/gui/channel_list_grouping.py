@@ -71,9 +71,8 @@ def _heading_html(label: str, count: int, *, second_level: bool = False) -> str:
     ``second_level`` inverts which half is the constant, and that is the same
     rule rather than an exception to it: a PERSON's name is the variable and
     the film count is incidental, so the name takes the bright ramp. It is also
-    why the name may not use ``COLOR_TEXT_LOW`` — measured 4.15:1 there, under
-    the 4.5 text floor in four of six palettes, and "quiet" cannot be bought
-    with contrast a reader needs.
+    why the name may not use a dimmer ramp: "quiet" cannot be bought with
+    contrast a reader needs.
     """
     if second_level:
         return (
@@ -148,10 +147,6 @@ class ChannelListGroupingMixin:
         self._rebuild_buckets()
         self.endResetModel()
 
-    def is_person_collapsed(self, person: str) -> bool:
-        """Whether *person*'s films are currently folded away."""
-        return person in self._collapsed_people
-
     def section_result_count(self, section: str) -> int:
         """Results VISIBLE in a section — what its header should say.
 
@@ -178,10 +173,6 @@ class ChannelListGroupingMixin:
             self._word_only.discard(section)
         self._rebuild_buckets()
         self.endResetModel()
-
-    def is_section_word_only(self, section: str) -> bool:
-        """Whether *section* is currently narrowed to whole-word matches."""
-        return section in self._word_only
 
     def _person_data(self, person: str, role: int) -> Any:
         """Return ``data()`` for a matched-person sub-heading row.

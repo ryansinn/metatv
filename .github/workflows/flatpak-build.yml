@@ -19,15 +19,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Stamp the build id
-        run: |
-          set -eu
-          # Same format as release.yml's rolling id, so a Flatpak and a .dmg
-          # built from one commit name it identically in the title bar.
-          VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' metatv/__init__.py)"
-          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
-          STAMP="${VERSION}+$(date -u +%Y%m%d).${SHORT_SHA}"
-          printf 'BUILD_ID = "%s"\n' "$STAMP" > metatv/_build_id.py
-          echo "Stamped build id: $STAMP"
+        # One builder for every workflow (scripts/build_id.sh), so a Flatpak
+        # and a .dmg built from one commit name it identically.
+        run: scripts/build_id.sh --stamp
 
       - name: Build the bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6

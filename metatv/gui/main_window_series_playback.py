@@ -479,8 +479,11 @@ class _SeriesPlaybackMixin:
                     self._watch_tracking = {}
                 _pa_key = self.player_manager.resolve_key(provider_id)
                 if queue_episodes:
-                    _pa_queue = [{"content_id": episode_id}] + [
-                        {"content_id": getattr(it, "content_id", None) or getattr(it, "id", "")}
+                    # Each entry carries its own media_type (D54): a Play-All
+                    # selection mixes episodes, movies and channels.
+                    _pa_queue = [{"content_id": episode_id, "media_type": media_type}] + [
+                        {"content_id": getattr(it, "content_id", None) or getattr(it, "id", ""),
+                         "media_type": getattr(it, "media_type", None) or media_type}
                         for it in queue_episodes
                     ]
                     self._watch_tracking[_pa_key] = {

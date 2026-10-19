@@ -160,6 +160,15 @@ Covered by `tests/test_code_health_merge_driver.py`, which drives real `git
 merge` and `git rebase` in a throwaway repo rather than unit-testing the merge
 function alone (which would pass even if the driver were never wired up).
 
+## `build_id.sh [--stamp [ID]]` + `upload_to_rolling.sh <asset>` — release workflows
+
+Used by `.github/workflows/` (release, Windows, Flatpak), never by hand.
+`build_id.sh` prints the rolling identifier `<version>+<UTC date>.<short sha>`;
+`--stamp` writes it (or `ID`) into the gitignored `metatv/_build_id.py`, so a
+packaged app's title bar names its commit. `upload_to_rolling.sh` waits for the
+`rolling` release `release.yml` creates, then replaces its own asset there. One
+copy of each, so the three builds of a commit cannot name it differently (D64).
+
 ## Configuration — `.devscripts.conf`
 
 Resolution order for anything project-specific: **(a)** a repo-root

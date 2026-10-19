@@ -650,13 +650,6 @@ class _FavoritesMixin:
         self.load_channels()
         self.channel_state_bus.publish(channel_id, is_hidden=True)
 
-    def play_from_history(self, item):
-        """Play a channel from history"""
-        channel_id = item.data(Qt.ItemDataRole.UserRole)
-        if not channel_id:
-            return
-        self.play_channel(item)
-
     def play_from_history_id(self, channel_id: str, episode_id: str = ""):
         """Play what a History row is about.
 
@@ -821,13 +814,6 @@ class _FavoritesMixin:
     def _show_multi_select_context_menu(self, channel_ids: list[str], gp) -> None:
         """Thin wrapper → unified channel menu (multi-select on channel surface)."""
         self._show_channel_menu(channel_ids, "channel", gp.x(), gp.y())
-
-    def play_favorite(self, item):
-        """Play a favorite channel"""
-        channel_id = item.data(Qt.ItemDataRole.UserRole)
-        if not channel_id:
-            return
-        self.play_channel(item)
 
     def play_favorite_id(self, channel_id: str):
         """Play a favorite channel by ID"""

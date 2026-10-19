@@ -1,7 +1,7 @@
 """Robust prefix detection for IPTV channel names"""
 
 import re
-from typing import List, Set, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 
 
@@ -159,10 +159,6 @@ class PrefixDetector:
         
         return prefixes[0].text  # Fallback to first detected
     
-    def get_all_prefixes(self, title: str) -> Set[str]:
-        """Get all detected prefixes as a set (for multi-filter)"""
-        return {p.text for p in self.extract_prefixes(title)}
-
 # Example usage
 if __name__ == "__main__":
     detector = PrefixDetector()

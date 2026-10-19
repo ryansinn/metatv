@@ -384,22 +384,6 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
         """Always available (database)"""
         return (True, None)
     
-    def _parse_cast_string(self, cast_str: str) -> List[Dict[str, Any]]:
-        """Parse comma-separated cast string into structured list.
-
-        Thin wrapper over the shared parser so there is one cast parser in the
-        codebase (also used by the enrichment sweep — see raw_parse.py).
-        """
-        return parse_cast_string(cast_str)
-
-    def _parse_genres(self, genre_str: str) -> List[str]:
-        """Parse a provider genre string into a list.
-
-        Thin wrapper over the shared parser so there is one genre parser in the
-        codebase (also used by the enrichment sweep — see raw_parse.py).
-        """
-        return parse_genres(genre_str)
-    
     _parse_rating = staticmethod(_parse_rating)
 
 

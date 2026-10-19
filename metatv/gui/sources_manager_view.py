@@ -271,7 +271,3 @@ class SourcesManagerView(QWidget):
         """Legacy no-op — kept for interface parity with the retired sidebar
         section; widgets update via refresh()/set_provider_busy()."""
 
-    def clear_selection(self) -> None:
-        """Deselect any active row (interface parity with the retired section)."""
-        self.sources_tree.clearSelection()
-        self.sources_tree.setCurrentItem(None)

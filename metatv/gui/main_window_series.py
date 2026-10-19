@@ -405,12 +405,6 @@ class _SeriesMixin:
         finally:
             session.close()
 
-    def on_tree_item_expanded(self, item):
-        """Handle tree item expanded (no-op, using native arrows)"""
-
-    def on_tree_item_collapsed(self, item):
-        """Handle tree item collapsed (no-op, using native arrows)"""
-
     def _on_series_tree_selection(self, item, previous=None):
         """Single-click / keyboard selection in the series tree → fill the details pane.
 

@@ -233,10 +233,6 @@ class URLRowWidget(QWidget):
             _theme.style(self._result_badge, "URL_BADGE_ERR")
         self._result_badge.show()
 
-    def clear_test_result(self):
-        self._result_badge.hide()
-        self._result_badge.setText("")
-
     @staticmethod
     def _build_stats(pu: ProviderURL) -> str:
         total = pu.success_count + pu.failure_count

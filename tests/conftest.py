@@ -1805,6 +1805,40 @@ def wire_channel_banner_widgets(win) -> None:
     win._no_sources_banner = QWidget()
 
 
+def make_close_event_window():
+    """A MainWindow skeleton ``closeEvent`` can run on, without a QApplication
+    or the real ``__init__`` (ledger D39: the one copy of this list).
+
+    Every manager and save hook ``closeEvent`` reads is a ``MagicMock``; content
+    views are not visible, so ``on_deactivate`` runs only if a test opts in. No
+    ``_cleanables`` — a test sets the registry it means to exercise. When
+    ``closeEvent`` starts reading something new, add it HERE, once.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from metatv.gui import main_window as mw_module
+
+    with patch.object(mw_module.MainWindow, "__init__", lambda self: None):
+        win = mw_module.MainWindow.__new__(mw_module.MainWindow)
+
+    for name in ("player_manager", "stream_retry_manager", "db", "epg_manager",
+                 "image_cache", "executor", "config", "recording_manager"):
+        setattr(win, name, MagicMock())
+    # REC-3's quit guard counts non-terminal recordings before any teardown.
+    win.recording_manager.progress.return_value = []
+
+    for name in ("discover_view", "preferences_view", "epg_view", "recipe_view"):
+        view = MagicMock()
+        view.isVisible.return_value = False
+        setattr(win, name, view)
+
+    for name in ("save_splitter_sizes", "save_sidebar_section_sizes",
+                 "_save_filter_panel_width", "_layout_save_debounce"):
+        setattr(win, name, MagicMock())
+    win.saveGeometry = MagicMock(return_value=b"geometry")
+    return win
+
+
 def wire_hide_channel_banners(host) -> None:
     """Give a skeleton nav host the ``_hide_channel_banners`` method.
 

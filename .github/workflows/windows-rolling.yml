@@ -45,14 +45,9 @@ jobs:
           pip install -r requirements.txt pyinstaller pillow
 
       - name: Stamp the build id
-        # Same identifier release.yml stamps: <version>+<UTC date>.<short sha>,
-        # so a Windows build's title bar names its commit like the .dmg does.
-        run: |
-          set -euo pipefail
-          VERSION="$(python -c "import metatv; print(metatv.__version__)")"
-          STAMP="${VERSION}+$(date -u +%Y%m%d).$(git rev-parse --short HEAD)"
-          printf 'BUILD_ID = "%s"\n' "$STAMP" > metatv/_build_id.py
-          echo "Stamped build id: $STAMP"
+        # One builder for every workflow (scripts/build_id.sh), so a Windows
+        # build's title bar names its commit like the .dmg does.
+        run: scripts/build_id.sh --stamp
 
       - name: Build MetaTV (PyInstaller)
         run: pyinstaller packaging/metatv.spec --noconfirm
@@ -97,12 +92,6 @@ jobs:
         # release.yml; this job only adds or replaces its own asset under a
         # stable, version-free name.
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          for _ in $(seq 1 30); do
-            gh release view rolling --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
-            echo "rolling release not there yet — waiting for release.yml"; sleep 20
-          done
-          gh release upload rolling MetaTV-windows-x64.zip --clobber --repo "$GITHUB_REPOSITORY"
+        run: scripts/upload_to_rolling.sh MetaTV-windows-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

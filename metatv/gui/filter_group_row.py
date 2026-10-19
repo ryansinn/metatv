@@ -218,7 +218,7 @@ class _GroupRow(QWidget):
         hl.addWidget(self._tri)
 
         self._name_lbl = QLabel(group_name)
-        _theme.style_fn(self._name_lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
+        _theme.style_fn(self._name_lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
         self._name_lbl.setSizePolicy(QSizePolicy.Policy.Expanding,
                                       QSizePolicy.Policy.Preferred)
         hl.addWidget(self._name_lbl)

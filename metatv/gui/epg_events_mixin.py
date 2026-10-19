@@ -342,17 +342,6 @@ class _EpgEventsMixin:
                 return f"Today {clock_text(local_dt)}"
             return f"{_local_weekday(st)} {clock_text(local_dt)}"
 
-        def _time_style(dto) -> str:
-            """Return a theme style string for the time hint based on event state."""
-            if dto.always_available or dto.start_time is None:
-                return _theme.EVENTS_TIME_HINT
-            if dto.start_time < now - LIVE_EVENT_WINDOW:
-                return _theme.EVENTS_TIME_HINT_PASSED
-            # Check if within window (on-now)
-            if dto.start_time <= now:
-                return _theme.EVENTS_TIME_ON_NOW
-            return _theme.EVENTS_TIME_HINT
-
         def _add_event_row(dto) -> None:
             label = dto.detected_title or dto.name
             time_hint = _event_time_str(dto)

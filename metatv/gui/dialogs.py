@@ -389,8 +389,3 @@ class AddProviderDialog(QDialog):
             # Start loading channels from this provider
             self.parent().refresh_provider(provider.id)
     
-    def show_status(self, message: str, error: bool = False):
-        """Show status message"""
-        self.status_text.show()
-        prefix = self.config.notification_error_icon if error else self.config.notification_info_icon
-        self.status_text.append(f"{prefix} {message}")

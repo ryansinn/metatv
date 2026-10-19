@@ -62,3 +62,10 @@ def test_caption_says_how_it_was_measured():
     when = datetime(2026, 10, 9, 20, 0)
     assert measured_caption(when, "played") == "seen when played 9 Oct"
     assert measured_caption(when, "probe") == "probed 9 Oct"
+
+
+def test_caption_sentence_form_is_the_same_wording_capitalised():
+    """D67: the details tooltip uses this same caption, not its own verbs."""
+    when = datetime(2026, 10, 9, 20, 0)
+    assert measured_caption(when, "played", sentence_start=True) == "Seen when played 9 Oct"
+    assert measured_caption(when, "provider", sentence_start=True) == "Reported by source 9 Oct"

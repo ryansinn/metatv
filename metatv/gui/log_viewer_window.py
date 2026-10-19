@@ -29,7 +29,6 @@ maximum, so the widget itself drops the oldest lines.
 
 from __future__ import annotations
 
-import platform
 import sys
 from collections import deque
 from datetime import datetime
@@ -44,6 +43,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
+from metatv.core.runtime_env import os_description
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
@@ -322,7 +322,7 @@ class LogViewerWindow(QWidget):
         return "\n".join((
             f"build      : {build}",
             f"python     : {sys.version.split()[0]}",
-            f"platform   : {platform.platform()}",
+            f"platform   : {os_description(detailed=True)}",
             f"log file   : {active_log_file(self._config)}",
             f"log files  : {len(logs)} totalling {total / 1_048_576:.1f} MB",
         ))

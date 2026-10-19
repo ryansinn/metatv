@@ -115,8 +115,7 @@ jobs:
             # UTC date plus the short SHA, which is what actually answers
             # "which code is this?" when a tester reports a bug. __version__
             # stays in the string as the batch label What's New groups by.
-            SHORT_SHA="$(git rev-parse --short HEAD)"
-            BUILD_ID="${VERSION}+$(date -u +%Y%m%d).${SHORT_SHA}"
+            BUILD_ID="$(scripts/build_id.sh)"
             echo "is_tag=false" >> "$GITHUB_OUTPUT"
             echo "is_rolling=true" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
@@ -161,9 +160,7 @@ jobs:
           # commit it is — and under rolling releases the version string alone
           # no longer distinguishes two builds. Gitignored: generated per build,
           # never committed.
-          STAMP="${{ steps.meta.outputs.build_id || steps.meta.outputs.version }}"
-          printf 'BUILD_ID = "%s"\n' "$STAMP" > metatv/_build_id.py
-          echo "Stamped build id: $STAMP"
+          scripts/build_id.sh --stamp "${{ steps.meta.outputs.build_id || steps.meta.outputs.version }}"
 
       - name: Build MetaTV.app (PyInstaller)
         run: |

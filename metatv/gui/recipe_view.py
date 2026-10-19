@@ -829,7 +829,3 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         """Current exclude recipe state (read-only view for tests)."""
         return self._recipe_excludes
 
-    @property
-    def selected_facet(self) -> str | None:
-        """Currently selected facet type (read-only for tests)."""
-        return self._selected_facet
