@@ -388,6 +388,14 @@ def playback_state_glyph(watch_progress: int, watch_completed: bool) -> str:
     return playback_neutral_icon
 
 
+#: playback_state_glyph's two drawn states → their icon roles. The neutral "·"
+#: is typography and has no role.
+PLAYBACK_GLYPH_ROLES: dict[str, str] = {
+    watched_icon: "watched",
+    playback_in_progress_icon: "playback_in_progress",
+}
+
+
 # ---------------------------------------------------------------------------
 # Watch-indicator icon helpers (QIcon cache, lazily built on the main thread)
 # ---------------------------------------------------------------------------

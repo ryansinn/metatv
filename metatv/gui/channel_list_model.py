@@ -288,15 +288,18 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
                 if self._get_media_type_icon is not None else ""
             )
         if role == FAV_GLYPH_ROLE:
-            return self._favorite_icon if channel.is_favorite else self._unfavorite_icon
+            # An icon ROLE (mdi6, painted by the delegate), not a text glyph.
+            return "favorite" if channel.is_favorite else "unfavorite"
         if role == PLAYBACK_GLYPH_ROLE:
+            # A role ("watched" / "playback_in_progress"), or "" for the neutral
+            # not-started dot, which stays typography.
             glyph, _ = self._playback_indicator(channel)
-            return glyph
+            return _icons.PLAYBACK_GLYPH_ROLES.get(glyph, "")
         if role == PLAYBACK_GLYPH_COLOR_ROLE:
             _, color = self._playback_indicator(channel)
             return color
         if role == MATCH_MARKER_ROLE:
-            return f"{_icons.new_match_icon} " if channel.id in self._new_match_ids else ""
+            return "new_match" if channel.id in self._new_match_ids else ""
         if role == PLOT_ROLE:
             return channel.plot or ""
         if role == POSTER_URL_ROLE:

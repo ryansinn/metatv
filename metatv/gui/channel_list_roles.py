@@ -47,10 +47,10 @@ LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 11     # detected_region code or ""
 RATING_ROLE = Qt.ItemDataRole.UserRole + 12       # user_rating: -1, 0, or 1 (int)
 CATEGORY_ROLE = Qt.ItemDataRole.UserRole + 13     # category or "" (str)
 MEDIA_ICON_ROLE = Qt.ItemDataRole.UserRole + 14   # resolved media-type glyph (str)
-FAV_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 15    # resolved favorite/unfavorite glyph (str)
-PLAYBACK_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 16  # playback state glyph: ·/▶/✓ (str)
+FAV_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 15    # "favorite"/"unfavorite" icon role (str)
+PLAYBACK_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 16  # playback icon role ("watched"/"playback_in_progress"), "" = neutral dot
 PLAYBACK_GLYPH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 17  # playback glyph color token or None
-MATCH_MARKER_ROLE = Qt.ItemDataRole.UserRole + 18  # unviewed watch-for match marker 🚨 (str)
+MATCH_MARKER_ROLE = Qt.ItemDataRole.UserRole + 18  # "new_match" icon role for an unviewed watch-for match, else ""
 PLOT_ROLE = Qt.ItemDataRole.UserRole + 19          # MetadataDB.plot text or "" (str) — Comfy+ only
 POSTER_URL_ROLE = Qt.ItemDataRole.UserRole + 20    # MetadataDB.poster_url or "" (str) — thumbnail source
 # Collapse-variants "×N" badge count — ChannelListDTO.variant_count (>1 only
