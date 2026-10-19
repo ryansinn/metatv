@@ -1561,34 +1561,34 @@ def parse_channel_name(name: str) -> ParsedChannel:
             any(ch.isupper() for ch in _trailing)
             and not any(ch.islower() for ch in _trailing)
         )
-        # "(2012) (US) CHARLIE SHEEN": an all-caps credit AFTER qualifiers is cut
+        # "(2012) (US) CHARLIE SHEEN": an all-caps tail AFTER qualifiers is cut
         # like one after the year; the year is stashed as the branch below does.
+        # Recognised metadata first ("… ARABIAN 1001 NIGHTS COLLECTION"), then credit.
         _q = _LEADING_QUALIFIERS_RE.match(_trailing)
         if _q and _q.group(2).isupper():
-            trailing, _g1, _g2 = _q.group(2).strip(), *_last_year_match.group(1, 2)
+            _tail, _g1, _g2 = _q.group(2).strip(), *_last_year_match.group(1, 2)
             bare = f"{bare[: _last_year_match.end()]} {_q.group(1).strip()}"
             _early_year = f"{_g1}-{_g2}" if _g2 else _g1
+            if (_meta := classify_trailing_metadata(_tail)) is not None:
+                trailing_meta = _meta
+            else:
+                trailing = _tail
         elif _trailing and not _trailing.startswith(("(", "[")):
-            if _trailing_is_upper_junk:
-                # Keep it. This span is already known to be provider-appended
-                # extra credits ("HARVEY KEITEL, TARANTINO", "NICOLAS CAGE") —
-                # the guards above established that. Discarding it meant no
-                # caller could see the actor the provider had helpfully named,
-                # even on titles with no metadata at all.
-                trailing = _trailing
-                bare = bare[: _last_year_match.end()]
-            elif (_meta := classify_trailing_metadata(_trailing)) is not None:
+            if (_meta := classify_trailing_metadata(_trailing)) is not None:
                 # Recognised provider metadata ("Hallmark", "sinhronizirano",
-                # "- Lucky Luke Collection").  Route it to a facet and truncate,
-                # so the year reaches the end-anchored strip in step 5 and the
-                # title matches its own siblings again.
+                # "- Lucky Luke Collection") — checked BEFORE the all-caps credit
+                # test, which used to swallow "… COLLECTION" tails.  Route it to a
+                # facet and truncate, so the year reaches the end-anchored strip.
                 trailing_meta = _meta
                 bare = bare[: _last_year_match.end()]
+            elif _trailing_is_upper_junk:
+                # A provider-appended credit ("HARVEY KEITEL, TARANTINO"): kept
+                # as trailing so callers can see the actor it names.
+                trailing = _trailing
+                bare = bare[: _last_year_match.end()]
             else:
-                # NOT recognised — it may be a real subtitle ("FBI (2024)
-                # Reboot"), so it stays in the name.  The year is never
-                # ambiguous though, so lift it out here rather than letting
-                # the trailing text hide it from the end-anchored strip.
+                # Not recognised: maybe a real subtitle ("FBI (2024) Reboot"), so it
+                # stays — but lift the unambiguous year out of its way.
                 _g1, _g2 = _last_year_match.group(1), _last_year_match.group(2)
                 _early_year = f"{_g1}-{_g2}" if _g2 else _g1
                 bare = (
@@ -1691,10 +1691,7 @@ def parse_channel_name(name: str) -> ParsedChannel:
         # name (unrecognised).  The year still belongs in its own field.
         year = _early_year
 
-    # 6a. Second bracket pass — catches brackets that were hidden by the year token in
-    #     step 5 ("[4K] (2025)") or by a second bracket in step 3 ("[FRENCH] [4k]").
-    #     Uses the same _classify_bracket() classifier as step 3.
-    #     Step 4 (lang assignment) already ran, so "origin" results set lang= directly.
+    # 6a. Second bracket pass (same classifier as step 3) for brackets the year or a second bracket hid.
     bsm2 = _BRACKET_SUFFIX_RE.search(bare)
     if bsm2:
         content2 = bsm2.group(1).strip().upper()
@@ -1715,7 +1712,6 @@ def parse_channel_name(name: str) -> ParsedChannel:
                 _audio_langs = _al2
             _dub_langs = list(dict.fromkeys(_dub_langs + _dl2))
             _sub_langs = list(dict.fromkeys(_sub_langs + _sl2))
-        # audio in step 6a is unusual and not expected; unknown stays in bare
 
     # 6b. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
     bare, _attrs2 = _strip_attributes(bare)
@@ -1725,14 +1721,9 @@ def parse_channel_name(name: str) -> ParsedChannel:
     audio_codec = audio_codec or _attrs2.audio_codec
     quality = quality2 + quality  # prepend (quality2 came from closer to the name)
 
-    # 6c. Trailing-qualifier strip loop — catches single-token parenthetical/bracket
-    #     qualifiers that earlier steps leave behind when there is no year to anchor the
-    #     strip.  Examples: "Name (US) (4K)", "Name (VOSTFR)", "Name (HQ)".
-    #     Multi-word alt-titles ("Name (30 Monedas)", "Name (Soleil Noir)") are preserved
-    #     because PAREN_QUALIFIER_RE requires no internal space inside the parens.
-    #     Already-committed field assignments (lang, year, audio, quality) are NOT
-    #     re-derived here — this pass only cleans the displayed title.
-    #     Audio annotation: we also intercept stripped qualifiers to extract audio facets.
+    # 6c. Strip leftover single-token qualifiers ("Name (US) (4K)", "Name (VOSTFR)");
+    #     multi-word alt-titles ("Name (Soleil Noir)") stay. Cleans the title only —
+    #     committed fields are not re-derived — but audio facets are read off them.
     bare, _stripped_inners = _strip_title_qualifiers_collecting(bare)
     for _inner in _stripped_inners:
         _inner_up = _inner.strip().upper()
@@ -1765,6 +1756,13 @@ def parse_channel_name(name: str) -> ParsedChannel:
                 if lang_name and lang_name not in _audio_langs:
                     _audio_langs.append(lang_name)
 
+    # 6d. Quality exposed by 6c ("Title 4K (2025) (MULTI SUB)"). Quality only: a tier
+    # word here is a title word ("One Piece Film Gold", "STC PPV"), so that pass is dropped.
+    _bare3, _attrs3 = _strip_attributes(bare)
+    if _attrs3.quality and not _attrs3.tier:
+        bare, quality = _bare3, _attrs3.quality + quality
+        encoding, audio_codec = encoding or _attrs3.encoding, audio_codec or _attrs3.audio_codec
+
     # 7. Append prefix quality (standalone "4K - Movie" or compound "4K-DE") at lowest
     # priority so name-suffix quality (step 2/6b) — which describes the actual encode —
     # wins when both are present (e.g. "[US] 4K-DE - Movie UHD" → quality[0] = "UHD").
@@ -1783,7 +1781,10 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # run FIRST (a superscript cannot be part of a title, so it is safe to read
     # there and unsafe to read after folding) but merge LAST, so a quality
     # stated plainly in the name still leads the list.
-    for _extra in (_sup_attrs, _slash_attrs):
+    # A quality the tail named ("London Calling (2025) 4K") ranks last of all.
+    _tail_attrs = (_strip_attributes(f"x {trailing_meta[1]}")[1]   # stripper needs a word before
+                   if trailing_meta and trailing_meta[0] == "quality" else _Attributes([], "", "", ""))
+    for _extra in (_sup_attrs, _slash_attrs, _tail_attrs):
         for _q in _extra.quality:
             if _q not in quality:
                 quality.append(_q)

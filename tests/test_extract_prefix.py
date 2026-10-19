@@ -159,3 +159,26 @@ def test_qualifiers_then_an_all_caps_credit_are_all_cleaned():
     # Lowercase after the qualifiers may be a real subtitle: left alone, as before.
     r = parse_channel_name("EN - Show (2020) (US) Director's Cut")
     assert "Director's Cut" in r.bare_name
+
+
+def test_a_recognised_tail_is_metadata_not_a_credit():
+    """Recognised tails go to their facet before the all-caps credit test."""
+    from metatv.core.channel_name_utils import parse_channel_name
+
+    r = parse_channel_name(
+        "EN - A Thousand & One Nights (1969) (JAPANESE ENG-SUB) ARABIAN 1001 NIGHTS COLLECTION")
+    assert (r.bare_name, r.trailing, r.trailing_meta) == (
+        "A Thousand & One Nights", "", ("collection", "ARABIAN 1001 NIGHTS"))
+    assert parse_channel_name("EN - The Bride! (2026) (MULTI SUB) FRANKENSTEIN").trailing == "FRANKENSTEIN"
+
+
+def test_quality_after_the_year_or_before_qualifiers_is_recorded():
+    from metatv.core.channel_name_utils import parse_channel_name
+
+    r = parse_channel_name("EN - London Calling (2025) 4K")
+    assert (r.bare_name, r.quality) == ("London Calling", ["4K"])
+    r = parse_channel_name("EN - The Pickup 4K (2025) (MULTI SUB)")
+    assert (r.bare_name, r.quality) == ("The Pickup", ["4K"])
+    # A tier word is part of a title here, never stripped by the late pass.
+    assert parse_channel_name("EN - One Piece Film Gold (2016) (JAPANESE ENG-SUB)").bare_name == (
+        "One Piece Film Gold")

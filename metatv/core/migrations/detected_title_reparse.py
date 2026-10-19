@@ -152,7 +152,11 @@ from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparse
 #       CHARLIE SHEEN" kept the year, region and credit in its title, because
 #       the trailing-credit cut skipped any tail starting with "(". Measured on
 #       the owner's library: 860 such names, 848 titles change.
-CURRENT_VERSION: int = 14
+#   15  Recognised tails before credits ("… ARABIAN 1001 NIGHTS COLLECTION" is a
+#       collection, "DUBBING"/"VOSTFR"/"ANIMACJA" are dub/sub/genre); a quality
+#       named after the year ("(2025) 4K") is recorded; "4K (2025) (MULTI SUB)"
+#       loses its "4K". 6,616 names change; 2,334 gain a quality.
+CURRENT_VERSION: int = 15
 
 
 class DetectedTitleReparseTask(DetectedFieldsReparseBase):
