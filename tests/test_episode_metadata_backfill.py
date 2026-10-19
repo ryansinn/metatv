@@ -529,7 +529,7 @@ class TestDetailsPaneRendersEpisodeOwnPlot:
         pane.show_episode(ep, series)
 
         assert pane._episode_rating_lbl.isVisible() or not pane._episode_rating_lbl.isHidden()
-        assert "8.4" in pane._episode_rating_lbl.text()
+        assert "8.4 / 10" in pane._episode_rating_lbl.toolTip()   # stars shown, number on hover
         # In the user's date style (conftest pins "system"), never the raw ISO.
         from datetime import datetime
 
