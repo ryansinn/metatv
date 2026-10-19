@@ -196,7 +196,7 @@ def test_the_header_carries_no_caret(qapp):
         "the caret is back — the header is the control"
     )
     glyphs = {b.text() for b in header.findChildren(QPushButton)}
-    assert not (glyphs & {section.config.expand_icon, section.config.collapse_icon}), (
+    assert not (glyphs & {_icons.expand_icon, _icons.collapse_icon}), (
         f"a collapse chevron is being drawn in the header: {glyphs}"
     )
     assert header.toolTip(), (
