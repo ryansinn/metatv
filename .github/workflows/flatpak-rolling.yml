@@ -12,7 +12,10 @@ on:
 # otherwise let the slower (possibly older) build overwrite the newer one.
 concurrency:
   group: flatpak-rolling-${{ github.ref }}
-  cancel-in-progress: true
+  # false: a running build always finishes and only the newest waiting one is
+  # kept. With true, merges ~5 min apart cancelled every macOS build before its
+  # runner queue + Homebrew step were over, so no .dmg shipped for 7h (2026-10-19).
+  cancel-in-progress: false
 
 permissions:
   contents: write  # upload the asset to the rolling release

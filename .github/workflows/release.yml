@@ -39,7 +39,10 @@ on:
 # cancelled by a merge to main.
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  # false: a running build always finishes and only the newest waiting one is
+  # kept. With true, merges ~5 min apart cancelled every macOS build before its
+  # runner queue + Homebrew step were over, so no .dmg shipped for 7h (2026-10-19).
+  cancel-in-progress: false
 
 permissions:
   contents: write  # needed to create/update a GitHub Release + upload assets
