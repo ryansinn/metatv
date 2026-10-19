@@ -148,7 +148,11 @@ from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparse
 #       A bump is the whole fix: update_detected_prefixes recomputes
 #       detected_title from the current name and writes it when it differs — it
 #       is fill-empty-only for detected_REGION precedence, not for the title.
-CURRENT_VERSION: int = 13
+#   14  "(year) (qualifier…) ALL-CAPS CREDIT" — "Anger Management (2012) (US)
+#       CHARLIE SHEEN" kept the year, region and credit in its title, because
+#       the trailing-credit cut skipped any tail starting with "(". Measured on
+#       the owner's library: 860 such names, 848 titles change.
+CURRENT_VERSION: int = 14
 
 
 class DetectedTitleReparseTask(DetectedFieldsReparseBase):
