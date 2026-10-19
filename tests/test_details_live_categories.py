@@ -19,6 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from metatv.gui import icon_utils
 
 
 # ---------------------------------------------------------------------------
@@ -119,13 +120,12 @@ class TestLoadBasicGenresLabelVisibility:
 
     def test_live_channel_genres_label_not_showing_loading_text(self, qapp):
         """Loading label must NOT be shown for live channels (it would persist forever)."""
-        from metatv.gui import icons as _icons
         obj = self._make_meta_section(qapp)
         channel = self._fake_channel("live")
 
         obj.load_basic(channel)
 
-        loading_sentinel = f"{_icons.loading_icon} Loading categories..."
+        loading_sentinel = f"{icon_utils.role_html('loading')}&nbsp;Loading categories..."
         # The loading label must be hidden; if (in some edge-case path) it is not hidden,
         # its text must at minimum not be the loading sentinel.
         if not obj._genres_loading_lbl.isHidden():
@@ -136,7 +136,6 @@ class TestLoadBasicGenresLabelVisibility:
 
     def test_movie_channel_genres_label_shows_loading(self, qapp):
         """load_basic with a MOVIE channel must show the loading label with loading text."""
-        from metatv.gui import icons as _icons
         obj = self._make_meta_section(qapp)
         channel = self._fake_channel("movie", "The Matrix (1999)")
 
@@ -147,14 +146,13 @@ class TestLoadBasicGenresLabelVisibility:
             "_genres_loading_lbl must NOT be hidden for movie channels — "
             "load_metadata() will replace it with real genre chips"
         )
-        assert obj._genres_loading_lbl.text() == f"{_icons.loading_icon} Loading categories...", (
+        assert obj._genres_loading_lbl.text() == f"{icon_utils.role_html('loading')}&nbsp;Loading categories...", (
             "_genres_loading_lbl must show loading text for movie channels "
             "while metadata is fetched"
         )
 
     def test_series_channel_genres_label_shows_loading(self, qapp):
         """load_basic with a SERIES channel must show the loading label with loading text."""
-        from metatv.gui import icons as _icons
         obj = self._make_meta_section(qapp)
         channel = self._fake_channel("series", "Breaking Bad (2008)")
 
@@ -163,7 +161,7 @@ class TestLoadBasicGenresLabelVisibility:
         assert not obj._genres_loading_lbl.isHidden(), (
             "_genres_loading_lbl must NOT be hidden for series channels"
         )
-        assert obj._genres_loading_lbl.text() == f"{_icons.loading_icon} Loading categories..."
+        assert obj._genres_loading_lbl.text() == f"{icon_utils.role_html('loading')}&nbsp;Loading categories..."
 
 
 # ---------------------------------------------------------------------------

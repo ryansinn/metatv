@@ -819,6 +819,7 @@ VECTOR_KEYS: dict[str, str] = {
     "verified": "mdi6.check-decagram-outline",
     "pref_liked": "mdi6.trending-up",
     "pref_disliked": "mdi6.trending-down",
+    "preferred_version": "mdi6.target",
     "tag_include": "mdi6.plus-circle-outline",
     "tag_exclude": "mdi6.minus-circle-outline",
     "sort": "mdi6.swap-vertical",

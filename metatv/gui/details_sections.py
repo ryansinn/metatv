@@ -11,7 +11,7 @@ from PyQt6.QtGui import QPixmap
 
 from metatv.core.region_codes import normalize_region_code
 from metatv.gui import cursor_affordance
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.detail_chips import (
     KEY_COL, SECTION_INDENT, make_chip, make_flow, make_key, make_label_grid,
@@ -283,7 +283,7 @@ class _PosterSection(QWidget):
             f" color: {_theme.COLOR_TEXT_HI}; font-size: {_theme.FONT_SM}; }}")
         self.poster_label.setScaledContents(False)
         self.poster_label.setText("No poster available")
-        self.poster_label.setToolTip(f"{_icons.zoom_poster_icon} Click to enlarge")
+        self.poster_label.setToolTip("Click to enlarge")
         self.poster_label.poster_clicked.connect(self._on_poster_clicked)
         self.poster_label.hover_changed.connect(self._on_poster_hover)
         self.poster_label.resized.connect(self._rescale_current_image)
@@ -293,7 +293,8 @@ class _PosterSection(QWidget):
         # Watched badge — a clickable corner overlay on the poster (VOD only).
         # Child of poster_label so it floats over the image; positioned lower-right
         # and shown/hidden by _update_watched_badge() per watch + hover state.
-        self._watched_badge = _WatchedBadge(_icons.watched_icon, self.poster_label)
+        self._watched_badge = _WatchedBadge(self.poster_label)
+        _icon_utils.set_button_icon(self._watched_badge, "watched")
         self._watched_badge.setFixedSize(self._BADGE_SIZE, self._BADGE_SIZE)
         self._watched_badge.clicked.connect(self._on_watched_badge_clicked)
         self._watched_badge.hover_changed.connect(self._on_badge_hover)
@@ -539,7 +540,7 @@ class _PosterSection(QWidget):
             self._provider_urls = provider_urls
         self._poster_url = url
         self.poster_label.setPixmap(QPixmap())
-        self.poster_label.setText(f"{_icons.loading_icon} Loading poster...")
+        self.poster_label.setText(f"{_icon_utils.role_html('loading')}&nbsp;Loading poster...")
         pix = self._image_cache.get_image_sync(url)
         if pix:
             self._display_poster(pix)
@@ -561,7 +562,7 @@ class _PosterSection(QWidget):
         self._poster_url = url   # route the loaded image through on_image_loaded
         self._restore_poster_metrics()   # full poster footprint, not a short strip
         self._poster_frame.setVisible(True)
-        self.poster_label.setText(f"{_icons.loading_icon} Loading logo...")
+        self.poster_label.setText(f"{_icon_utils.role_html('loading')}&nbsp;Loading logo...")
         pix = self._image_cache.get_image_sync(url)
         if pix:
             self._display_live_logo(pix)
@@ -872,8 +873,8 @@ class _PlotSection(CollapsibleMixin, QWidget):
         self.plot_loading.hide()
         self._apply_visibility()
 
-    def show_loading(self, loading_icon: str = "") -> None:
-        self.plot_loading.setText(f"{loading_icon} Loading metadata..." if loading_icon else "Loading metadata...")
+    def show_loading(self) -> None:
+        self.plot_loading.setText(f"{_icon_utils.role_html('loading')}&nbsp;Loading metadata...")
         self.plot_loading.show()
         self._apply_visibility()
 
@@ -976,13 +977,11 @@ class _CastSection(CollapsibleMixin, QWidget):
 
     def _person_chip(self, name: str, role: str, weights, attr: str) -> QPushButton:
         score = getattr(weights, attr, {}).get(name, 0.0) if weights else 0.0
-        if score > 0.3:
-            text, token = f"{_icons.pref_liked_icon} {name}", "COLOR_OK"
-        elif score < -0.3:
-            text, token = f"{_icons.pref_disliked_icon} {name}", "COLOR_ERR"
-        else:
-            text, token = name, "COLOR_ACCENT_BLUE_LIGHT"
-        chip = make_chip(text, token)
+        icon_role, token = (("pref_liked", "COLOR_OK") if score > 0.3 else ("pref_disliked", "COLOR_ERR")
+                            if score < -0.3 else (None, "COLOR_ACCENT_BLUE_LIGHT"))
+        chip = make_chip(name, token)
+        if icon_role:
+            _icon_utils.set_button_icon(chip, icon_role)
         # Properties + one bound slot, never a lambda over self (leak guard).
         chip.setProperty("person", name)
         chip.setProperty("role", role)

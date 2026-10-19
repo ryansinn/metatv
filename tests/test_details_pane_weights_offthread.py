@@ -43,14 +43,17 @@ from tests.conftest import destroy_widget, wire_inline_run_query
 CHANNEL_A = "prov_a"
 CHANNEL_B = "prov_b"
 
-# The two markers a liked / disliked person's chip carries.
-LIKED_MARK = "▲"
-DISLIKED_MARK = "▼"
+# The two marks a liked / disliked person's chip carries — its icon role,
+# rendered by _role_text as "<role>:" before the chip's words.
+LIKED_MARK = "pref_liked:"
+DISLIKED_MARK = "pref_disliked:"
 
 
 def _role_text(pane, role: str) -> str:
-    """The texts of the Cast section's chips on one row, joined."""
-    return " | ".join(c.text() for c in pane._cast.person_chips(role))
+    """Each chip on one row as "<icon role>:<text>", joined."""
+    from metatv.gui import icon_utils
+    return " | ".join(f"{icon_utils.button_role(c) or ''}:{c.text()}"
+                      for c in pane._cast.person_chips(role))
 
 
 def _role_sheets(pane, role: str) -> str:

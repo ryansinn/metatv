@@ -21,6 +21,8 @@ Top 40 tags are shown by default; "+N more" expands to show all.
 
 from __future__ import annotations
 
+import html as _html
+
 import math
 
 from loguru import logger
@@ -34,7 +36,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import FlowContainer
 from metatv.gui.scoped_filter_box import ScopedFilterBox
@@ -153,17 +155,16 @@ class _TagButton(QPushButton):
         label_value = display if display is not None else value
 
         # Build label: [mark] value countfmt
-        mark = ""
-        if state == "include":
-            mark = _icons.tag_include_icon + " "
-        elif state == "exclude":
-            mark = _icons.tag_exclude_icon + " "
+        mark_role = {"include": "tag_include", "exclude": "tag_exclude"}.get(state)
+        self._mark_role = mark_role
+        mark = f"{_icon_utils.role_html(mark_role)}&nbsp;" if mark_role else ""
 
         # A single title is the common case for people, so "1" is noise; a
         # bare name means one, and the tooltip still says so.
         count_str = _fmt_count(count) if count > 1 else ""
-        label = f"{mark}{label_value} {count_str}".rstrip()
+        label = f"{label_value} {count_str}".rstrip()
         self._label_text = label
+        name_html = f"{mark}{_html.escape(label_value, quote=False)}" if mark else label_value
         named = f"{label_value} · {facet_label}" if facet_label else label_value
 
         # State-specific color for the mark character only isn't trivially
@@ -187,14 +188,16 @@ class _TagButton(QPushButton):
         if facet_label:
             # A cross-facet search mixes facets that can share a colour (Cast and
             # Directing are both blue), so the facet is captioned above the name.
-            self._build_captioned(facet_label, count_str, f"{mark}{label_value}",
+            self._build_captioned(facet_label, count_str, name_html,
                                   font_token, color)
         elif count_str:
             # The count stays small at the name's top right — at the name's
             # weighted size "Frank Welker 51" read as one giant label.
-            self._build_counted(count_str, f"{mark}{label_value}", font_token, color)
+            self._build_counted(count_str, name_html, font_token, color)
         else:
             self.setText(label)
+            if mark_role:
+                _icon_utils.set_button_icon(self, mark_role)
         self.adjustSize()
 
     def _build_captioned(self, caption: str, count_str: str, label: str,
@@ -249,8 +252,13 @@ class _TagButton(QPushButton):
         return self._value
 
     def label_text(self) -> str:
-        """The rendered label (mark, value, count), whether plain or captioned."""
+        """The label's words (value, count), whether plain or captioned; the
+        include/exclude mark is an icon, not text."""
         return self._label_text
+
+    def mark_role(self) -> str | None:
+        """The include/exclude mark's icon role, or None for a neutral tag."""
+        return self._mark_role
 
     def facet_type(self) -> str:
         return self._facet_type
@@ -448,7 +456,8 @@ class WeightedTagCloud(QWidget):
         hl.addStretch()
 
         # Sort toggle (checkable: unchecked = Weight, checked = A-Z)
-        self._sort_btn = QPushButton(f"{_icons.sort_icon} Weight")
+        self._sort_btn = QPushButton("Weight")
+        _icon_utils.set_button_icon(self._sort_btn, "sort")
         self._sort_btn.setCheckable(True)
         self._sort_btn.setChecked(False)
         _theme.style(self._sort_btn, "CLOUD_CTRL_BTN")
@@ -498,9 +507,7 @@ class WeightedTagCloud(QWidget):
 
     def _on_sort_toggled(self, checked: bool) -> None:
         self._sort_az = checked
-        self._sort_btn.setText(
-            f"{_icons.sort_icon} A-Z" if checked else f"{_icons.sort_icon} Weight"
-        )
+        self._sort_btn.setText("A-Z" if checked else "Weight")
         self._sort_btn.setToolTip(
             "Sort A-Z — click for weight sort"
             if checked
@@ -600,9 +607,8 @@ class WeightedTagCloud(QWidget):
             for btn in filter_visible[_CAP:]:
                 btn.set_cloud_visible(False)
             overflow = total_visible - _CAP
-            self._more_btn.setText(
-                f"{_icons.show_all_icon} +{overflow} more"
-            )
+            self._more_btn.setText(f"+{overflow} more")
+            _icon_utils.set_button_icon(self._more_btn, "show_all")
             self._more_btn.setToolTip(
                 f"Show all {total_visible} matching tags — {overflow} hidden"
             )

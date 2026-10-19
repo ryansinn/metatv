@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.recipe_widgets import (
     _ROLE_ORDER,
@@ -65,7 +65,8 @@ class _RecipeTabBar(QWidget):
         row.setContentsMargins(12, 8, 12, 6)
         row.setSpacing(4)
 
-        self._recipe_btn = QPushButton(f"{_icons.recipe_icon} Recipe")
+        self._recipe_btn = QPushButton("Recipe")
+        _icon_utils.set_button_icon(self._recipe_btn, "recipe")
         self._recipe_btn.setToolTip("Build a recipe from facet tags")
         self._recipe_btn.clicked.connect(lambda: self.set_index(0, emit=True))
         row.addWidget(self._recipe_btn)
@@ -134,7 +135,6 @@ class _IngredientFlow(QWidget):
         """Render *(facet_type, value, excluded)* pills, wiping any previous ones."""
         self._flow.clear()
         for facet_type, value, excluded in ingredients:
-            icon = _icons.tag_exclude_icon if excluded else ""
             if facet_type in PERSON_ROLE_LABELS:
                 # One person, any role by default; the toggle narrows it.
                 role = QPushButton(PERSON_ROLE_LABELS[facet_type])
@@ -144,9 +144,11 @@ class _IngredientFlow(QWidget):
                 role.clicked.connect(lambda _=False, f=facet_type, v=value: self.role_clicked.emit(f, v))
                 self._flow.add(role)
                 role.show()
-            label = f"{icon} {value}  {_icons.close_icon}".strip()
-            chip = QPushButton(label)
+            # Words say "excluded" (colour is never the only cue); the trailing
+            # close icon says the chip removes itself on click.
+            chip = QPushButton(f"not {value}" if excluded else value)
             chip.setStyleSheet(_facet_chip_style(_facet_color(facet_type), excluded=excluded))
+            _icon_utils.set_button_icon(chip, "close", trailing=True)
             chip.setToolTip(f"Click to remove '{value}' from the recipe")
             chip.clicked.connect(self._make_handler(facet_type, value))
             self._flow.add(chip)
@@ -258,7 +260,8 @@ class _RecipeBar(QWidget):
         self._yield_lbl.setTextFormat(Qt.TextFormat.RichText)
         row.addWidget(self._yield_lbl)
 
-        self.save_btn = QPushButton(f"{_icons.recipe_icon} Save")
+        self.save_btn = QPushButton("Save")
+        _icon_utils.set_button_icon(self.save_btn, "recipe")
         _theme.style(self.save_btn, "RECIPE_BAR_SAVE_BTN")
         self.save_btn.setToolTip("Save this recipe to the Saved tab")
         self.save_btn.setEnabled(False)
@@ -403,7 +406,8 @@ class _MatchingShelf(QWidget):
         hdr_row.addWidget(self._sub)
         hdr_row.addStretch()
 
-        self._show_all_btn = QPushButton(f"Show all {_icons.see_all_arrow_icon}")
+        self._show_all_btn = QPushButton("Show all")
+        _icon_utils.set_button_icon(self._show_all_btn, "see_all_arrow", trailing=True)
         self._show_all_btn.setFlat(True)
         _theme.style(self._show_all_btn, "RECIPE_SHOW_ALL_BTN")
         self._show_all_btn.setToolTip("Browse all matching titles in the full grid")

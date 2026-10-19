@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from PyQt6.QtWidgets import QPushButton
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 #: Prefix marking a count as a floor rather than an exact total.
@@ -59,7 +59,7 @@ class TransparencyAxis:
             ``hidden_by_<key>_is_floor`` flag — so the params dict, the render
             arguments and this table cannot drift apart.
         attr: The ``MainWindow`` attribute holding this segment's button.
-        icon: The glyph, from ``icons.py`` (never a literal here).
+        icon: The icon ROLE (an ``icons.VECTOR_KEYS`` key), painted beside the count.
         handler: Name of the host method the click calls. A NAME rather than a
             bound method because the table is built at import time, before any
             window exists.
@@ -79,7 +79,7 @@ AXES: tuple[TransparencyAxis, ...] = (
     TransparencyAxis(
         key="exclusions",
         attr="_channel_exclusion_btn",
-        icon=_icons.global_exclusion_icon,
+        icon="global_exclusion",
         handler="_show_exclusion_hidden",
         suffix="hidden by Global Exclusions  —  show",
         tooltip=(
@@ -92,7 +92,7 @@ AXES: tuple[TransparencyAxis, ...] = (
     TransparencyAxis(
         key="search",
         attr="_channel_filter_btn",
-        icon=_icons.search_filter_icon,
+        icon="search_filter",
         handler="_show_filtered_results",
         suffix="hidden by search filters  —  show",
         tooltip=(
@@ -104,7 +104,7 @@ AXES: tuple[TransparencyAxis, ...] = (
     TransparencyAxis(
         key="dead",
         attr="_channel_dead_btn",
-        icon=_icons.dead_stream_icon,
+        icon="dead_stream",
         handler="_show_dead_hidden",
         suffix="unavailable (repeated play failures)  —  show",
         tooltip=(
@@ -116,7 +116,7 @@ AXES: tuple[TransparencyAxis, ...] = (
     TransparencyAxis(
         key="keywords",
         attr="_channel_keyword_btn",
-        icon=_icons.keyword_exclusion_icon,
+        icon="keyword_exclusion",
         handler="_show_keyword_hidden",
         suffix="hidden by keywords  —  show",
         tooltip=(
@@ -130,7 +130,7 @@ AXES: tuple[TransparencyAxis, ...] = (
     TransparencyAxis(
         key="adult",
         attr="_channel_adult_btn",
-        icon=_icons.adult_filter_icon,
+        icon="adult_filter",
         # The odd one out, and deliberately so — this OPENS THE SETTING rather
         # than lifting the layer for one view. The four above are filters a user
         # can trip by accident; the gate is a choice they made, so the honest
@@ -215,9 +215,9 @@ def render(host, counts: dict, floors: dict) -> None:
             continue
         if shown:
             button.setText(
-                f"{axis.icon} {count_label(count, floors.get(axis.key, False))} "
-                f"{axis.suffix}"
+                f"{count_label(count, floors.get(axis.key, False))} {axis.suffix}"
             )
+            _icon_utils.set_button_icon(button, axis.icon)
         button.setVisible(shown)
 
     host._channel_filter_bar.setVisible(any_shown)

@@ -38,7 +38,7 @@ from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QWidg
 from metatv.core.quality_vocab import QUALITY_TOKENS
 from metatv.core.region_codes import REGION_FULL_NAMES
 from metatv.gui import chip_row, cursor_affordance
-from metatv.gui import icons
+from metatv.gui import icon_utils, icons
 from metatv.gui import theme
 from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.qt_text_utils import escape_mnemonic
@@ -249,7 +249,8 @@ def add_quality_badge(btn: QPushButton, colour_token: str, *, bold: bool = False
     badge = chip_row.chip_widget(chip_row.CHIP_QUALITY, token)
     if verified:
         # Shape, not colour, says "measured": the tier hue stays the token's.
-        badge.setText(f"{token} {icons.verified_icon}")
+        badge.setText(token)
+        icon_utils.set_button_icon(badge, "verified", trailing=True)
     layout.addWidget(badge)
 
     if count:

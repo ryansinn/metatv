@@ -31,9 +31,15 @@ def test_chip_with_a_role_gets_an_icon(_app) -> None:
     assert not ToggleChip("Search", True, vector_role="search").icon().isNull()
 
 
-def test_chip_without_a_role_is_unchanged(_app) -> None:
+def test_chip_without_a_role_shows_only_its_state_dot(_app, owned_widgets) -> None:
+    from metatv.gui import icon_utils
     from metatv.gui.chips import ToggleChip
-    assert ToggleChip("Plain", True).icon().isNull(), "role-less chip grew an icon"
+    on, off = owned_widgets.own(ToggleChip("Plain", True)), owned_widgets.own(ToggleChip("Plain", False))
+    assert icon_utils.button_role(on) == "status_dot"
+    assert icon_utils.button_role(off) == "inactive_dot"
+    # A chip WITH a role keeps it — the state dot never replaces it.
+    roled = owned_widgets.own(ToggleChip("Search", True, vector_role="search"))
+    assert icon_utils.button_role(roled) == "search"
 
 
 def test_the_label_no_longer_carries_an_emoji(_app) -> None:

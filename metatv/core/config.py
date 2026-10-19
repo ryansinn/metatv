@@ -544,7 +544,6 @@ class Config(BaseModel):
     episode_icon: str = "▶"  # Episode indicator
     
     # UI Control Icons
-    loading_icon: str = "⟳"  # Loading/buffering indicator
     close_icon: str = "×"  # Close/dismiss button
     provider_icon: str = "📡"          # Provider / source section
     # Graduated play-failure ledger (roadmap S3): on a source refresh, re-probe
@@ -555,9 +554,6 @@ class Config(BaseModel):
     recheck_failed_on_refresh: bool = True
     watched_icon: str = "✓"            # Watched / completed indicator
     like_icon: str = "👍"              # Like / positive rating
-    hide_icon: str = "🚫"              # Hide channel from all views
-    preferences_icon: str = "🎯"       # Preferences / Recommended dashboard
-    preferred_version_icon: str = "🎯" # Best-match version indicator (distinct semantic from favorites ★)
 
     # Global Exclusions — opt-out blacklist (applies to discovery + recommendations everywhere)
     # Prefix codes to HIDE. Empty list = hide nothing (show all). Opt-out model: new prefixes

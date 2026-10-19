@@ -20,6 +20,8 @@ as five gold stars, one half-star per point, with the number in the tooltip
 """
 from __future__ import annotations
 
+import html as _html
+
 import re
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
@@ -30,7 +32,6 @@ from PyQt6.QtWidgets import (
 from metatv.core.filter_utils import normalize_genre
 from metatv.core.tag_provenance import guess_reason, strongest_kind
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.detail_chips import make_chip, make_flow
 from metatv.gui.details_sections import _is_stale_polluted_title
@@ -381,7 +382,7 @@ class _MetadataSection(QWidget):
             self._genres_container.hide()
         else:
             self._genres_container.hide()
-            self._genres_loading_lbl.setText(f"{_icons.loading_icon} Loading categories...")
+            self._genres_loading_lbl.setText(f"{_icon_utils.role_html('loading')}&nbsp;Loading categories...")
             self._genres_loading_lbl.show()
 
     def load_metadata(self, metadata: MetadataResult) -> None:
@@ -487,7 +488,8 @@ class _MetadataSection(QWidget):
 
     def set_recommendation_reason(self, reason: str | None) -> None:
         if reason:
-            self.rec_reason_label.setText(f"{self.config.preferences_icon} Recommended: {reason}")
+            self.rec_reason_label.setText(
+                f"{_icon_utils.role_html('preferences')}&nbsp;Recommended: {_html.escape(reason, quote=False)}")
             self.rec_reason_label.show()
         else:
             self.rec_reason_label.hide()
