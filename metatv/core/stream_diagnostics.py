@@ -116,6 +116,15 @@ class DiagnosticResult:
 #: ``player_api`` reported ``active_cons == max_connections`` at the time.
 CONNECTION_LIMIT_STATUSES: frozenset[int] = frozenset({458, 509})
 
+
+def is_connection_limit_error(stream_err: str | None) -> bool:
+    """True for a pre-flight "HTTP 458/509": this account's connections are all in use.
+
+    Then every other version of the title on the SAME account is refused the
+    same way, so retrying them is only more hits on a full account.
+    """
+    return any(stream_err == f"HTTP {code}" for code in CONNECTION_LIMIT_STATUSES)
+
 _CONNECTION_LIMIT_ADVICE = (
     "this account is already using all of its connections. Another device "
     "may be watching on it; closing the player releases this app's own.")

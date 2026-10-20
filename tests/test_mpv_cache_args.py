@@ -372,6 +372,7 @@ def test_open_ended_profile_args_match_compose_open_ended_buffer_args():
     open_ended_buffer = [
         a for a in p._compose_open_ended_buffer_args()
         if not a.startswith("--user-agent=") and a != RECONNECT_FLAG and a != NO_READ_TIMEOUT_FLAG
+        and not a.startswith("--script-opts=ytdl_hook-exclude=")
     ]
     assert sorted(profile_buffer) == sorted(open_ended_buffer), (
         "open_ended profile args and _compose_open_ended_buffer_args diverged — "

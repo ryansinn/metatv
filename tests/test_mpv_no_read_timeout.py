@@ -101,10 +101,13 @@ def test_no_read_timeout_flag_omitted_override_all_deep_cache():
 # stream_args() helper — composition and ordering
 # ---------------------------------------------------------------------------
 
-def teststream_args_returns_list_of_three():
-    """stream_args() returns a list with exactly 3 elements."""
+def teststream_args_returns_list_of_four():
+    """UA, reconnect, read timeout, and the provider-stream yt-dlp exclusion."""
+    from metatv.core.players.mpv_args import NO_YTDL_FOR_PROVIDER_STREAMS
+
     args = stream_args()
-    assert len(args) == 3
+    assert len(args) == 4
+    assert args[-1] == NO_YTDL_FOR_PROVIDER_STREAMS
 
 
 def teststream_args_first_element_is_user_agent():

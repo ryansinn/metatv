@@ -23,6 +23,13 @@ def _read_timeout_flag(policy: StreamAccess) -> str:
     return f"--network-timeout={0 if seconds is None else f'{seconds:g}'}"
 
 
+#: mpv falls back to yt-dlp when ffmpeg cannot open a URL. For a provider
+#: stream that fallback just re-requests the same URL from the provider — one
+#: more refused hit on a one-connection account (ledger D62). Xtream stream
+#: URLs carry /live/, /movie/ or /series/; trailer links (YouTube) never do, so
+#: they keep the fallback they need.
+NO_YTDL_FOR_PROVIDER_STREAMS = "--script-opts=ytdl_hook-exclude=/live/|/movie/|/series/"
+
 RECONNECT_FLAG = _reconnect_flag(PLAYBACK)
 NO_READ_TIMEOUT_FLAG = _read_timeout_flag(PLAYBACK)
 
@@ -36,4 +43,5 @@ def stream_args(policy: StreamAccess = PLAYBACK) -> list[str]:
     reconnect = _reconnect_flag(policy)
     return [f"--user-agent={policy.user_agent}",
             *([reconnect] if reconnect else []),
-            _read_timeout_flag(policy)]
+            _read_timeout_flag(policy),
+            NO_YTDL_FOR_PROVIDER_STREAMS]

@@ -24,7 +24,7 @@ from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.gui.stale_source_offer import read_last_refresh, stale_source_offer
-from metatv.core.stream_diagnostics import _redact, explain_stream_error
+from metatv.core.stream_diagnostics import _redact, explain_stream_error, is_connection_limit_error
 from metatv.core.stream_url_derivation import derive_channel_stream_url
 from metatv.core.url_cycle import UrlCycler, rebase_stream_url
 from metatv.gui import icon_utils as _icon_utils
@@ -539,6 +539,8 @@ class _StreamingMixin(_WatchCaptureMixin):
                     )
                     siblings = all_siblings   # includes inactive — failure toast shows them
                     active_siblings = [s for s in all_siblings if s.get("is_active")]
+                    if is_connection_limit_error(stream_err):  # account full: only ANOTHER source's copy can play
+                        active_siblings = [s for s in active_siblings if s.get("provider_id") != provider_id]
                     # Try active siblings in ranked order (up to 3 attempts)
                     for sib in active_siblings[:3]:
                         sib_url = sib.get("stream_url") or ""

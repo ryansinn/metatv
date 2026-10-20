@@ -47,6 +47,7 @@ class StreamRetryManager(QObject):
         validate_fn: Callable[[str], tuple[bool, str | None]],
         parent: QObject | None = None,
         player_is_running: Callable[[], bool] | None = None,
+        enabled: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self._db = db
@@ -61,6 +62,9 @@ class StreamRetryManager(QObject):
         # player window is open — check_all_now (the user's explicit "check
         # now") is NOT gated, since that click is the user asking for it now.
         self._player_is_running = player_is_running
+        # Settings → Playback "Re-check streams that failed" (off by default).
+        # Read per tick, so turning it on or off takes effect without a restart.
+        self._enabled = enabled or (lambda: True)
         self._deferring = False      # last logged playback state (log transitions only)
 
     def start(self) -> None:
@@ -138,10 +142,15 @@ class StreamRetryManager(QObject):
     def get_all_display(self) -> list[StreamRetryEntry]:
         """Pending + online rows for the sidebar — see StreamRetryRepository.get_all_display.
 
+        Empty while re-checking is off: the list promises re-checks, so it
+        shows nothing rather than entries nobody is checking.
+
         The checker (``_run_checks``/``check_all_now``) must keep using
         ``get_all_pending`` so a recovered "online" row is never re-probed;
         this method is for the UI display path only.
         """
+        if not self._enabled():
+            return []
         with self._db.session_scope() as session:
             rows = StreamRetryRepository(session).get_all_display()
             return self._to_entries(rows)
@@ -164,6 +173,8 @@ class StreamRetryManager(QObject):
 
     def check_all_now(self) -> None:
         """Force-check all pending entries regardless of schedule (e.g. after source refresh)."""
+        if not self._enabled():
+            return
         if not self._busy:
             self._executor.submit(self._run_checks, force_all=True)
 
@@ -172,7 +183,7 @@ class StreamRetryManager(QObject):
     # ------------------------------------------------------------------ #
 
     def _check_due(self) -> None:
-        if self._busy:
+        if self._busy or not self._enabled():
             return
         playing = self._player_is_running is not None and self._player_is_running()
         if playing != self._deferring:
