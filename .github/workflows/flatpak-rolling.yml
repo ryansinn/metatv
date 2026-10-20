@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:   # build any ref as a workflow artifact; publishing stays main-only
 
 # Newest push wins, as in release.yml — two main pushes racing to upload would
 # otherwise let the slower (possibly older) build overwrite the newer one.
@@ -29,6 +30,7 @@ jobs:
     # notes) is created and moved by release.yml; this job only adds or
     # replaces its own asset under a stable, version-free name.
     needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4   # for scripts/upload_to_rolling.sh

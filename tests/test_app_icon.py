@@ -14,7 +14,6 @@ path reads them. A rendered icon nobody sets is the state we just left.
 from __future__ import annotations
 
 import pathlib
-import re
 
 import pytest
 
@@ -64,14 +63,11 @@ def test_startup_sets_the_window_icon():
     )
 
 
-def test_the_spec_no_longer_hardcodes_no_icon():
-    """`icon=None` was the original defect, in one line."""
-    spec = (REPO_ROOT / "packaging" / "metatv.spec").read_text()
-
-    assert not re.search(r"^\s*icon=None,\s*$", spec, re.M), (
-        "packaging/metatv.spec still passes icon=None"
-    )
-    assert "metatv-256.png" in spec, (
-        "the PNG is not in `datas`, so bundle_resource_path will not find it "
-        "inside the frozen app — the icon would work in a checkout only"
+def test_the_build_ships_and_uses_the_icon():
+    """`icon=None` was the original defect; the build names the icon twice."""
+    build = (REPO_ROOT / "packaging" / "build_nuitka.sh").read_text()
+    assert "--windows-icon-from-ico=packaging/icon/metatv-256.png" in build
+    assert "--include-data-files=packaging/icon/metatv-256.png=" in build, (
+        "the PNG is not shipped, so bundle_resource_path will not find it "
+        "inside the packaged app — the icon would work in a checkout only"
     )

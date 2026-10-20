@@ -1,4 +1,7 @@
-"""Every non-.py file under ``metatv/`` must be declared in the PyInstaller spec.
+"""Every non-.py file under ``metatv/`` must be declared in the Nuitka build.
+
+(History below speaks of the PyInstaller spec it was written for; the build is
+Nuitka since 2026-10-20 and follows imports the same way, so the rule holds.)
 
 Why this exists
 ---------------
@@ -33,13 +36,13 @@ cannot anticipate.
 
 from __future__ import annotations
 
-import os
+import re
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SPEC = REPO_ROOT / "packaging" / "metatv.spec"
+BUILD = REPO_ROOT / "packaging" / "build_nuitka.sh"
 
 #: Files that are deliberately NOT shipped. Each entry is a decision.
 NOT_SHIPPED = {
@@ -50,79 +53,26 @@ NOT_SHIPPED = {
 
 
 def _spec_datas() -> list[tuple[str, str]]:
-    """Run the spec with stubbed PyInstaller symbols and return its ``datas``.
+    """The ``(source, destination)`` data entries the Nuitka build passes.
 
-    Executing it (rather than regex-scraping) means the test sees what
-    PyInstaller will actually see, including anything built by a loop or a
-    helper — a scrape would quietly pass on a spec whose list is computed.
+    Read from ``packaging/build_nuitka.sh``: each ``--include-data-dir=SRC=DST``
+    and ``--include-data-files=SRC=DST``. The Flatpak copies the same
+    directories (``test_the_flatpak_copies_the_same_data``).
     """
-    import sys
-    import types
+    script = BUILD.read_text(encoding="utf-8")
+    pairs = re.findall(r"--include-data-(?:dir|files)=([^=\s]+)=([^\s]+)", script)
+    assert pairs, "build_nuitka.sh passes no data files at all"
+    return [(str(REPO_ROOT / src), dst) for src, dst in pairs]
 
-    captured: dict[str, object] = {}
 
-    def _collect_data_files(pkg, **kwargs):
-        return []          # third-party payloads are not what this test guards
-
-    def _collect_submodules(pkg, **kwargs):
-        return []
-
-    # PyInstaller is a BUILD dependency, installed in CI but not in the dev
-    # venv — and this test must run everywhere, since its whole purpose is to
-    # fail in the environment that cannot otherwise notice the bug. Stubbing the
-    # import is safe: the spec only uses these two helpers, and both are
-    # replaced by the no-ops above.
-    stub = types.ModuleType("PyInstaller.utils.hooks")
-    stub.collect_data_files = _collect_data_files
-    stub.collect_submodules = _collect_submodules
-    installed = {
-        "PyInstaller": types.ModuleType("PyInstaller"),
-        "PyInstaller.utils": types.ModuleType("PyInstaller.utils"),
-        "PyInstaller.utils.hooks": stub,
-    }
-    saved = {name: sys.modules.get(name) for name in installed}
-    sys.modules.update(installed)
-
-    class _Recorder:
-        """Stands in for Analysis/PYZ/EXE/COLLECT/BUNDLE."""
-
-        def __init__(self, *args, **kwargs):
-            if "datas" in kwargs:
-                captured["datas"] = kwargs["datas"]
-            self.pure = self.zipped_data = self.scripts = []
-            self.binaries = self.zipfiles = self.datas = []
-
-        def __iter__(self):
-            return iter(())
-
-    globs = {
-        "__file__": str(SPEC),
-        "collect_data_files": _collect_data_files,
-        "collect_submodules": _collect_submodules,
-        "Analysis": _Recorder,
-        "PYZ": _Recorder,
-        "EXE": _Recorder,
-        "COLLECT": _Recorder,
-        "BUNDLE": _Recorder,
-        "TOC": list,
-        "Tree": lambda *a, **k: [],
-        "SPEC": str(SPEC),
-        "DISTPATH": str(REPO_ROOT / "dist"),
-        "workpath": str(REPO_ROOT / "build"),
-        "os": os,
-    }
-    try:
-        exec(compile(SPEC.read_text(encoding="utf-8"), str(SPEC), "exec"), globs)
-    finally:
-        for name, module in saved.items():
-            if module is None:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = module
-
-    datas = captured.get("datas")
-    assert datas is not None, "the spec never passed datas= to Analysis()"
-    return [(str(src), str(dest)) for src, dest in datas]
+def test_the_flatpak_copies_the_same_data():
+    """The Flatpak compiles in module mode and copies data dirs itself."""
+    manifest = (REPO_ROOT / "packaging" / "flatpak"
+                / "io.github.ryansinn.MetaTV.yml").read_text(encoding="utf-8")
+    for src, _dst in _spec_datas():
+        rel = Path(src).relative_to(REPO_ROOT).as_posix()
+        if rel.startswith("metatv/"):
+            assert rel in manifest, f"the Flatpak does not copy {rel}"
 
 
 def _data_files() -> list[str]:

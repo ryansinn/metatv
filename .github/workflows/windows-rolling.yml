@@ -1,6 +1,6 @@
 name: Windows rolling
 
-# Every push to main: build MetaTV for Windows (PyInstaller one-folder build plus
+# Every push to main: build MetaTV for Windows (Nuitka standalone build plus
 # a portable mpv) and attach MetaTV-windows-x64.zip to the `rolling` release
 # beside the macOS .dmg and the Flatpak. Separate from release.yml for the same
 # reason flatpak-rolling.yml is: a Windows failure must never hold back the
@@ -42,18 +42,18 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python dependencies
-        # Pillow lets PyInstaller turn the committed PNG into the .exe icon.
+        # imageio lets Nuitka turn the committed PNG into the .exe icon.
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller pillow
+          pip install -r requirements.txt "nuitka==2.7.12" imageio
 
       - name: Stamp the build id
         # One builder for every workflow (scripts/build_id.sh), so a Windows
         # build's title bar names its commit like the .dmg does.
         run: scripts/build_id.sh --stamp
 
-      - name: Build MetaTV (PyInstaller)
-        run: pyinstaller packaging/metatv.spec --noconfirm
+      - name: Build MetaTV (Nuitka — compiled, no Python source in the bundle)
+        run: packaging/build_nuitka.sh
 
       - name: Vendor mpv into the build
         # mpv's own site points Windows users at shinchiro's builds. The plain

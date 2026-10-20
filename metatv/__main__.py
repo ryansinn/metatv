@@ -79,8 +79,31 @@ def setup_logging():
     logger.info(f"{window_title()} starting — v{__version__}")
 
 
+def _relaunch_in_utf8_mode() -> None:
+    """On a packaged Windows build, restart once in Python's UTF-8 mode.
+
+    Windows' locale encoding is a legacy code page (cp1252 in the West), so
+    without UTF-8 mode config.yaml, notes and mpv's output are read and written
+    in a different encoding than on Linux and macOS, and a channel name with an
+    emoji fails to save. PyInstaller had a flag for it; Nuitka has none, so the
+    app sets ``PYTHONUTF8`` and starts itself again. The variable doubles as the
+    guard: a child that still is not in UTF-8 mode never relaunches again.
+    """
+    import subprocess
+
+    from metatv.core.runtime_env import is_frozen
+
+    if (sys.platform != "win32" or not is_frozen() or sys.flags.utf8_mode
+            or os.environ.get("PYTHONUTF8") == "1"):
+        return
+    env = dict(os.environ, PYTHONUTF8="1")
+    subprocess.Popen([sys.executable, *sys.argv[1:]], env=env)
+    sys.exit(0)
+
+
 def main():
     """Main application entry point"""
+    _relaunch_in_utf8_mode()
     setup_logging()
 
     # Load configuration (returns tuple: config, recovered_from_backup)

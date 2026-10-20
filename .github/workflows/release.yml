@@ -73,7 +73,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt "nuitka==2.7.12"
 
       - name: Install mpv + packaging tools (Homebrew)
         run: |
@@ -163,16 +163,16 @@ jobs:
       - name: Stamp the build id
         run: |
           set -euo pipefail
-          # Written before PyInstaller so it is baked into the bundle. A packaged
+          # Written before the build so it is baked into the bundle. A packaged
           # app has no git, so without this a rolling build could not say which
           # commit it is — and under rolling releases the version string alone
           # no longer distinguishes two builds. Gitignored: generated per build,
           # never committed.
           scripts/build_id.sh --stamp "${{ steps.meta.outputs.build_id || steps.meta.outputs.version }}"
 
-      - name: Build MetaTV.app (PyInstaller)
+      - name: Build MetaTV.app (Nuitka — compiled, no Python source in the bundle)
         run: |
-          pyinstaller packaging/metatv.spec --noconfirm
+          packaging/build_nuitka.sh "${{ steps.meta.outputs.version }}"
 
       - name: Vendor mpv into the app bundle
         run: |
@@ -237,7 +237,7 @@ jobs:
           echo "Vendored mpv loads and runs."
 
       - name: Ad-hoc re-sign the app bundle
-        # dylibbundler rewrites dylibs INSIDE the .app after PyInstaller's ad-hoc
+        # dylibbundler rewrites dylibs INSIDE the .app after the build's ad-hoc
         # sign, which invalidates that signature. A quarantined app with a *broken*
         # signature is what makes macOS say "MetaTV is damaged" (vs the milder
         # "unidentified developer"). Re-sign the whole bundle ad-hoc so the shipped

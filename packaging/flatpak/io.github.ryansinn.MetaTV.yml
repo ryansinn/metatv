@@ -175,6 +175,10 @@ modules:
     build-commands:
       - pip3 install --prefix=${FLATPAK_DEST} --no-cache-dir --no-build-isolation
         qtawesome SQLAlchemy aiohttp requests pydantic python-dateutil loguru PyYAML
+      # Build-time only: compiles MetaTV itself (next module). Installed into the
+      # build tree like the rest; it is never imported at run time.
+      - pip3 install --prefix=${FLATPAK_DEST} --no-cache-dir --no-build-isolation
+        "nuitka==2.7.12"
 
   # ── MetaTV itself ──────────────────────────────────────────────────────────
   - name: metatv
@@ -189,11 +193,21 @@ modules:
           - .flatpak-builder
           - flatpak_app
     build-commands:
-      # Run from source, the same tree layout as a checkout: runtime_env's
-      # bundle_resource_path() resolves packaging/icon/* two parents above
-      # metatv/core, so both directories go side by side.
-      - mkdir -p ${FLATPAK_DEST}/share/metatv
-      - cp -r metatv packaging ${FLATPAK_DEST}/share/metatv/
+      # Compiled, not shipped as source: Nuitka's module mode turns the whole
+      # package into ONE native extension (metatv.*.so) that the runtime's
+      # Python imports like any other module. No .py and no .pyc ships.
+      # Same tree layout as a checkout: runtime_env's bundle_resource_path()
+      # resolves packaging/icon/* two parents above metatv/core, and the
+      # compiled modules find their data next to their own __file__, so the
+      # data directories go where the source tree has them.
+      - python3 -m nuitka --mode=package
+        --output-dir=build/nuitka metatv
+      - mkdir -p ${FLATPAK_DEST}/share/metatv/metatv/gui ${FLATPAK_DEST}/share/metatv/metatv/assets
+      - cp build/nuitka/metatv*.so ${FLATPAK_DEST}/share/metatv/
+      - cp -r metatv/gui/tokens ${FLATPAK_DEST}/share/metatv/metatv/gui/
+      - cp -r metatv/data ${FLATPAK_DEST}/share/metatv/metatv/
+      - cp -r metatv/assets/fonts ${FLATPAK_DEST}/share/metatv/metatv/assets/
+      - cp -r packaging ${FLATPAK_DEST}/share/metatv/
       - install -Dm755 packaging/flatpak/metatv.sh ${FLATPAK_DEST}/bin/metatv
       - install -Dm644 packaging/flatpak/io.github.ryansinn.MetaTV.desktop
         ${FLATPAK_DEST}/share/applications/io.github.ryansinn.MetaTV.desktop

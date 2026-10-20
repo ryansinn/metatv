@@ -79,13 +79,13 @@ def test_apply_ui_font_keeps_the_platform_size(qapp):
 # 4. The packaged build ships them.
 # ---------------------------------------------------------------------------
 
-def test_the_spec_bundles_the_asset_directory():
+def test_the_build_bundles_the_asset_directory():
     """``fonts.py`` resolves the directory relative to the package, so a frozen
     build that omits it falls back to the platform face with no error."""
-    spec = (fonts.ASSET_DIR.parent.parent.parent
-            / "packaging" / "metatv.spec").read_text()
-    assert '"assets", "fonts"' in spec, (
-        "packaging/metatv.spec does not ship metatv/assets/fonts"
+    build = (fonts.ASSET_DIR.parent.parent.parent
+             / "packaging" / "build_nuitka.sh").read_text()
+    assert "--include-data-dir=metatv/assets/fonts=metatv/assets/fonts" in build, (
+        "packaging/build_nuitka.sh does not ship metatv/assets/fonts"
     )
 
 

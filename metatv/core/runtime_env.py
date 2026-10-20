@@ -46,12 +46,14 @@ def os_description(*, detailed: bool = False) -> str:
 
 
 def is_frozen() -> bool:
-    """Return ``True`` when running from a PyInstaller (or similar) bundle.
+    """Return ``True`` when running from a packaged build, not a checkout.
 
-    PyInstaller sets ``sys.frozen = True`` on the interpreter it embeds; a
-    normal source checkout leaves the attribute absent.
+    Nuitka (the build since 2026-10-20) defines ``__compiled__`` in every module
+    it compiles and does NOT set ``sys.frozen``; PyInstaller set ``sys.frozen``.
+    Both are checked. Without the first, a Nuitka build looked like a source
+    checkout: no bundled mpv, no window icon, no update check.
     """
-    return bool(getattr(sys, "frozen", False))
+    return "__compiled__" in globals() or bool(getattr(sys, "frozen", False))
 
 
 def flatpak_app_id() -> "str | None":
