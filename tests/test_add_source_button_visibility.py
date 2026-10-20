@@ -54,12 +54,13 @@ class _FakeProviderEditor(QWidget):
 
     ``SourcesManagerView.__init__`` embeds this via ``QVBoxLayout.addWidget()``
     (requires an actual ``QWidget``, not an arbitrary object) and connects three of
-    its signals. Nothing else about the real editor is exercised by these tests.
+    its signals (four, with Cancel on a new source). Nothing else about the real editor is exercised by these tests.
     """
 
     analyze_requested = pyqtSignal(str)
     toggle_active_requested = pyqtSignal(str)
     epg_refresh_requested = pyqtSignal(str)
+    new_source_cancelled = pyqtSignal()
 
 
 def _make_sources_manager(tmp_path) -> SourcesManagerView:

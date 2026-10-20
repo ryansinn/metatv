@@ -1553,7 +1553,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.series_monitor.notifications = self.notification_manager
         self.vod_watch_alert_manager.notifications = self.notification_manager
         # Provider IDs that should get a one-time EPG fetch once their channel load
-        # completes — populated by AddProviderDialog when "Enable EPG" is checked.
+        # completes — populated by _on_provider_added when the new source has EPG on.
         self._epg_fetch_after_add: set[str] = set()
         self.epg_view = EpgView(self.config, self.db, self.epg_manager, self)
         # EPG "play this channel" routes through the one rich play chokepoint
@@ -1645,6 +1645,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.provider_editor = ProviderEditorView(self.db, self.config, self.epg_manager)
         self.provider_editor.done.connect(self.exit_provider_edit_mode)
         self.provider_editor.provider_saved.connect(self._on_provider_saved)
+        self.provider_editor.provider_added.connect(self._on_provider_added)
         self.provider_editor.provider_delete_requested.connect(self._on_provider_delete_requested)
         self.provider_editor.refresh_requested.connect(self.refresh_provider)
         self.provider_editor.account_info_updated.connect(self._on_account_info_updated)

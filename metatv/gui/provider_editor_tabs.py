@@ -197,6 +197,11 @@ class _ProviderEditorTabsMixin:
     def _fetch_account_info(self) -> None:
         from metatv.gui.provider_editor import FetchAccountInfoThread
 
+        if self._new_source and self._provider_urls:
+            self._account_thread = FetchAccountInfoThread(self._draft_provider())
+            self._account_thread.finished.connect(self._on_account_info_fetched)
+            self._account_thread.start()
+            return
         if not self._provider_id:
             return
         self._refresh_acct_btn.setEnabled(False)
@@ -460,12 +465,19 @@ class _ProviderEditorTabsMixin:
         # is the normal case, and this surface already accepted Enter.
         self._new_url_input.setFocus()
         self._rebuild_url_list()
+        self._invalidate_new_test()
 
     def _remove_url(self, idx: int) -> None:
         """Flip URL *idx* to pending-remove (ghost row + Undo) — Save is what
         actually deletes it. Keyed by url in ``_pending_url_removals``, never
-        by index: indices shift as ghost rows accumulate.
+        by index: indices shift as ghost rows accumulate. A new source has
+        nothing saved to undo, so its rows just go.
         """
+        if self._new_source:
+            del self._provider_urls[idx]
+            self._rebuild_url_list()
+            self._invalidate_new_test()
+            return
         pu = self._provider_urls[idx]
         surviving = sum(
             1 for p in self._provider_urls if p.url not in self._pending_url_removals

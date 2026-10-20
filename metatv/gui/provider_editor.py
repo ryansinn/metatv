@@ -43,6 +43,7 @@ from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
+from metatv.gui.provider_editor_new import _NewSourceMixin
 from metatv.gui.provider_editor_tabs import _ProviderEditorTabsMixin
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.source_label import source_label
@@ -290,7 +291,7 @@ class _CopyableLabel(QLabel):
 # Main editor view (center panel)
 # ──────────────────────────────────────────────────────────────────────────────
 
-class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
+class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
     """Full-panel provider editor.
 
     Shows account info, credentials, URLs, and settings for one provider.
@@ -321,6 +322,8 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
     analyze_requested = pyqtSignal(str)         # provider_id — action bar "Analyze" clicked
     toggle_active_requested = pyqtSignal(str)   # provider_id — action bar Enable/Disable clicked
     epg_refresh_requested = pyqtSignal(str)     # provider_id — action bar "Refresh Guide" clicked
+    provider_added = pyqtSignal(str, bool)      # provider_id, epg_enabled — a NEW source was added
+    new_source_cancelled = pyqtSignal()         # Cancel pressed on a new, unsaved source
 
     def __init__(self, db: Database, config=None, epg_manager=None, parent=None):
         super().__init__(parent)
@@ -617,6 +620,8 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         self._refresh_combo.currentIndexChanged.connect(self._mark_dirty)
         self._epg_interval_combo.currentIndexChanged.connect(self._mark_dirty)
         self._icon_picker.icon_changed.connect(self._mark_dirty)
+        self._username_input.textChanged.connect(self._invalidate_new_test)
+        self._password_input.textChanged.connect(self._invalidate_new_test)
 
     def _mark_dirty(self, *_args) -> None:
         """Restore the Save button to its active state when the user edits a field.
@@ -624,7 +629,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         Early-returns while ``_loading`` is True so programmatic field population
         during ``load_provider`` does not falsely trip the dirty state.
         """
-        if self._loading:
+        if self._loading or self._new_source:   # a new source is gated by its test
             return
         self._save_btn.setText("Save Changes")
         self._save_btn.setEnabled(True)
@@ -641,6 +646,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         """
         if provider_id == self._provider_id and not force:
             return  # already showing this one
+        self._leave_new_mode()
 
         # Reset per-source transient button state before populating the new provider.
         # This prevents Test Connection result text and the "Saved" state from the
@@ -762,6 +768,8 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
     # ── Save / delete / discard / test connection ───────────────────────────
 
     def _save(self):
+        if self._new_source:
+            return self._add_new_source()
         if not self._provider_id:
             return
 
@@ -847,8 +855,10 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             session.close()
 
     def _discard(self):
-        """Reload from DB, discarding unsaved changes."""
-        if self._provider_id:
+        """Reload from DB, discarding unsaved changes (Cancel, for a new source)."""
+        if self._new_source:
+            self._cancel_new_source()
+        elif self._provider_id:
             self.load_provider(self._provider_id, force=True)
 
     def _delete_provider(self):
@@ -884,7 +894,9 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
 
     def _test_connection(self):
         """Test ALL configured URLs in parallel, then reorder by response time."""
-        if not self._provider_id or not self._provider_urls:
+        if self._new_source:
+            self._take_typed_url()
+        if not (self._provider_id or self._new_source) or not self._provider_urls:
             return
 
         username = self._username_input.text().strip()
@@ -956,6 +968,8 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             if working else f"All {len(sorted_results)} failed"
         )
 
+        if self._new_source:
+            self._new_test_finished(bool(working))
         if not sorted_results:
             return
 
