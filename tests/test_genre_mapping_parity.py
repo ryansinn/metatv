@@ -111,6 +111,7 @@ def test_parser_found_the_keep_list():
 
 @pytest.mark.parametrize("raw,canonical", _FOLDS, ids=[f"{r}->{c}" for r, c in _FOLDS])
 def test_fold_row_matches_code(raw: str, canonical: str):
+    canonical = "" if canonical == "(no genre)" else canonical   # a format word
     """Each documented ``raw → canonical`` is exactly what ``normalize_genre`` returns."""
     got = normalize_genre(raw)
     assert got == canonical, (

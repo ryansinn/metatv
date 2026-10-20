@@ -29,7 +29,7 @@ from metatv.gui import theme as _theme
 from metatv.gui import filter_panel_sections as _fp_sections
 from metatv.gui.chunked_construction import build_chunked
 from metatv.gui.filter_panel_chip_seam import _ChipSeamMixin
-from metatv.gui.filter_group_row import _Section
+from metatv.gui.filter_group_row import _Section, UNTAGGED_LABELS
 from metatv.gui import deferred_config_save as _cfgsave
 
 # ── Main FilterPanel ───────────────────────────────────────────────────────────
@@ -453,7 +453,8 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         hidden = set(getattr(self.config, "filter_facets_hiding_untagged", None) or [])
         counts = untagged_counts or {}
         for facet, section in self._facet_sections().items():
-            section.set_untagged_row(int(counts.get(facet, 0)), checked=facet not in hidden)
+            section.set_untagged_row(int(counts.get(facet, 0)), checked=facet not in hidden,
+                                     label=UNTAGGED_LABELS.get(facet, "Untagged"))
 
     def _restore_constrains_the_query(self) -> bool:
         """True when the just-restored facet selections would narrow the query.

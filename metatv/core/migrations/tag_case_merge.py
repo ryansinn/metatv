@@ -61,7 +61,10 @@ if TYPE_CHECKING:
 #: 3 (2026-10-20): the owner's decisions on the unclear tail ("Unclear Genre
 #: Tags" R1 social -> Drama, R2 translations, R5 not-genres removed, GAİN to
 #: Platform), applied through the same resolver.
-CURRENT_VERSION: int = 3
+#: 4 (2026-10-20): R3 — "TV Show" retired (format words carry no genre, so
+#: its titles become Uncategorized); broadcaster "entertainment" labels ->
+#: Entertainment; pop culture / celebrities -> Talk Show.
+CURRENT_VERSION: int = 4
 
 
 class TagCaseMergeTask:

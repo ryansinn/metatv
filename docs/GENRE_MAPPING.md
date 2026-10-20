@@ -38,8 +38,12 @@ document is its human-readable mirror.
 
 - **`Soap` renamed to display `Soap Opera`** everywhere it is produced; the
   telenovela family (`Telenovela` / `Telenowela` / `Såpa`) folds in.
-- **`TV Show` keeps its name** (contents include non-series programs; a genre
-  "TV Series" would collide with `media_type=series`).
+- **`TV Show` is retired (owner, 2026-10-20).** It was fed by format words
+  ("programme", "TV series", برنامج, سریال) that say a title is a programme,
+  which the media type already says — "adds ZERO value". Those values now map
+  to no genre, and their titles appear under the Genre filter's
+  **Uncategorized** row. Broadcaster "entertainment" labels (Underhållning,
+  Nöje, Rozrywka) map to the new canonical **`Entertainment`**.
 - **Drama-containing compounds are Drama-led:** the chart's alphabetical
   `Comedy & Drama` / `Crime & Drama` become **`Drama & Comedy`** / **`Drama &
   Crime`** (owner: Drama is the common thread, keeps them adjacent).
@@ -321,9 +325,9 @@ Canonical: `Soap Opera`
 | `Telenovela` | translation | 'telenovela' = soap opera |
 | `Soap` | rename | canonical renamed Soap → Soap Opera (owner amendment) |
 
-### TV Show
+### No genre — format words
 
-Canonical: `TV Show`
+Canonical: `(no genre)`
 
 | raw value | class | why |
 |---|---|---|

@@ -45,18 +45,17 @@ from metatv.core.migrations.tag_backfill import CURRENT_TAG_BACKFILL_VERSION
     "PROGRAMME",
     "PROGRAME",             # provider typo
 ])
-def test_tv_family_folds_to_tv_show(raw):
-    """Every fragmented TV label (any provider casing) → canonical 'TV Show'."""
-    assert normalize_genre(raw) == "TV Show", (
-        f"normalize_genre({raw!r}) must fold to 'TV Show', "
-        f"got {normalize_genre(raw)!r}"
+def test_tv_family_is_no_genre(raw):
+    """Every fragmented TV label is a FORMAT word: no genre (owner, 2026-10-20,
+    "TV Show adds ZERO value"). Its titles land in the Uncategorized row."""
+    assert normalize_genre(raw) == "", (
+        f"normalize_genre({raw!r}) must be no genre, got {normalize_genre(raw)!r}"
     )
 
 
-def test_tv_show_in_known_genres():
-    """Adding 'TV Show' as a canonical value must extend the KNOWN_GENRES allowlist
-    so the category→genre cross-walk can emit it."""
-    assert "TV Show" in KNOWN_GENRES
+def test_tv_show_is_not_a_genre():
+    """Retired: the category→genre cross-walk must never emit it again."""
+    assert "TV Show" not in KNOWN_GENRES and "" not in KNOWN_GENRES
 
 
 # ---------------------------------------------------------------------------

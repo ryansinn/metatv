@@ -92,6 +92,10 @@ class _TriCheckbox(QCheckBox):
 #: the switch for "and everything this facet cannot describe", so it is kept
 #: out of every value-set API on _Section (see set_untagged_row).
 UNTAGGED_KEY = "__untagged__"
+#: What a facet's no-value row is called. A title with no genre is
+#: uncategorized (owner, 2026-10-20) — format words like "TV programme" land
+#: there instead of in a "TV Show" genre that described nothing.
+UNTAGGED_LABELS: dict[str, str] = {"genre": "Uncategorized"}
 
 
 class _ItemRow(QWidget):
@@ -541,7 +545,8 @@ class _Section(QWidget):
     # ``get_selected_keys`` / ``get_all_keys``, so ticking every value still
     # reads as "no constraint" exactly as before.
 
-    def set_untagged_row(self, count: int, checked: bool = True) -> None:
+    def set_untagged_row(self, count: int, checked: bool = True,
+                         label: str = "Untagged") -> None:
         """Show "Untagged — N" beneath the values, always visible.
 
         *count* is how many channels carry NO tag of this facet at all, within
@@ -560,7 +565,7 @@ class _Section(QWidget):
         self._untagged_sep = QFrame()
         self._untagged_sep.setFixedHeight(1)
 
-        self._untagged_row = _ItemRow(UNTAGGED_KEY, "Untagged", count)
+        self._untagged_row = _ItemRow(UNTAGGED_KEY, label, count)
         self._untagged_row.setToolTip(
             "Titles with no value on this facet at all.\n\n"
             "Checked (default): they are shown — a filter for a fact the app "
