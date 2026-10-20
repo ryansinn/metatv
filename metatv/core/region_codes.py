@@ -695,20 +695,14 @@ CODE_FACETS: dict[str, list[tuple[str, str, float]]] = {
     "AR":  [("language", "Arabic",                CONF_DENOTED)],
 }
 
-# Language-only codes providers use as channel prefixes ("|HI|", "TA |") —
-# languages, not places (owner, 2026-10-20: "Hindi isn't a region, it's a
-# language"). Their name comes from REGION_FULL_NAMES, which already knew it.
-# The Indian ones keep India as a weak region guess (capture generously).
-_INDIAN_LANGUAGE_CODES = ("HI", "TA", "TM", "TE", "TG", "TL", "ML", "KN", "KD",
-                          "MR", "PB", "GU", "BHO", "OR")
-for _code in _INDIAN_LANGUAGE_CODES:
-    CODE_FACETS[_code] = [("language", REGION_FULL_NAMES[_code], CONF_DENOTED),
-                          ("region", "IN", CONF_WEAK_PRIOR)]
-for _code in ("BN", "UR", "KU"):
-    CODE_FACETS[_code] = [("language", REGION_FULL_NAMES[_code], CONF_DENOTED)]
-
-#: Every code that names a language and must never be a region tag.
-LANGUAGE_ONLY_CODES: frozenset[str] = frozenset((*_INDIAN_LANGUAGE_CODES, "BN", "UR", "KU"))
+#: Codes that name a LANGUAGE, never a place (owner, 2026-10-20: "Hindi isn't
+#: a region, it's a language"). The language itself comes from the language
+#: groups (config.BASE_PREFIX_GROUPS: HI -> "Indian", UR -> "Urdu/Pakistani");
+#: this list only stops the decomposer ALSO tagging the code as a region.
+LANGUAGE_ONLY_CODES: frozenset[str] = frozenset({
+    "HI", "TA", "TE", "TG", "TL", "ML", "KN", "KD", "MR", "PB", "GU", "BHO", "OR",
+    "BN", "UR", "KU",
+})
 
 
 def code_family(codes) -> set[str]:

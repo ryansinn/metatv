@@ -258,13 +258,13 @@ class TestDecomposerClassification:
     def test_pb_classifies_indian_punjabi(self, cfg):
         tags = [(t, v) for t, v, _ in decompose("provider_category", "PB", config=cfg)]
         assert ("language", "Indian") in tags
-        assert ("region", "PB") in tags
+        assert ("region", "PB") not in tags   # a language, not a place (owner, 2026-10-20)
 
     def test_punjabi_prefix_classifies_indian_via_pb(self, cfg):
         """A PUNJABI| channel classifies Indian and its region resolves to PB."""
         tags = [(t, v) for t, v, _ in decompose("provider_category", "PUNJABI", config=cfg)]
         assert ("language", "Indian") in tags
-        assert ("region", "PB") in tags
+        assert ("region", "PB") not in tags   # a language, not a place (owner, 2026-10-20)
 
     def test_punjabi_detected_prefix_pb_classifies_indian(self, cfg):
         """After ingestion stores detected_prefix='PB', name-parse yields Indian."""
@@ -279,4 +279,4 @@ class TestDecomposerClassification:
             )
         ]
         assert ("language", "Indian") in tags
-        assert ("region", "PB") in tags
+        assert ("region", "PB") not in tags   # a language, not a place (owner, 2026-10-20)

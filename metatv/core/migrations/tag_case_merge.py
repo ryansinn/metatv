@@ -171,9 +171,15 @@ def _fold_vocabulary(session) -> int:
     fresh import now lands. Only folds whose every target is canonical; a
     string the resolver cannot place is left exactly as it was.
     """
-    from metatv.core.filter_utils import KNOWN_GENRES, resolve_genres
-    from metatv.core.region_codes import LANGUAGE_ONLY_CODES, REGION_FULL_NAMES
+    from metatv.core.config import BASE_PREFIX_GROUPS
+    from metatv.core.filter_utils import KNOWN_GENRES
+    from metatv.core.genre_words import resolve_genres
+    from metatv.core.region_codes import LANGUAGE_ONLY_CODES
     from metatv.core.repositories.tag import TagRepository
+
+    # The language a code belongs to is its language GROUP (HI -> "Indian"),
+    # exactly what the decomposer tags at ingestion.
+    group_of = {c.upper(): g for g, codes in BASE_PREFIX_GROUPS.items() for c in codes}
 
     def tag_id(ttype: str, value: str) -> int:      # the one tag-creation chokepoint
         return TagRepository(session).get_or_create_tag(ttype, value).id
@@ -186,8 +192,8 @@ def _fold_vocabulary(session) -> int:
             if targets == [value] or not all(g in KNOWN_GENRES for g in targets):
                 continue
             keep = [tag_id("genre", g) for g in targets]
-        elif value.upper() in LANGUAGE_ONLY_CODES:
-            keep = [tag_id("language", REGION_FULL_NAMES[value.upper()])]
+        elif value.upper() in LANGUAGE_ONLY_CODES and value.upper() in group_of:
+            keep = [tag_id("language", group_of[value.upper()])]
         else:
             continue
         others = [k for k in keep if k != tid]
@@ -204,7 +210,7 @@ def _refold_detected_genres(session) -> None:
     """Re-resolve the stored ``detected_genre(s)`` columns the row list reads."""
     import json
 
-    from metatv.core.filter_utils import resolve_genres
+    from metatv.core.genre_words import resolve_genres
 
     for key, raw in session.execute(text(
             "SELECT channel_key, detected_genres FROM channels "
