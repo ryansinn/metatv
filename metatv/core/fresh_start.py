@@ -126,4 +126,6 @@ def relaunch_command() -> list[str]:
 
 def relaunch() -> None:
     """Start a new MetaTV process; the caller exits right after."""
-    subprocess.Popen(relaunch_command(), close_fds=True)
+    from metatv.core.child_process import NO_WINDOW
+
+    subprocess.Popen(relaunch_command(), close_fds=True, **NO_WINDOW)

@@ -463,16 +463,19 @@ class TestHistoryFullWidth:
 
 class TestCollapsibleSplitterHandle:
     def test_handle_is_discoverable_and_round_trips(self, qapp, monkeypatch):
-        # The Linux/Windows handle: clickable, 7px. macOS draws a wider handle
-        # with the resize cursor instead — tests/test_splitter_handle_macos.py.
+        # The Linux/Windows handle: 7px with the resize cursor. macOS draws a
+        # wider one — tests/test_splitter_handle_macos.py.
         from metatv.core import runtime_env
         monkeypatch.setattr(runtime_env, "is_macos", lambda: False)
         splitter = _real_splitter(qapp, sizes=(300, 400, 200))
         handle = splitter.handle(1)
         assert handle is not None
 
-        # (i) opted into the pointing-hand affordance via cursor_affordance.
-        assert handle.property("clickable") is True
+        # (i) the resize affordance via cursor_affordance.
+        # Every platform shows the resize arrows (owner, 2026-10-20), not the hand.
+        assert handle.property("clickable") is False
+        from PyQt6.QtCore import Qt
+        assert handle.cursor().shape() == Qt.CursorShape.SplitHCursor
         # (ii) advertises the gesture with a non-empty tooltip.
         assert handle.toolTip(), "handle carries a collapse/expand tooltip"
         # (iii) has real thickness so the grip is visible (was near-zero before).

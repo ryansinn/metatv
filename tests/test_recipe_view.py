@@ -1001,7 +1001,8 @@ def test_global_exclusion_sets_unions_prefixes_and_categories(qapp):
         view, categories=["AR"], prefixes=["KU"], user_categories=["Kids"]
     )
     prefixes, cats, content_types, keywords = _sets(view)
-    assert prefixes == {"AR", "KU"}
+    # Each excluded code brings its family (AR and ARA are both Arabic).
+    assert prefixes == {"AR", "ARA", "KU"}
     assert cats == {"Kids"}
     assert content_types == set()  # no content_type exclusions set here
 
@@ -1032,14 +1033,14 @@ def test_load_results_threads_exclusion_sets_to_engine(qapp):
     repos = _RecordingRepos()
     query_fn(repos)
 
-    assert repos.tags.calls["count"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["count"]["excluded_prefixes"] == {"AR", "ARA"}   # AR brings its family
     assert repos.tags.calls["count"]["excluded_categories"] == {"Kids"}
     # sample only runs when count > 0; force a non-zero count and re-run.
     repos.tags.count_channels_by_tag_facets = lambda **k: (
         repos.tags.calls.__setitem__("count", k) or 5
     )
     query_fn(repos)
-    assert repos.tags.calls["sample"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["sample"]["excluded_prefixes"] == {"AR", "ARA"}   # AR brings its family
     assert repos.tags.calls["sample"]["excluded_categories"] == {"Kids"}
 
 
@@ -1073,7 +1074,7 @@ def test_load_clusters_threads_exclusion_sets_to_engine(qapp):
     repos = _RecordingRepos()
     entry["query_fn"](repos)
 
-    assert repos.tags.calls["top_tags"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["top_tags"]["excluded_prefixes"] == {"AR", "ARA"}   # AR brings its family
     assert repos.tags.calls["top_tags"]["excluded_categories"] == {"Kids"}
     assert repos.tags.calls["top_tags"]["excluded_provider_ids"] == ["prov_hidden"]
 
@@ -1443,7 +1444,7 @@ def test_load_more_see_all_pages_at_offset_with_scoping(qapp):
     assert sample["limit"] == RecipeView._SEE_ALL_PAGE
     assert sample["offset"] == 3, "Next page must start at the seeded offset"
     assert sample["excluded_provider_ids"] == ["prov_hidden"]
-    assert sample["excluded_prefixes"] == {"AR"}
+    assert sample["excluded_prefixes"] == {"AR", "ARA"}   # AR brings its family
     assert sample["excluded_categories"] == {"Kids"}
 
     # Deliver a full page → appended (not replaced), offset advances, still more.
