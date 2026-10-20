@@ -551,6 +551,12 @@ class Config(BaseModel):
     # any that come back online to reliability_state="ok". Configurable in
     # Settings → Playback.
     recheck_failed_on_refresh: bool = True
+    #: Background re-checking of streams that failed to play (Watch Alerts'
+    #: retry list). OFF by default (owner, 2026-10-20): each re-check is a real
+    #: stream connection, and on a one-connection account it is noise at best
+    #: and a lock-out at worst. Failures are still COUNTED either way — that
+    #: feeds the dead-stream gate; only the re-checking is switched off.
+    stream_retry_checks_enabled: bool = Field(default=False, json_schema_extra=PROFILE)
     watched_icon: str = "✓"            # Watched / completed indicator
 
     # Global Exclusions — opt-out blacklist (applies to discovery + recommendations everywhere)

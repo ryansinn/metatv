@@ -454,6 +454,9 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
         self._close_player_check.setChecked(c.close_player_when_finished)
         self._timeout_spin.setValue(c.network_timeout)
         self._reconnect_spin.setValue(c.reconnect_attempts)
+        retry_on = bool(getattr(c, "stream_retry_checks_enabled", False))
+        self._stream_retry_checks_check.setChecked(retry_on)
+        self._recheck_failed_on_refresh_check.setEnabled(retry_on)
         self._recheck_failed_on_refresh_check.setChecked(
             getattr(c, "recheck_failed_on_refresh", True)
         )
@@ -641,6 +644,7 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
         c.network_timeout = self._timeout_spin.value()
         c.reconnect_attempts = self._reconnect_spin.value()
         c.recheck_failed_on_refresh = self._recheck_failed_on_refresh_check.isChecked()
+        c.stream_retry_checks_enabled = self._stream_retry_checks_check.isChecked()
 
         # Recording
         c.recording_pad_start_seconds = self._rec_pad_start_spin.value() * 60

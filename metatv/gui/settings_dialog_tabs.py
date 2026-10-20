@@ -29,6 +29,7 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes
 from metatv.gui.middle_click_actions import MIDDLE_CLICK_ACTIONS
+from metatv.gui.settings_network_group import build_network_group
 
 # Channel-list row densities — single source of truth. It lives HERE, and
 # settings_dialog re-exports it, because that import can only point one way.
@@ -169,31 +170,7 @@ class SettingsTabsMixin:
 
         layout.addWidget(player_group)
 
-        net_group = QGroupBox("Network")
-        net_form = QFormLayout(net_group)
-        net_form.setSpacing(8)
-
-        self._timeout_spin = QSpinBox()
-        self._timeout_spin.setRange(1, 60)
-        self._timeout_spin.setSuffix(" s")
-        net_form.addRow("Network timeout:", self._timeout_spin)
-
-        self._reconnect_spin = QSpinBox()
-        self._reconnect_spin.setRange(0, 10)
-        net_form.addRow("Reconnect attempts:", self._reconnect_spin)
-
-        self._recheck_failed_on_refresh_check = QCheckBox(
-            "Re-check failed streams on source refresh"
-        )
-        self._recheck_failed_on_refresh_check.setToolTip(
-            "When a source finishes refreshing, immediately re-probe any of its\n"
-            "streams that previously failed (flagged/degraded/dead) instead of\n"
-            "waiting for the background retry checker's own schedule. Recovered\n"
-            "streams are restored to full visibility right away."
-        )
-        net_form.addRow(self._recheck_failed_on_refresh_check)
-
-        layout.addWidget(net_group)
+        layout.addWidget(build_network_group(self))
 
         mpv_group = QGroupBox("MPV Extra Arguments")
         mpv_layout = QVBoxLayout(mpv_group)

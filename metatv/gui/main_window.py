@@ -366,7 +366,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnec
         from metatv.core.stream_retry_manager import StreamRetryManager
         self.stream_retry_manager = StreamRetryManager(
             self.db, self.validate_stream_url, parent=self,
-            player_is_running=self.player_manager.is_playing)
+            player_is_running=self.player_manager.is_playing,
+            enabled=lambda: bool(getattr(self.config, "stream_retry_checks_enabled", False)))
         self._register_cleanable("stream_retry_manager", self.stream_retry_manager.stop)
 
         # Series monitor — checks monitored series for new episodes after each provider refresh

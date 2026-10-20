@@ -1557,6 +1557,7 @@ def mock_settings_playback_widgets(dlg) -> None:
         return m
 
     dlg._recheck_failed_on_refresh_check = _stub("isChecked", True)
+    dlg._stream_retry_checks_check = _stub("isChecked", False)
 
 
 def wire_style_menu_actions(host) -> None:
@@ -1656,6 +1657,7 @@ def wire_settings_playback_widgets(dlg) -> None:
 
     dlg._recheck_failed_on_refresh_check = QCheckBox()
     dlg._recheck_failed_on_refresh_check.setChecked(True)
+    dlg._stream_retry_checks_check = QCheckBox()
 
 
 def wire_settings_content_widgets(dlg) -> None:
