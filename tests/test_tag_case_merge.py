@@ -288,3 +288,125 @@ def test_a_channel_carrying_both_variants_does_not_duplicate_or_lose_its_link(db
         assert both_links[0].tag_id == keeper_id, (
             "'both' must still point at the surviving tag, not be silently dropped"
         )
+
+
+# ── v2: vocabulary — other-language genre spellings, language codes as regions ─
+# Owner, 2026-10-20: "dozens of arabic drama and comedy" in the filter list,
+# and "Hindi isn't a region, it's a language". Folds only the obvious.
+
+def _tags_of(session, cid: str) -> set[tuple[str, str]]:
+    key = session.query(ChannelDB.channel_key).filter_by(id=cid).scalar()
+    return {(t.type, t.value) for t in session.query(TagDB)
+            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            .filter(ContentTagDB.channel_key == key)}
+
+
+def _run(db):
+    _clear_tag_cache()
+    TagCaseMergeTask(db).run(lambda *_: None, lambda: False)
+
+
+def test_a_mixed_language_genre_folds_onto_its_canonical_genres(db):
+    with db.session_scope() as session:
+        _channel(session, "a")
+        _channel(session, "b")
+        repo = TagRepository(session)
+        alias = repo.get_or_create_tag("genre", "Drama خانوادگی").id
+        drama = repo.get_or_create_tag("genre", "Drama").id
+        session.flush()
+        add_content_tag(session, "a", alias)
+        add_content_tag(session, "a", drama)          # already has Drama: no duplicate
+        add_content_tag(session, "b", alias)
+    _run(db)
+    with db.session_scope(commit=False) as session:
+        assert _tags_of(session, "a") == {("genre", "Drama"), ("genre", "Family")}
+        assert _tags_of(session, "b") == {("genre", "Drama"), ("genre", "Family")}
+        assert session.query(TagDB).filter_by(value="Drama خانوادگی").count() == 0
+
+
+@pytest.mark.parametrize("value", ["Teen Drama", "Social", "اجتماعي", "GAİN"])
+def test_anything_not_obvious_is_left_alone(db, value):
+    with db.session_scope() as session:
+        _channel(session, "a")
+        tid = TagRepository(session).get_or_create_tag("genre", value).id
+        session.flush()
+        add_content_tag(session, "a", tid)
+    _run(db)
+    with db.session_scope(commit=False) as session:
+        assert _tags_of(session, "a") == {("genre", value)}
+
+
+def test_a_language_code_leaves_the_region_facet(db):
+    with db.session_scope() as session:
+        _channel(session, "hi")
+        _channel(session, "il")
+        repo = TagRepository(session)
+        hi, il = repo.get_or_create_tag("region", "HI").id, repo.get_or_create_tag("region", "IL").id
+        session.flush()
+        add_content_tag(session, "hi", hi)
+        add_content_tag(session, "il", il)
+    _run(db)
+    with db.session_scope(commit=False) as session:
+        assert _tags_of(session, "hi") == {("language", "Hindi")}
+        assert _tags_of(session, "il") == {("region", "IL")}, "a real country stays a region"
+
+
+def test_the_row_lists_stored_genres_are_refolded(db):
+    with db.session_scope() as session:
+        session.add(ChannelDB(id="a", source_id="s", provider_id="p", name="a",
+                              media_type="movie", detected_genre="Comedy طنز",
+                              detected_genres=["Comedy طنز", "دراما"]))
+    _run(db)
+    with db.session_scope(commit=False) as session:
+        ch = session.query(ChannelDB).filter_by(id="a").one()
+        assert ch.detected_genres == ["Comedy", "Drama"]
+        assert ch.detected_genre == "Comedy"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Comedy طنز اجتماعی", ["Comedy"]),
+    ("دراما ﺗﺸﻮﻳﻖ ﻭﺇﺛﺎﺭﺓ", ["Drama", "Thriller"]),     # presentation forms + joined "and"
+    ("Comedy | Drama | Romance", ["Comedy", "Drama", "Romance"]),
+    ("Biograf", ["Biography"]),
+    ("Teen Drama", ["Teen Drama"]),
+    ("Action & Adventure", ["Action & Adventure"]),
+])
+def test_resolve_genres(raw, expected):
+    from metatv.core.filter_utils import resolve_genres
+    assert resolve_genres(raw) == expected
+
+
+def test_ticking_one_country_matches_every_code_it_has(db):
+    """Israel arrives as IL and ISR; the filter list shows one Israel."""
+    from sqlalchemy import select
+
+    from metatv.core.filter_utils import facet_include_criterion
+
+    with db.session_scope() as session:
+        _channel(session, "isr")
+        tid = TagRepository(session).get_or_create_tag("region", "ISR").id
+        session.flush()
+        add_content_tag(session, "isr", tid)
+    with db.session_scope(commit=False) as session:
+        hits = session.execute(select(ChannelDB.id).where(
+            facet_include_criterion("region", {"IL"}, allow_untagged=False))).scalars().all()
+        assert hits == ["isr"]
+
+
+def test_the_region_list_shows_one_row_per_country():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from metatv.core.region_codes import REGION_FULL_NAMES
+    from metatv.gui.filter_panel_sections import build_region
+
+    sec = MagicMock()
+    sec.get_selected_keys.return_value = []
+    panel = SimpleNamespace(
+        config=SimpleNamespace(filter_regional_groups={"Middle East": ["IL", "ISR", "AE"]}),
+        _region_label=lambda c: REGION_FULL_NAMES.get(c, c), _region_sec=sec)
+    build_region(panel, {"region": {"IL": 139, "ISR": 591, "AE": 17}}, lambda *a: None)
+    (groups,), _ = sec.set_grouped_items.call_args
+    (_name, total, children), = groups
+    assert total == 747
+    assert [(label, n) for _key, label, n in children] == [("Israel", 730), (REGION_FULL_NAMES["AE"], 17)]

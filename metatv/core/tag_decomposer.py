@@ -100,7 +100,7 @@ from metatv.core.filter_utils import (
     _split_compound,
     categorize_prefix,
     genres_from_category,
-    normalize_genre,
+    resolve_genres,
 )
 
 # ── Compound-token splitters ────────────────────────────────────────────────── #
@@ -686,7 +686,7 @@ def _decompose_genre(raw: str) -> list[tuple[str, str, float]]:
         leaf = leaf.strip()
         if not leaf or _is_genre_placeholder(leaf):
             continue
-        tags.append(("genre", normalize_genre(leaf), CONF_DENOTED))
+        tags.extend(("genre", g, CONF_DENOTED) for g in resolve_genres(leaf))
     return tags
 
 
@@ -706,7 +706,7 @@ def _decompose_epg(raw: str) -> list[tuple[str, str, float]]:
         leaf = leaf.strip()
         if not leaf or _is_genre_placeholder(leaf):
             continue
-        tags.append(("genre", normalize_genre(leaf), CONF_DENOTED))
+        tags.extend(("genre", g, CONF_DENOTED) for g in resolve_genres(leaf))
     return tags
 
 

@@ -60,11 +60,18 @@ def build_region(panel, tag_counts: dict, restore: _Restore) -> None:
         total = group_totals.get(group_name, 0)
         if total == 0:
             continue
-        children: list[tuple[str, str, int]] = [
-            (code, panel._region_label(code), region_values.get(code, 0))
-            for code in regional_groups[group_name]
-            if region_values.get(code, 0) > 0
-        ]
+        # One row per COUNTRY, not per code: Israel arrives as IL and ISR,
+        # Denmark as DK, DEN and DNK. The first code seen keys the row; the
+        # region filter expands it to the whole family (code_family), so one
+        # tick selects every code and the count is their total.
+        by_label: dict[str, list] = {}
+        for code in regional_groups[group_name]:
+            n = region_values.get(code, 0)
+            if n > 0:
+                label = panel._region_label(code)
+                row = by_label.setdefault(label, [code, label, 0])
+                row[2] += n
+        children: list[tuple[str, str, int]] = [tuple(r) for r in by_label.values()]
         children.sort(key=lambda x: -x[2])
         if children:
             region_data.append((group_name, total, children))

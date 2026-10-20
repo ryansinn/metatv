@@ -1122,11 +1122,48 @@ def genres_from_raw(genre_str: str | None) -> list[str]:
         seg = seg.strip()
         if not seg or seg.lower() in _BAD_GENRE_TOKENS:
             continue
-        canon = normalize_genre(seg)
-        if canon not in seen:
-            seen.add(canon)
-            out.append(canon)
+        for canon in resolve_genres(seg):
+            if canon not in seen:
+                seen.add(canon)
+                out.append(canon)
     return out
+
+
+def resolve_genres(segment: str) -> list[str]:
+    """One raw genre segment -> its canonical genre(s). The ingestion resolver.
+
+    Whole-string match first (:func:`normalize_genre`, after folding Arabic
+    presentation forms and marks). A string that is not itself a known genre
+    is then read word by word (:mod:`metatv.core.genre_words`), so "Comedy طنز
+    اجتماعی" yields Comedy and Drama and "Comedy | Drama | Romance" yields
+    three, instead of each becoming a genre of its own. Latin text folds only
+    when every word is a genre. A string with no known word passes through
+    unchanged (capture generously).
+    """
+    from metatv.core.genre_words import GENRE_WORDS, WORD_SPLIT_RE, fold_text, words_to_genres
+
+    direct = normalize_genre(segment)
+    if direct.lower() in _KNOWN_GENRES_LOWER:
+        return [_KNOWN_GENRES_LOWER[direct.lower()]]
+    folded = fold_text(html.unescape(segment))
+    canon = _GENRE_NORM.get(folded) or _KNOWN_GENRES_LOWER.get(folded)
+    if canon:
+        return [canon]
+    words = [w for w in WORD_SPLIT_RE.split(folded) if w]
+    found: list[str] = []
+    for word in words:                                # any language, in order
+        hit = (_GENRE_NORM.get(word) or _KNOWN_GENRES_LOWER.get(word)
+               or GENRE_WORDS.get(word))
+        if hit:
+            found.append(hit)
+    if segment.isascii() and len(found) < len(words):
+        # Latin text folds only when EVERY word is a genre ("Comedy | Drama |
+        # Romance"); "Teen Drama" or "Action og eventyr" stay as they are.
+        return [direct]
+    found += words_to_genres(folded)
+    seen: set[str] = set()
+    out = [g for g in found if not (g in seen or seen.add(g))]
+    return out or [direct]
 
 
 # ---------------------------------------------------------------------------
@@ -1345,6 +1382,11 @@ def facet_include_criterion(facet: str, allowed, channel_key_col=None, *,
 
     if not allowed:
         return true()
+    if facet == "region":
+        # A country arrives under several codes (Israel: IL and ISR); the list
+        # shows one row per country, so ticking it means every code it has.
+        from metatv.core.region_codes import code_family
+        allowed = code_family(allowed)
     if channel_key_col is None:
         channel_key_col = ChannelDB.channel_key
 
