@@ -51,6 +51,9 @@ from metatv.gui import theme as _theme
 app = QApplication([])
 config, _ = Config.load()
 _theme.apply_theme(config.theme_name)
+# This measures the Search view a user WITH sources sees; with none, the
+# window opens on the Sources screen's Add form (first-run guide), so skip it.
+mw.MainWindow._guide_to_first_source = lambda self: None
 win = mw.MainWindow(config)
 win.resize(1400, 900)
 win.show()
