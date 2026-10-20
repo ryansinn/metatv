@@ -53,14 +53,19 @@ if TYPE_CHECKING:
     from metatv.core.database import Database
 
 #: Bumped when this task should run again over an already-migrated library.
-CURRENT_VERSION: int = 1
+#: 2 (2026-10-20): also folds vocabulary — genre spellings in other languages
+#: and scripts onto canonical genres (``filter_utils.resolve_genres``), and
+#: language codes stored as regions onto the language facet
+#: (``region_codes.LANGUAGE_ONLY_CODES``). Owner: "dozens of arabic drama and
+#: comedy"; "Hindi isn't a region, it's a language".
+CURRENT_VERSION: int = 2
 
 
 class TagCaseMergeTask:
     """Collapse case-variant tag rows into the most-used spelling."""
 
     id: str = "tag_case_merge"
-    label: str = "Tidying duplicate genre labels"
+    label: str = "Tidying duplicate genre and region labels"
 
     def __init__(self, db: "Database") -> None:
         """
@@ -100,11 +105,9 @@ class TagCaseMergeTask:
                 "       (SELECT count(*) FROM content_tags ct WHERE ct.tag_id = t.id) "
                 "  FROM tags t"
             )).all()
-
             groups: dict[tuple, list] = defaultdict(list)
             for tid, ttype, value, n in rows:
                 groups[(ttype, (value or "").strip().casefold())].append((tid, n))
-
             for (_ttype, _key), members in groups.items():
                 if is_cancelled():
                     return
@@ -113,39 +116,17 @@ class TagCaseMergeTask:
                 # Most-referenced wins; lowest id breaks a tie so the outcome
                 # does not depend on row order.
                 keep_id, _ = max(members, key=lambda m: (m[1], -m[0]))
-                losers = [tid for tid, _ in members if tid != keep_id]
-                if not losers:
-                    continue
-                placeholders = ",".join(str(int(i)) for i in losers)
-                # Repoint every loser's content_tags at the keeper. content_tags'
-                # primary key is the composite (channel_key, tag_id, source)
-                # (DB-9), so a channel that already carries BOTH the keeper's
-                # and a loser's tag under the same source already owns the row
-                # this UPDATE would target — that's a PK collision, and
-                # OR IGNORE absorbs it by leaving the loser's row untouched
-                # instead of raising.
-                session.execute(text(
-                    f"UPDATE OR IGNORE content_tags SET tag_id = {int(keep_id)} "
-                    f"WHERE tag_id IN ({placeholders})"
-                ))
-                # Whatever OR IGNORE could not move is, by construction, a
-                # duplicate of a link the channel already has via the keeper —
-                # never a link that would otherwise be lost — so delete it
-                # unconditionally, then the now fully-unreferenced loser tag
-                # rows themselves (regardless of whether they carried any
-                # content_tags to begin with — see module docstring on why a
-                # second, unscoped prune pass used to sit here and no longer
-                # does). See
-                # test_a_channel_carrying_both_variants_does_not_duplicate_or_lose_its_link.
-                session.execute(text(
-                    f"DELETE FROM content_tags WHERE tag_id IN ({placeholders})"
-                ))
-                session.execute(text(f"DELETE FROM tags WHERE id IN ({placeholders})"))
-                merged += len(losers)
+                for tid, _ in members:
+                    if tid != keep_id:
+                        _fold_tag(session, tid, [keep_id])
+                        merged += 1
+            if is_cancelled():
+                return
+            merged += _fold_vocabulary(session)
+            _refold_detected_genres(session)
             session.commit()
-
         progress_cb(1, 1)
-        logger.info("tag_case_merge: merged {} duplicate tag row(s)", merged)
+        logger.info("tag_case_merge: folded {} tag row(s)", merged)
 
     def on_completed(self, config: "Config") -> None:
         """Stamp the version so this does not re-run every launch.
@@ -155,3 +136,91 @@ class TagCaseMergeTask:
         """
         config.tag_case_merge_version = CURRENT_VERSION
         config.save()
+
+
+def _fold_tag(session, loser_id: int, keep_ids: list[int], *, delete: bool = True) -> None:
+    """Move every link on tag *loser_id* to each of *keep_ids*, then delete it.
+
+    ``delete=False`` copies without removing — for a tag that is itself one of
+    its own targets (case-insensitively "DRAMA" resolves to its own row).
+
+    The one link-moving step for both folds. ``content_tags``' primary key is
+    ``(channel_key, tag_id, source)`` (DB-9), so a channel that already carries
+    a keeper under the same source already owns the row a move would create;
+    ``INSERT OR IGNORE`` absorbs that collision, and the loser's links are then
+    deleted unconditionally — a link it held is either moved or already
+    present on the keeper, never lost
+    (test_a_channel_carrying_both_variants_does_not_duplicate_or_lose_its_link).
+    """
+    for keep_id in keep_ids:
+        session.execute(text(
+            "INSERT OR IGNORE INTO content_tags "
+            "  (channel_key, tag_id, source, feeders, detail, ord, qualifier) "
+            "SELECT channel_key, :keep, source, feeders, detail, ord, qualifier "
+            "  FROM content_tags WHERE tag_id = :loser"
+        ), {"keep": int(keep_id), "loser": int(loser_id)})
+    if delete:
+        session.execute(text("DELETE FROM content_tags WHERE tag_id = :t"), {"t": int(loser_id)})
+        session.execute(text("DELETE FROM tags WHERE id = :t"), {"t": int(loser_id)})
+
+
+def _fold_vocabulary(session) -> int:
+    """Fold alias genres onto canonical ones, and language codes off the region facet.
+
+    Uses the INGESTION resolvers, so a library already tagged ends where a
+    fresh import now lands. Only folds whose every target is canonical; a
+    string the resolver cannot place is left exactly as it was.
+    """
+    from metatv.core.filter_utils import KNOWN_GENRES, resolve_genres
+    from metatv.core.region_codes import LANGUAGE_ONLY_CODES, REGION_FULL_NAMES
+    from metatv.core.repositories.tag import TagRepository
+
+    def tag_id(ttype: str, value: str) -> int:      # the one tag-creation chokepoint
+        return TagRepository(session).get_or_create_tag(ttype, value).id
+
+    folded = 0
+    for tid, ttype, value in session.execute(text(
+            "SELECT id, type, value FROM tags WHERE type IN ('genre', 'region')")).all():
+        if ttype == "genre":
+            targets = resolve_genres(value)
+            if targets == [value] or not all(g in KNOWN_GENRES for g in targets):
+                continue
+            keep = [tag_id("genre", g) for g in targets]
+        elif value.upper() in LANGUAGE_ONLY_CODES:
+            keep = [tag_id("language", REGION_FULL_NAMES[value.upper()])]
+        else:
+            continue
+        others = [k for k in keep if k != tid]
+        if tid in keep:          # its own target: add the others, never delete it
+            if others:
+                _fold_tag(session, tid, others, delete=False)
+            continue
+        _fold_tag(session, tid, others)
+        folded += 1
+    return folded
+
+
+def _refold_detected_genres(session) -> None:
+    """Re-resolve the stored ``detected_genre(s)`` columns the row list reads."""
+    import json
+
+    from metatv.core.filter_utils import resolve_genres
+
+    for key, raw in session.execute(text(
+            "SELECT channel_key, detected_genres FROM channels "
+            "WHERE detected_genres IS NOT NULL AND detected_genres != '[]'")).all():
+        try:
+            old = json.loads(raw) if isinstance(raw, str) else list(raw or [])
+        except ValueError:
+            continue
+        new: list[str] = []
+        for g in old:
+            for c in resolve_genres(g):
+                if c not in new:
+                    new.append(c)
+        if new != old:
+            session.execute(text(
+                "UPDATE channels SET detected_genres = :g, detected_genre = :first "
+                "WHERE channel_key = :k"),
+                {"g": json.dumps(new), "first": new[0] if new else None, "k": key})
+
