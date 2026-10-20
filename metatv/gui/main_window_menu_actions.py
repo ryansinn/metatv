@@ -160,6 +160,17 @@ class _MenuActionsMixin:
         )
         clear_log_action.triggered.connect(self.clear_log_files)
         tools_menu.addAction(clear_log_action)
+        tools_menu.addSeparator()
+        for keep, text, tip in (
+            (False, "Fresh start…",
+             "Delete the library, settings and cached images and restart as a new install"),
+            (True, "Fresh start, keep sources…",
+             "Delete everything except your sources, then restart and load them again"),
+        ):
+            fresh_action = QAction(_icon_utils.role_icon("refresh"), text, self)
+            fresh_action.setToolTip(tip)
+            fresh_action.triggered.connect(lambda _=False, k=keep: self.start_fresh(k))
+            tools_menu.addAction(fresh_action)
 
         # Help menu
         # The way BACK. The header's Tools button opens this same menu, so
@@ -342,6 +353,45 @@ class _MenuActionsMixin:
         self._log_viewer = viewer
         viewer.show()
         viewer.raise_()
+
+    def start_fresh(self, keep_sources: bool) -> None:
+        """Confirm, record a fresh start (core/fresh_start.py) and close to restart.
+
+        The wipe itself runs in the NEXT process, before the database opens —
+        this one still holds it.
+        """
+        from pathlib import Path
+
+        from PyQt6.QtWidgets import QMessageBox
+
+        from metatv.core import fresh_start
+        from metatv.core.database import ProviderDB
+
+        sources = None
+        if keep_sources:
+            with self.db.session_scope(commit=False) as session:
+                sources = [{f: getattr(p, f, None) for f in fresh_start.SOURCE_FIELDS}
+                           for p in session.query(ProviderDB).all()]
+        kept = (f"Your {len(sources)} source(s) are kept and load again as if just added."
+                if sources is not None else "Your sources are deleted too.")
+        answer = QMessageBox.question(
+            self,
+            "Fresh start",
+            "Delete the library, watch history, favourites, ratings, settings and "
+            f"cached images, then restart MetaTV?\n\n{kept}\n\n"
+            "Logs and recordings/downloads are not touched. This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        db_path = Path(self.config.database_url.removeprefix("sqlite:///"))
+        fresh_start.request(db_path, sources)
+        if not self.close():
+            # Closing was refused (a recording is due and the user kept the app
+            # open). Withdraw the request, or the NEXT ordinary launch would
+            # wipe everything without being asked again.
+            fresh_start.cancel()
 
     def clear_log_files(self) -> None:
         """Delete every log file after confirming, and report what was freed.
