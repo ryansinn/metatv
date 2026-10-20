@@ -87,6 +87,10 @@ GENRE_WORDS: dict[str, str] = {
     "انیمیشن": "Animation", "فانتزی": "Fantasy",
     "ماجراجویی": "Adventure", "موزیکال": "Music", "ورزشی": "Sports",
     "سیاسی": "Politics", "کودک": "Kids", "کودکان": "Kids",
+    # R1 (owner-approved 2026-10-20): Arabic/Persian TV calls a family-and-
+    # society drama series "social"; "police" is a crime series.
+    "اجتماعي": "Drama", "اجتماعية": "Drama", "إجتماعي": "Drama", "جتماعي": "Drama",
+    "احتماعي": "Drama", "ملودرام": "Drama", "social": "Drama", "پلیسی": "Crime",
     "انيميشن": "Animation", "ریلیتی": "Reality",
     # ── European and English words (single words of compound strings) ────
     "sitcom": "Comedy", "draama": "Drama", "melodramat": "Drama",
@@ -94,10 +98,54 @@ GENRE_WORDS: dict[str, str] = {
     "historyczny": "History",
 }
 
+#: Whole strings approved one by one (owner, 2026-10-20, "Unclear Genre Tags"
+#: R2): translations a word table cannot express — phrases, or one string
+#: naming two genres.
+GENRE_STRINGS: dict[str, tuple[str, ...]] = {
+    "teen drama": ("Drama",), "psychologiczny": ("Drama",), "obyczajowy": ("Drama",),
+    "urdu drama": ("Drama",), "kostiumowy": ("Drama", "History"),
+    "kriminalare": ("Crime",), "szpiegowski": ("Thriller",),
+    "thriller. intriga": ("Thriller",), "وإثار": ("Thriller",),
+    "nachrichten": ("News",), "nyhed": ("News",), "animering": ("Animation",),
+    "sci-fi och fantasy": ("Sci-Fi & Fantasy",),
+    "action og eventyr": ("Action & Adventure",), "spielshow": ("Game Show",),
+    "stand up": ("Stand-Up Comedy",), "kabaret": ("Comedy",), "kabarety": ("Comedy",),
+    "komedija sitkom": ("Comedy",), "سيتكوم": ("Comedy",), "mockumentary": ("Comedy",),
+    "musical": ("Music",), "pioseneki": ("Music",), "كرة القدم": ("Sports",),
+    "دفاع مقدس": ("War",), "عروسكي": ("Kids",), "نمايش عروسكي": ("Kids",),
+    "naturaleza": ("Documentary",), "naturaleza documental": ("Documentary",),
+    "paradokument": ("Reality",), "tosi-tv": ("Reality",), "metamorfoza": ("Reality",),
+    "randkowy show": ("Reality",), "استعداديابي": ("Reality",),
+    "مسابقه ، رئاليتي شو": ("Game Show", "Reality"),
+    "pembe dizi": ("Soap Opera", "Romance"), "love": ("Romance",),
+    "show": ("TV Show",), "bio": ("Biography",),
+}
+
+#: Values a provider put in its genre field that are not genres (R5): format
+#: words, episode labels, descriptions. They resolve to NO genre.
+NOT_GENRES: frozenset[str] = frozenset({
+    "broadcast", "film", "mini-série", "مسلسل", "مسلسل تلفزيوني تركي", "kort",
+    "hindi season 14", "ook bekend als gtst", "الدوافع والظروف", "في حارة",
+    "صانعي المحتوى",
+})
+
+#: A streaming service a provider wrote into its genre field (R5).
+GENRE_FIELD_PLATFORMS: dict[str, str] = {"gain": "GAİN"}
+
+#: A "genre" this many words long with no genre word in it is a description.
+DESCRIPTION_MIN_WORDS = 6
+
 # Keys are compared in folded form, so fold them once here: an entry typed
 # with a Persian yeh still matches a string written with an Arabic one.
 GENRE_WORDS = {fold_text(k): v for k, v in GENRE_WORDS.items()}
 GENRE_PHRASES = {fold_text(k): v for k, v in GENRE_PHRASES.items()}
+GENRE_STRINGS = {fold_text(k): v for k, v in GENRE_STRINGS.items()}
+NOT_GENRES = frozenset(fold_text(k) for k in NOT_GENRES)
+
+
+def platform_named_as_genre(segment: str) -> str | None:
+    """The platform a genre field actually names ("GAİN"), or None."""
+    return GENRE_FIELD_PLATFORMS.get(fold_text(segment).replace("i̇", "i"))
 
 
 def words_to_genres(folded: str) -> list[str]:
@@ -130,7 +178,8 @@ def resolve_genres(segment: str) -> list[str]:
     اجتماعی" yields Comedy and Drama and "Comedy | Drama | Romance" yields
     three, instead of each becoming a genre of its own. Latin text folds only
     when every word is a genre. A string with no known word passes through
-    unchanged (capture generously).
+    unchanged (capture generously) — except an approved not-a-genre value, a
+    platform name, or a six-plus-word description, which resolve to none.
     """
     from metatv.core.filter_utils import (_GENRE_NORM, _KNOWN_GENRES_LOWER, html,
                                           normalize_genre)
@@ -142,6 +191,10 @@ def resolve_genres(segment: str) -> list[str]:
     canon = _GENRE_NORM.get(folded) or _KNOWN_GENRES_LOWER.get(folded)
     if canon:
         return [canon]
+    if folded in GENRE_STRINGS:
+        return list(GENRE_STRINGS[folded])
+    if folded in NOT_GENRES or platform_named_as_genre(segment):
+        return []
     words = [w for w in WORD_SPLIT_RE.split(folded) if w]
     found: list[str] = []
     for word in words:                                # any language, in order
@@ -149,6 +202,8 @@ def resolve_genres(segment: str) -> list[str]:
                or GENRE_WORDS.get(word))
         if hit:
             found.append(hit)
+    if not found and len(words) >= DESCRIPTION_MIN_WORDS and not words_to_genres(folded):
+        return []          # a synopsis in the genre field, not a genre
     if segment.isascii() and len(found) < len(words):
         # Latin text folds only when EVERY word is a genre ("Comedy | Drama |
         # Romance"); "Teen Drama" or "Action og eventyr" stay as they are.

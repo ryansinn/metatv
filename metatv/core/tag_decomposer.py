@@ -97,7 +97,7 @@ from metatv.core.region_codes import (
     normalize_region_code,
 )
 from metatv.core.tag_confidence import CONF_DENOTED, CONF_STRONG_PRIOR, CONF_WEAK_PRIOR
-from metatv.core.genre_words import resolve_genres
+from metatv.core.genre_words import platform_named_as_genre, resolve_genres
 from metatv.core.filter_utils import (
     _split_compound,
     categorize_prefix,
@@ -688,6 +688,8 @@ def _decompose_genre(raw: str) -> list[tuple[str, str, float]]:
         if not leaf or _is_genre_placeholder(leaf):
             continue
         tags.extend(("genre", g, CONF_DENOTED) for g in resolve_genres(leaf))
+        if platform := platform_named_as_genre(leaf):     # "GAİN" is a service
+            tags.append(("platform", platform, CONF_DENOTED))
     return tags
 
 
@@ -708,6 +710,8 @@ def _decompose_epg(raw: str) -> list[tuple[str, str, float]]:
         if not leaf or _is_genre_placeholder(leaf):
             continue
         tags.extend(("genre", g, CONF_DENOTED) for g in resolve_genres(leaf))
+        if platform := platform_named_as_genre(leaf):     # "GAİN" is a service
+            tags.append(("platform", platform, CONF_DENOTED))
     return tags
 
 
