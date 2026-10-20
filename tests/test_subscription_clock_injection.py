@@ -57,7 +57,7 @@ def test_summarize_providers_is_decided_only_by_its_now(qapp):
         )
 
     providers = [_p(5), _p(9)]
-    assert summarize_providers(providers, FIXTURE_NOW) == (2, 2)
+    assert summarize_providers(providers, FIXTURE_NOW) == (2, 2, 0)
 
 
 def test_the_answer_does_not_drift_as_the_real_clock_moves(qapp):
@@ -88,5 +88,5 @@ def test_the_answer_does_not_drift_as_the_real_clock_moves(qapp):
     # one is still live then, and it happens to give the same pair as the
     # fixture date, which is exactly the sort of coincidence that makes a
     # "different inputs, different answer" check quietly vacuous).
-    assert summarize_providers(providers, FIXTURE_NOW) == (4, 3)
-    assert summarize_providers(providers, datetime(2028, 1, 1)) == (4, 4)
+    assert summarize_providers(providers, FIXTURE_NOW) == (4, 3, 0)
+    assert summarize_providers(providers, datetime(2028, 1, 1)) == (4, 0, 4)   # lapsed: expired, not expiring

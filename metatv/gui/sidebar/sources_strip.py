@@ -14,7 +14,7 @@ here always agrees with the amber/red a source shows in the manager.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
@@ -30,26 +30,39 @@ if TYPE_CHECKING:
     from metatv.core.database import ProviderDB
 
 
-def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[int, int]:
-    """Classify providers into (active_count, expiring_count) for the strip text.
+class SourceSummary(NamedTuple):
+    """What the strip knows about the sources, counted independently."""
+
+    active: int
+    expiring: int
+    expired: int
+
+
+def summarize_providers(providers: list["ProviderDB"], now: datetime) -> SourceSummary:
+    """Classify providers for the strip text.
 
     'active' = enabled providers (the green status dot elsewhere), whatever
-    their subscription is doing. 'expiring' = ANY provider — enabled or not — whose
-    subscription has already lapsed or is running low, using the same
+    their subscription is doing. 'expiring' = any provider, enabled or not,
+    whose subscription is still running but low, using the same
     ``subscription_color`` classification (WARN/ERR) the manager's rows use.
+    'expired' = an ENABLED provider past its date. A lapsed subscription is
+    never "expiring" — it already happened — and a disabled source that has
+    expired is settled, so it says nothing (the owner's install showed
+    "2 expiring" for two sources that lapsed a month earlier and were off).
 
     Args:
         providers: Provider rows (ORM or any object exposing the same attrs).
         now: Current time (injected for deterministic tests).
 
     Returns:
-        (active_count, expiring_count). A provider can appear in BOTH: enabled
-        and serving, with a subscription that is nearly up. A disabled provider
-        with no subscription concern appears in neither.
+        A :class:`SourceSummary`. A provider can be both active and expiring
+        (enabled, nearly up) or active and expired (enabled, past its date —
+        providers often keep serving). A disabled provider with no live
+        subscription concern appears in none.
     """
     from metatv.gui.subscription_status import subscription_color
 
-    active = expiring = 0
+    active = expiring = expired = 0
     for p in providers:
         is_expired = bool(p.account_exp_date and p.account_exp_date <= now)
         color = (
@@ -60,7 +73,7 @@ def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[i
             subscription_color(p.account_exp_date, p.account_created_at, now)
             if p.account_exp_date else ""
         )
-        concerning = is_expired or color in (_theme.COLOR_WARN, _theme.COLOR_ERR)
+        running_low = not is_expired and color in (_theme.COLOR_WARN, _theme.COLOR_ERR)
         # INDEPENDENT counts, not exclusive branches. "Active" answers "is this
         # source enabled and serving?"; "expiring" answers "is its subscription
         # running out?" — orthogonal questions about the same row. Counting
@@ -71,12 +84,14 @@ def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[i
         # sources" — an outright false alarm about an app that was working.
         if p.is_active:
             active += 1
-        if concerning:
+            if is_expired:
+                expired += 1
+        if running_low:
             expiring += 1
-    return active, expiring
+    return SourceSummary(active, expiring, expired)
 
 
-def _summary_text(active: int, expiring: int, total: int) -> str:
+def _summary_text(summary: SourceSummary, total: int) -> str:
     """The ONE thing worth saying about your sources right now.
 
     Every other section header follows the rule ``make_status_label`` states —
@@ -91,6 +106,8 @@ def _summary_text(active: int, expiring: int, total: int) -> str:
     * **no sources at all** — nothing to show, nothing works;
     * **none active** — you have sources and the app still has nothing to
       show, which is an alarm rather than inventory;
+    * **some expired** — an enabled source is past its date (it may still
+      serve, but renewal is overdue);
     * **some expiring** — a warning, actionable but not yet broken;
     * otherwise the plain count, quiet.
 
@@ -99,11 +116,13 @@ def _summary_text(active: int, expiring: int, total: int) -> str:
     """
     if total == 0:
         return "No sources yet"
-    if active == 0:
+    if summary.active == 0:
         return f"{_icon_utils.role_html('warning')} No active sources"
-    if expiring:
-        return f"{_icon_utils.role_html('warning')} {expiring} expiring"
-    return f"{_icon_utils.role_html('status_dot')} {active} active"
+    if summary.expired:
+        return f"{_icon_utils.role_html('warning')} {summary.expired} expired"
+    if summary.expiring:
+        return f"{_icon_utils.role_html('warning')} {summary.expiring} expiring"
+    return f"{_icon_utils.role_html('status_dot')} {summary.active} active"
 
 
 class SourcesStatusStrip(QWidget):
@@ -186,6 +205,6 @@ class SourcesStatusStrip(QWidget):
         with self.db.session_scope(commit=False) as session:
             providers = RepositoryFactory(session).providers.get_all()
             now = datetime.now()
-            active, expiring = summarize_providers(providers, now)
+            summary = summarize_providers(providers, now)
             total = len(providers)
-        self._summary_lbl.setText(_summary_text(active, expiring, total))
+        self._summary_lbl.setText(_summary_text(summary, total))
