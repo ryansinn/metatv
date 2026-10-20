@@ -1,8 +1,9 @@
 """Splitter handles are easy to grab on macOS: wider, with the resize cursor.
 
 Owner, 2026-10-19: the column handles were "hard to grab on Mac, fine on
-Linux". Linux keeps the 7px clickable handle; macOS gets a wider strip and the
-resize arrows instead of the pointing hand.
+Linux" — macOS got a wider strip and the resize arrows. Owner, 2026-10-20: the
+arrows on every platform ("the cursor should be the left and right arrow"),
+so only the width still differs by platform.
 """
 import pytest
 from PyQt6.QtCore import Qt
@@ -36,7 +37,7 @@ def test_handle_grab_area_and_cursor(qapp, monkeypatch, mac):
             assert handle.property("clickable") is False
         else:
             assert s.handleWidth() == CollapsibleSplitterHandle.GRIP_THICKNESS
-            assert handle.cursor().shape() == Qt.CursorShape.PointingHandCursor
-            assert handle.property("clickable") is True
+            assert handle.cursor().shape() == Qt.CursorShape.SplitHCursor
+            assert handle.property("clickable") is False
     finally:
         destroy_widget(s)
