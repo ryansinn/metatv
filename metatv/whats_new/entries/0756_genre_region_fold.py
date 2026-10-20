@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=,
+    id=756,
     version="0.193.0",
     date="2026-10-20",
     title="Fewer duplicate genres and regions in the filters",
