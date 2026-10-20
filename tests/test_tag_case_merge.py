@@ -324,7 +324,7 @@ def test_a_mixed_language_genre_folds_onto_its_canonical_genres(db):
         assert session.query(TagDB).filter_by(value="Drama خانوادگی").count() == 0
 
 
-@pytest.mark.parametrize("value", ["Underhållning", "Relax", "روایت", "Silent"])  # still undecided
+@pytest.mark.parametrize("value", ["ترفيهي", "Relax", "روایت", "Silent"])  # left as they are
 def test_anything_not_obvious_is_left_alone(db, value):
     with db.session_scope() as session:
         _channel(session, "a")
@@ -421,7 +421,12 @@ def test_the_region_list_shows_one_row_per_country():
     ("Film", []),                                           # R5: a format word
     ("GAİN", []),                                           # R5: a platform
     ("Oudercontact in het tweede leerjaar: voor de meester de lastigste avond.", []),
-    ("Underhållning", ["Underhållning"]),                   # R3: still undecided
+    ("Underhållning", ["Entertainment"]),                   # R3
+    ("Popkultur", ["Talk Show"]),                           # R3: celebrity talk
+    ("TV programme", []),                                   # R3: a format word
+    ("برنامج", []),                                         # R3: "programme"
+    ("Show", []),
+    ("Relax", ["Relax"]),                                   # R3: a show title, left
     ("روایت", ["روایت"]),                                   # R6: left as is
 ])
 def test_the_owners_decisions(raw, expected):
@@ -442,3 +447,28 @@ def test_not_genres_are_removed_and_gain_becomes_a_platform(db):
     with db.session_scope(commit=False) as session:
         assert _tags_of(session, "a") == set()
         assert _tags_of(session, "b") == {("platform", "GAİN")}
+
+
+def test_tv_show_is_retired_and_its_titles_become_uncategorized(db):
+    with db.session_scope() as session:
+        _channel(session, "a")
+        tid = TagRepository(session).get_or_create_tag("genre", "TV Show").id
+        session.flush()
+        add_content_tag(session, "a", tid)
+    _run(db)
+    with db.session_scope(commit=False) as session:
+        assert _tags_of(session, "a") == set(), "no genre: the filter's Uncategorized row"
+        assert session.query(TagDB).filter_by(type="genre", value="TV Show").count() == 0
+
+
+def test_the_genre_sections_no_value_row_reads_uncategorized(qapp, owned_widgets):
+    """The row a user ticks says Uncategorized for Genre, Untagged elsewhere."""
+    from metatv.gui.filter_group_row import UNTAGGED_LABELS, _Section
+
+    from types import SimpleNamespace
+    genre = owned_widgets.own(_Section("genre", "Genre", config=SimpleNamespace()))
+    genre.set_untagged_row(544, label=UNTAGGED_LABELS["genre"])
+    region = owned_widgets.own(_Section("region", "Region", config=SimpleNamespace()))
+    region.set_untagged_row(12, label=UNTAGGED_LABELS.get("region", "Untagged"))
+    assert genre._untagged_row._label.text() == "Uncategorized"
+    assert region._untagged_row._label.text() == "Untagged"

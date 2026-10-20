@@ -96,6 +96,8 @@ GENRE_WORDS: dict[str, str] = {
     "sitcom": "Comedy", "draama": "Drama", "melodramat": "Drama",
     "rikos": "Crime", "biograf": "Biography", "dokument": "Documentary", "sportowy": "Sports",
     "historyczny": "History",
+    "underhållning": "Entertainment", "nöje": "Entertainment", "rozrywka": "Entertainment",
+    "rozrywkowy": "Entertainment", "popkultur": "Talk Show", "kändisar": "Talk Show",
 }
 
 #: Whole strings approved one by one (owner, 2026-10-20, "Unclear Genre Tags"
@@ -118,7 +120,10 @@ GENRE_STRINGS: dict[str, tuple[str, ...]] = {
     "randkowy show": ("Reality",), "استعداديابي": ("Reality",),
     "مسابقه ، رئاليتي شو": ("Game Show", "Reality"),
     "pembe dizi": ("Soap Opera", "Romance"), "love": ("Romance",),
-    "show": ("TV Show",), "bio": ("Biography",),
+    "show": (), "bio": ("Biography",),          # bare "Show": a format word
+    # R3 (2026-10-20): broadcaster "entertainment" labels -> Entertainment;
+    # pop culture / celebrities are celebrity talk shows.
+    "games سرگرمی": ("Entertainment",),
 }
 
 #: Values a provider put in its genre field that are not genres (R5): format
@@ -188,6 +193,8 @@ def resolve_genres(segment: str) -> list[str]:
     if direct.lower() in _KNOWN_GENRES_LOWER:
         return [_KNOWN_GENRES_LOWER[direct.lower()]]
     folded = fold_text(html.unescape(segment))
+    if direct == "" or _GENRE_NORM.get(folded) == "":
+        return []          # a format word ("TV programme", "برنامج"): no genre
     canon = _GENRE_NORM.get(folded) or _KNOWN_GENRES_LOWER.get(folded)
     if canon:
         return [canon]

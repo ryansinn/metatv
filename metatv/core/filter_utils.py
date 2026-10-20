@@ -682,26 +682,23 @@ _GENRE_NORM: dict[str, str] = {
     "talk show":                "Talk Show",
     "talk":                     "Talk Show",
     # NOTE(#153): "variety" mapping removed — Variety ≠ Talk Show; kept raw.
-    # Generic "TV" content type — TMDB has no single "TV" genre, so providers
-    # fragment it into a dozen near-duplicate labels (TV program, TV programme,
-    # TV series, Television series, Program Tv, …) plus typos (TV proramme,
-    # PROGRAME).  Fold the whole family into one canonical "TV Show" so the
-    # filter panel shows a single entry with the summed count instead of ~15
-    # near-duplicates.  Distinct, already-canonical genres (Talk Show, Game
-    # Show, Reality Show, Music Show, TV Movie, Drama series) and the ambiguous
-    # bare "Show" are deliberately NOT folded here.
-    "tv program":                       "TV Show",
-    "tv programme":                     "TV Show",
-    "tv proramme":                      "TV Show",   # provider typo
-    "tv programe":                      "TV Show",   # provider typo
-    "tv show":                          "TV Show",
-    "tv series":                        "TV Show",
-    "tv series television program":     "TV Show",
-    "television series":                "TV Show",
-    "program tv":                       "TV Show",
-    "program":                          "TV Show",
-    "programme":                        "TV Show",
-    "programe":                         "TV Show",   # provider typo
+    "entertainment":            "Entertainment",  # unscripted light TV (owner, 2026-10-20)
+    # FORMAT words ("" = no genre): "TV program", "programme", "series" say a
+    # title is a programme, which the media type already says. They were one
+    # canonical "TV Show" that described nothing (owner, 2026-10-20: "adds ZERO
+    # value"); such titles now land in the filter's Uncategorized row.
+    "tv program":                       "",
+    "tv programme":                     "",
+    "tv proramme":                      "",   # provider typo
+    "tv programe":                      "",   # provider typo
+    "tv show":                          "",
+    "tv series":                        "",
+    "tv series television program":     "",
+    "television series":                "",
+    "program tv":                       "",
+    "program":                          "",
+    "programme":                        "",
+    "programe":                         "",   # provider typo
     # Arabic script variants (Arabic .lower() is a no-op so keys match directly)
     "دراما":                    "Drama",
     "ﺩﺭاﻣﺎ":                    "Drama",    # Arabic presentation-form variant
@@ -979,17 +976,17 @@ _GENRE_NORM: dict[str, str] = {
     'telenowela':                     'Soap Opera',
     'telenovela':                     'Soap Opera',
     'soap':                           'Soap Opera',
-    # --- TV Show ---
-    'serial':                         'TV Show',
-    'mini serial':                    'TV Show',
-    'برنامج':                         'TV Show',
-    'برنامج تلفزيوني':                'TV Show',
-    'سریال':                          'TV Show',
-    'سريال':                          'TV Show',
-    'برامج تليفزيوني':                'TV Show',
-    'série-tv':                       'TV Show',
-    'serie-tv':                       'TV Show',
-    'برنامه':                         'TV Show',
+    # --- format words, no genre (see the "tv program" note above) ---
+    'serial':                         '',
+    'mini serial':                    '',
+    'برنامج':                         '',
+    'برنامج تلفزيوني':                '',
+    'سریال':                          '',
+    'سريال':                          '',
+    'برامج تليفزيوني':                '',
+    'série-tv':                       '',
+    'serie-tv':                       '',
+    'برنامه':                         '',
     # --- Talk Show ---
     'talk-show':                      'Talk Show',
     'tv talk show':                   'Talk Show',
@@ -1231,7 +1228,7 @@ def genres_from_category(category: str) -> list[str]:
 # cross-walk: a token is only emitted as a genre tag when it normalizes to one
 # of these known values.  This prevents junk provider labels like
 # "NETFLIX MOVIES" or "TOP IMDB" from leaking into the genre namespace.
-KNOWN_GENRES: frozenset[str] = frozenset(_GENRE_NORM.values())
+KNOWN_GENRES: frozenset[str] = frozenset(v for v in _GENRE_NORM.values() if v)
 
 # W-1: case-insensitive membership for recognized_genre()'s secondary check —
 # a value that IS canonical but reaches that check in a different casing
@@ -1274,7 +1271,7 @@ def recognized_genre(s: str) -> str | None:
     lowered = s.strip().lower()
     canon = _GENRE_NORM.get(lowered)
     if canon is not None:
-        return canon
+        return canon or None          # "" = a format word, not a genre
     # Secondary: normalize_genre pass-through — if the result is itself a known
     # canonical value (e.g. "Action" → "Action"), accept it.
     unescaped = html.unescape(s.strip())
