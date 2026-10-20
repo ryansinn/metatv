@@ -90,17 +90,18 @@ from metatv.core.content_labels import (
 from metatv.core.quality_vocab import QUALITY_TOKENS
 from metatv.core.region_codes import (
     CODE_FACETS,
+    LANGUAGE_ONLY_CODES,
     leading_country,
     PLATFORM_CODES,
     REGION_FULL_NAMES,
     normalize_region_code,
 )
 from metatv.core.tag_confidence import CONF_DENOTED, CONF_STRONG_PRIOR, CONF_WEAK_PRIOR
+from metatv.core.genre_words import resolve_genres
 from metatv.core.filter_utils import (
     _split_compound,
     categorize_prefix,
     genres_from_category,
-    resolve_genres,
 )
 
 # ── Compound-token splitters ────────────────────────────────────────────────── #
@@ -767,8 +768,10 @@ def _classify_prefix_token(
 
     if cats["language"]:
         tags.append(("language", cats["language"], CONF_DENOTED))
-        # A code can be in both a language group AND REGION_FULL_NAMES; check for region.
-        if norm in REGION_FULL_NAMES and norm not in PLATFORM_CODES:
+        # A code can be in both a language group AND REGION_FULL_NAMES; check for
+        # region — unless the code names a language only (HI is Hindi, not a place).
+        if (norm in REGION_FULL_NAMES and norm not in PLATFORM_CODES
+                and norm not in LANGUAGE_ONLY_CODES):
             tags.append(("region", norm, CONF_DENOTED))
         return tags
 

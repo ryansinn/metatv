@@ -33,6 +33,7 @@ from metatv.gui.main_window_downloads import _DownloadsMixin
 from metatv.gui.main_window_favorites import _FavoritesMixin
 from metatv.gui.main_window_history import _HistoryMixin
 from metatv.gui.main_window_async import _AsyncMixin
+from metatv.gui.main_window_source_add import _SourceAddMixin
 from metatv.gui.main_window_providers import _ProviderMixin
 from metatv.gui.main_window_provider_connectivity import _ProviderConnectivityMixin
 from metatv.gui.main_window_series import _SeriesMixin
@@ -147,7 +148,7 @@ def _tab_btn_sheet(extra: str) -> str:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _SeriesPlaybackMixin, _ChannelListMixin, _StreamingMixin, _QueueEndPromptMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _StatusMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnectivityMixin, _SeriesMixin, _SeriesPlaybackMixin, _ChannelListMixin, _StreamingMixin, _QueueEndPromptMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _StatusMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
                  QMainWindow):
     """Main application window"""
     

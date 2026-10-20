@@ -347,7 +347,7 @@ def test_a_language_code_leaves_the_region_facet(db):
         add_content_tag(session, "il", il)
     _run(db)
     with db.session_scope(commit=False) as session:
-        assert _tags_of(session, "hi") == {("language", "Hindi")}
+        assert _tags_of(session, "hi") == {("language", "Indian")}   # its language group
         assert _tags_of(session, "il") == {("region", "IL")}, "a real country stays a region"
 
 
@@ -372,7 +372,7 @@ def test_the_row_lists_stored_genres_are_refolded(db):
     ("Action & Adventure", ["Action & Adventure"]),
 ])
 def test_resolve_genres(raw, expected):
-    from metatv.core.filter_utils import resolve_genres
+    from metatv.core.genre_words import resolve_genres
     assert resolve_genres(raw) == expected
 
 
