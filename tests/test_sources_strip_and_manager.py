@@ -64,7 +64,7 @@ class TestSummarizeProviders:
 
         with db.session_scope(commit=False) as session:
             providers = RepositoryFactory(session).providers.get_all()
-            active, expiring = summarize_providers(providers, datetime.now())
+            active, expiring, _expired = summarize_providers(providers, datetime.now())
 
         # "soon" is enabled AND near renewal, so it counts in BOTH: "active"
         # answers *is this source serving?*, "expiring" answers *is its

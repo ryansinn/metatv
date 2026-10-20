@@ -46,7 +46,7 @@ def test_an_active_source_near_renewal_counts_as_BOTH(qapp):
     """The owner's install, and the regression itself."""
     from metatv.gui.sidebar.sources_strip import summarize_providers
 
-    active, expiring = summarize_providers(
+    active, expiring, _expired = summarize_providers(
         [_provider(active=True, expires_in_days=5),
          _provider(active=True, expires_in_days=9)],
         NOW,
@@ -61,19 +61,17 @@ def test_an_active_source_near_renewal_counts_as_BOTH(qapp):
 def test_healthy_active_sources_are_not_expiring(qapp):
     from metatv.gui.sidebar.sources_strip import summarize_providers
 
-    active, expiring = summarize_providers(
+    assert summarize_providers(
         [_provider(active=True, expires_in_days=300)], NOW
-    )
-    assert (active, expiring) == (1, 0)
+    ) == (1, 0, 0)
 
 
 def test_a_disabled_source_is_not_active_even_if_healthy(qapp):
     from metatv.gui.sidebar.sources_strip import summarize_providers
 
-    active, expiring = summarize_providers(
+    assert summarize_providers(
         [_provider(active=False, expires_in_days=300)], NOW
-    )
-    assert (active, expiring) == (0, 0)
+    ) == (0, 0, 0)
 
 
 def test_an_expired_source_still_counts_as_active_when_enabled(qapp):
@@ -84,20 +82,45 @@ def test_an_expired_source_still_counts_as_active_when_enabled(qapp):
     """
     from metatv.gui.sidebar.sources_strip import summarize_providers
 
-    active, expiring = summarize_providers(
+    summary = summarize_providers(
         [_provider(active=True, expires_in_days=-5)], NOW
     )
-    assert active == 1
-    assert expiring == 1
+    assert summary.active == 1
+    assert summary.expired == 1
+    assert summary.expiring == 0, "a lapsed subscription is expired, not expiring"
+
+
+def test_a_disabled_source_that_already_expired_says_nothing(qapp):
+    """The owner's install on 2026-10-20: two sources lapsed a month earlier and
+    turned off, one live source with 8 days left. The strip said "2 expiring"."""
+    from metatv.gui.sidebar.sources_strip import _summary_text, summarize_providers
+
+    providers = [_provider(active=True, expires_in_days=300),
+                 _provider(active=False, expires_in_days=-21),
+                 _provider(active=False, expires_in_days=-23)]
+    summary = summarize_providers(providers, NOW)
+    assert summary == (1, 0, 0)
+    assert _summary_text(summary, len(providers)).endswith("1 active")
+
+
+def test_a_disabled_source_still_running_down_is_still_expiring(qapp):
+    from metatv.gui.sidebar.sources_strip import summarize_providers
+
+    assert summarize_providers(
+        [_provider(active=False, expires_in_days=3)], NOW) == (0, 1, 0)
 
 
 def test_the_alarm_only_fires_when_nothing_is_enabled(qapp):
     """"No active sources" must mean the app genuinely has nothing to show."""
     from metatv.gui.sidebar.sources_strip import _summary_text
 
-    assert _summary_text(2, 2, 2).endswith(" 2 expiring")
-    assert "Material Design Icons" in _summary_text(2, 2, 2)   # the warning icon, inline
-    assert _summary_text(2, 0, 2).endswith("2 active")
-    assert "No active sources" in _summary_text(0, 0, 2)
-    assert "No active sources" in _summary_text(0, 1, 2)
-    assert _summary_text(0, 0, 0) == "No sources yet"
+    from metatv.gui.sidebar.sources_strip import SourceSummary as S
+
+    assert _summary_text(S(2, 2, 0), 2).endswith(" 2 expiring")
+    assert "Material Design Icons" in _summary_text(S(2, 2, 0), 2)   # the warning icon, inline
+    assert _summary_text(S(2, 0, 1), 2).endswith(" 1 expired")
+    assert _summary_text(S(2, 1, 1), 2).endswith(" 1 expired"), "overdue outranks running low"
+    assert _summary_text(S(2, 0, 0), 2).endswith("2 active")
+    assert "No active sources" in _summary_text(S(0, 0, 0), 2)
+    assert "No active sources" in _summary_text(S(0, 1, 0), 2)
+    assert _summary_text(S(0, 0, 0), 0) == "No sources yet"
