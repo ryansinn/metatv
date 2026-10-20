@@ -324,7 +324,7 @@ def test_a_mixed_language_genre_folds_onto_its_canonical_genres(db):
         assert session.query(TagDB).filter_by(value="Drama خانوادگی").count() == 0
 
 
-@pytest.mark.parametrize("value", ["Teen Drama", "Social", "اجتماعي", "GAİN"])
+@pytest.mark.parametrize("value", ["Underhållning", "Relax", "روایت", "Silent"])  # still undecided
 def test_anything_not_obvious_is_left_alone(db, value):
     with db.session_scope() as session:
         _channel(session, "a")
@@ -364,11 +364,10 @@ def test_the_row_lists_stored_genres_are_refolded(db):
 
 
 @pytest.mark.parametrize("raw,expected", [
-    ("Comedy طنز اجتماعی", ["Comedy"]),
+    ("Comedy طنز اجتماعی", ["Comedy", "Drama"]),             # R1: social -> Drama
     ("دراما ﺗﺸﻮﻳﻖ ﻭﺇﺛﺎﺭﺓ", ["Drama", "Thriller"]),     # presentation forms + joined "and"
     ("Comedy | Drama | Romance", ["Comedy", "Drama", "Romance"]),
     ("Biograf", ["Biography"]),
-    ("Teen Drama", ["Teen Drama"]),
     ("Action & Adventure", ["Action & Adventure"]),
 ])
 def test_resolve_genres(raw, expected):
@@ -410,3 +409,36 @@ def test_the_region_list_shows_one_row_per_country():
     (_name, total, children), = groups
     assert total == 747
     assert [(label, n) for _key, label, n in children] == [("Israel", 730), (REGION_FULL_NAMES["AE"], 17)]
+
+
+# ── v3: the owner's decisions on the unclear tail (R1, R2, R5) ──────────────
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Social", ["Drama"]),                                  # R1
+    ("Social اجتماعی و پلیسی", ["Drama", "Crime"]),          # R1, police -> Crime
+    ("Teen Drama", ["Drama"]),                              # R2
+    ("Pembe Dizi", ["Soap Opera", "Romance"]),              # R2
+    ("Film", []),                                           # R5: a format word
+    ("GAİN", []),                                           # R5: a platform
+    ("Oudercontact in het tweede leerjaar: voor de meester de lastigste avond.", []),
+    ("Underhållning", ["Underhållning"]),                   # R3: still undecided
+    ("روایت", ["روایت"]),                                   # R6: left as is
+])
+def test_the_owners_decisions(raw, expected):
+    from metatv.core.genre_words import resolve_genres
+    assert resolve_genres(raw) == expected
+
+
+def test_not_genres_are_removed_and_gain_becomes_a_platform(db):
+    with db.session_scope() as session:
+        _channel(session, "a")
+        _channel(session, "b")
+        repo = TagRepository(session)
+        film, gain = repo.get_or_create_tag("genre", "Film").id, repo.get_or_create_tag("genre", "GAİN").id
+        session.flush()
+        add_content_tag(session, "a", film)
+        add_content_tag(session, "b", gain)
+    _run(db)
+    with db.session_scope(commit=False) as session:
+        assert _tags_of(session, "a") == set()
+        assert _tags_of(session, "b") == {("platform", "GAİN")}

@@ -58,7 +58,10 @@ if TYPE_CHECKING:
 #: language codes stored as regions onto the language facet
 #: (``region_codes.LANGUAGE_ONLY_CODES``). Owner: "dozens of arabic drama and
 #: comedy"; "Hindi isn't a region, it's a language".
-CURRENT_VERSION: int = 2
+#: 3 (2026-10-20): the owner's decisions on the unclear tail ("Unclear Genre
+#: Tags" R1 social -> Drama, R2 translations, R5 not-genres removed, GAİN to
+#: Platform), applied through the same resolver.
+CURRENT_VERSION: int = 3
 
 
 class TagCaseMergeTask:
@@ -173,7 +176,7 @@ def _fold_vocabulary(session) -> int:
     """
     from metatv.core.config import BASE_PREFIX_GROUPS
     from metatv.core.filter_utils import KNOWN_GENRES
-    from metatv.core.genre_words import resolve_genres
+    from metatv.core.genre_words import platform_named_as_genre, resolve_genres
     from metatv.core.region_codes import LANGUAGE_ONLY_CODES
     from metatv.core.repositories.tag import TagRepository
 
@@ -187,7 +190,9 @@ def _fold_vocabulary(session) -> int:
     folded = 0
     for tid, ttype, value in session.execute(text(
             "SELECT id, type, value FROM tags WHERE type IN ('genre', 'region')")).all():
-        if ttype == "genre":
+        if ttype == "genre" and platform_named_as_genre(value):
+            keep = [tag_id("platform", platform_named_as_genre(value))]
+        elif ttype == "genre":
             targets = resolve_genres(value)
             if targets == [value] or not all(g in KNOWN_GENRES for g in targets):
                 continue
