@@ -83,6 +83,11 @@ def main():
     """Main application entry point"""
     setup_logging()
 
+    # A fresh start (Tools menu) recorded by the previous run: wipe BEFORE the
+    # config or the database is opened. Returns the sources to re-add, if kept.
+    from metatv.core import fresh_start
+    kept_sources = fresh_start.perform()
+
     # Load configuration (returns tuple: config, recovered_from_backup)
     config, recovered_from_backup = Config.load()
 
@@ -151,9 +156,14 @@ def main():
         window = MainWindow(config, config_recovered=recovered_from_backup)
     with _phase.phase("startup.show"):
         window.show()
+    if kept_sources:
+        window.restore_sources(kept_sources)
 
     # Run application
-    sys.exit(app.exec())
+    code = app.exec()
+    if fresh_start.pending():
+        fresh_start.relaunch()      # the new process performs the wipe
+    sys.exit(code)
 
 
 if __name__ == "__main__":

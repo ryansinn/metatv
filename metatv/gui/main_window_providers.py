@@ -213,6 +213,29 @@ class _ProviderMixin:
         self.refresh_provider(provider_id)
         self.status("Source added — loading its channels.", ms=5000)
 
+    def restore_sources(self, sources: list[dict]) -> None:
+        """After a fresh start that kept sources: add each one back, as if just added.
+
+        Same path as Add Source (``_on_provider_added``): the row is written,
+        the views refresh, the channels load and the guide is fetched. URL
+        statistics start empty, like a new source.
+        """
+        from metatv.core.database import ProviderDB
+        from metatv.core.models import ProviderURL
+        from metatv.core.repositories.provider import provider_url_to_raw
+
+        self._guided_to_first_source = True     # sources are on their way
+        with self.db.session_scope() as session:
+            for src in sources:
+                fields = dict(src)
+                urls = [u.get("url") if isinstance(u, dict) else u
+                        for u in (fields.pop("urls", None) or [])] or [fields["url"]]
+                fields["urls"] = [provider_url_to_raw(ProviderURL(url=u), priority=i)
+                                  for i, u in enumerate(urls)]
+                session.add(ProviderDB(**fields))
+        for src in sources:
+            self._on_provider_added(src["id"], bool(src.get("epg_enabled", True)))
+
     def _guide_to_first_source(self) -> None:
         """At launch with no sources: open the Sources screen on a blank source.
 
