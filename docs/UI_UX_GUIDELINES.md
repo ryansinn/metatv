@@ -2,6 +2,21 @@
 
 This document defines standard UI/UX behaviors maintained throughout the application to ensure consistency. Follow these patterns when implementing new features or modifying existing ones.
 
+## One process, never a parallel flow
+
+**Owner, 2026-10-19 — governing principle for the app experience.** When a surface fails a user (a new user above all), fix THAT surface. Never build a second path beside it: no first-run Add Source dialog, no onboarding-only cards or screens, no special notification for a case the normal one handles.
+
+> "The primary process should be effective enough to be the only process … This should be a focus or principle or guidance for the app experience and design. PERIOD."
+
+- Two paths drift apart and double the maintenance.
+- A user taught on the special path never learns where the real controls live.
+
+Consequences:
+- **Add Source:** there is one, in the Sources screen.
+- **Empty states:** zero sources reads exactly like a source with nothing in it, through one empty-state grammar.
+- **Notifications:** a first import uses the normal refresh notification, improved if it is unclear.
+- **Explaining the UI:** the one sanctioned overlay is a re-runnable tour that points AT the real controls. It explains them; it never replaces them.
+
 ## Interaction Patterns
 
 ### Double-Click Behaviors
