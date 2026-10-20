@@ -21,7 +21,6 @@ from metatv.core.notifications import StepStatus
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
-from metatv.gui.dialogs import AddProviderDialog
 
 
 # ── Source-refresh step definitions ──────────────────────────────────────────
@@ -192,10 +191,38 @@ class _ProviderMixin:
         return sections.get("sources") if sections else None
 
     def add_provider(self):
-        """Show add provider dialog"""
-        dialog = AddProviderDialog(self, self.config, self.db, self.notification_manager)
-        if dialog.exec():
-            self.load_providers()
+        """Open the Sources screen on a new, blank source — the ONE Add path.
+
+        Every Add Source button lands here (sidebar, menu, Sources header,
+        empty states), so a source is added on the same form it is edited on
+        and the user sees where sources live (docs/UI_UX_GUIDELINES.md, "One
+        process, never a parallel flow").
+        """
+        self.switch_to_sources_manager()
+        self.sources_manager_view.start_new_source()
+
+    def _on_provider_added(self, provider_id: str, epg_enabled: bool) -> None:
+        """A new source was added in the editor: show it, then load it."""
+        if epg_enabled:
+            # Fetch the guide once its first channel load finishes
+            # (consumed by on_provider_refresh_finished).
+            self._epg_fetch_after_add.add(provider_id)
+        self._refresh_provider_dependent_views()
+        self.sources_manager_view.refresh()
+        self.sources_manager_view.select_provider(provider_id)
+        self.refresh_provider(provider_id)
+        self.status("Source added — loading its channels.", ms=5000)
+
+    def _guide_to_first_source(self) -> None:
+        """At launch with no sources: open the Sources screen on a blank source.
+
+        Once per session, so deleting the last source later does not yank the
+        user away from wherever they are.
+        """
+        if self.__dict__.get("_guided_to_first_source"):
+            return
+        self._guided_to_first_source = True
+        self.add_provider()
 
     def _build_no_sources_banner(self) -> None:
         """Build the zero-sources empty-state banner and add it to ``_list_layout``.
@@ -570,7 +597,8 @@ class _ProviderMixin:
 
         The single per-mutation refresh step for Sources — reached via the
         canonical ``_refresh_provider_dependent_views`` chokepoint for every
-        add/edit/delete/toggle, and directly after ``add_provider``'s dialog.
+        add/edit/delete/toggle. With no source at all, it also places a new
+        user on the Add Source form (once per session).
         """
         target = self._sources_status_target()
         if target is not None:
@@ -578,10 +606,15 @@ class _ProviderMixin:
         strip = self.__dict__.get("sources_strip")
         if strip is not None:
             strip.refresh()
-        self._refresh_details_provider_map()
+        if self._refresh_details_provider_map() == 0:
+            QTimer.singleShot(0, self._guide_to_first_source)
 
-    def _refresh_details_provider_map(self):
-        """Push current provider icon/name map to the details pane."""
+    def _refresh_details_provider_map(self) -> int | None:
+        """Push current provider icon/name map to the details pane.
+
+        Returns:
+            How many sources exist, or None when they could not be read.
+        """
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
@@ -600,8 +633,10 @@ class _ProviderMixin:
                 for p in providers
             }
             self.details_pane.set_provider_map(provider_map)
+            return len(providers)
         except Exception as e:
             logger.warning(f"Could not refresh provider map: {e}")
+            return None
         finally:
             session.close()
 

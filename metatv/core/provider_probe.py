@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from time import time
+from urllib.parse import quote
 
 import aiohttp
 
@@ -61,6 +62,16 @@ class ProbeResult:
     detail: str = ""
 
 
+def auth_granted(value: object) -> bool:
+    """Whether an Xtream ``user_info.auth`` value means "logged in".
+
+    Servers send it as 1, "1", true, "true" — or refuse with 0, "0", "false",
+    "", None. A plain truth test reads the STRING "0" as granted, which let a
+    rejected login through. One definition for the probe and the client.
+    """
+    return str(value).strip().lower() not in ("", "0", "false", "none")
+
+
 async def probe_url(url: str, username: str, password: str) -> ProbeResult:
     """Test a single Xtream API URL.
 
@@ -70,7 +81,10 @@ async def probe_url(url: str, username: str, password: str) -> ProbeResult:
     """
     start = time()
     clean = url.rstrip("/")
-    auth_url = f"{clean}/player_api.php?username={username}&password={password}"
+    # Percent-escaped: a password holding & # + or a space otherwise corrupts
+    # the query, and that account could never pass the test.
+    auth_url = (f"{clean}/player_api.php?username={quote(str(username), safe='')}"
+                f"&password={quote(str(password), safe='')}")
     try:
         async with aiohttp.ClientSession(headers=_PROBE_HEADERS) as session:
             async with session.get(auth_url, timeout=aiohttp.ClientTimeout(total=12)) as resp:
@@ -79,7 +93,7 @@ async def probe_url(url: str, username: str, password: str) -> ProbeResult:
                     return ProbeResult(url, False, ms, ProbeStatus.HTTP_ERROR, str(resp.status))
                 data = await resp.json(content_type=None)
                 user_info = data.get("user_info", {}) if isinstance(data, dict) else {}
-                auth = user_info.get("auth", 0)
+                auth = auth_granted(user_info.get("auth", 0))
                 status = str(user_info.get("status", ""))
                 if auth and status.lower() == "active":
                     return ProbeResult(url, True, ms, ProbeStatus.ACTIVE)

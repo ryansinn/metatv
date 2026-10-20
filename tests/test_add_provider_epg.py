@@ -1,7 +1,7 @@
-"""Enable-EPG checkbox on the Add-Provider dialog + EPG pull on source refresh.
+"""EPG pull on source refresh.
 
-Two behaviors are pinned, both executing the real code paths:
-1. `AddProviderDialog` persists `epg_enabled` from its checkbox onto the new ProviderDB row.
+Pinned on the real code path (the new source's Enable-EPG checkbox is covered
+in test_add_source_in_editor, where sources are added now):
 2. `MainWindow.on_provider_refresh_finished` calls `_maybe_refresh_provider_epg` on EVERY
    successful refresh (newly-added or ordinary) and clears the add flag — but NOT when the
    load failed. The fetch's gating (epg_enabled / usable URL) is covered in
@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import ProviderDB
 
 
 @pytest.fixture(scope="module")
@@ -23,23 +22,7 @@ def qapp():
     yield app
 
 
-# ── 1. Dialog persists epg_enabled ───────────────────────────────────────────── #
-
-@pytest.mark.parametrize("checked", [True, False])
-def test_add_provider_dialog_persists_epg_enabled(qapp, db, checked):
-    from metatv.gui.dialogs import AddProviderDialog
-
-    dlg = AddProviderDialog(None, MagicMock(), db, MagicMock())
-    dlg.name_input.setText("New Src")
-    dlg.url_input.setText("http://host:8080")
-    dlg.epg_enabled_check.setChecked(checked)
-
-    dlg.add_provider()  # parent is None → just creates the row + accept()
-
-    with db.session_scope(commit=False) as session:
-        prov = session.query(ProviderDB).filter_by(name="New Src").first()
-        assert prov is not None
-        assert bool(prov.epg_enabled) is checked
+# ── 1. (moved) the new source's epg_enabled: tests/test_add_source_in_editor.py ─ #
 
 
 # ── 2. Post-add first-EPG-pull trigger ───────────────────────────────────────── #

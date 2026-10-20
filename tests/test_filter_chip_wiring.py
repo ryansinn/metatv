@@ -47,6 +47,10 @@ def window(tmp_path_factory):
     # for a bar that was never built and fail for one that works.
     win.show()
     app.processEvents()
+    # A window with no sources opens on the Sources screen (first-run guide);
+    # these tests are about the channel list, so go there.
+    win.switch_to_list_view()
+    app.processEvents()
     try:
         yield win
     finally:
