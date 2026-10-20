@@ -23,7 +23,6 @@ Nothing queued (the last ten closed 2026-10-19).
 | D57 | GUARD-4 matches stored fields by bare name | False "wired" across models; false "unwired" through `setattr` (#912). Needs type resolution. |
 | D60 | State changes not reaching on-screen surfaces — reader half | Owner-requested audit: every watch/queue/alert/favourite surface repaints on change. Writer half is guarded. |
 | D61 | Pre-play probe spends the only connection on one-slot sources | Skip it when `max_connections == 1` and no alternate URL; measure on the owner's account first. |
-| D62 | mpv's yt-dlp fallback re-hits the provider after a failure | `--ytdl=no` for provider streams only (trailers need it). |
 | F4 | `REGION_FULL_NAMES` likely has more ISO-vs-IOC alpha-3 gaps | One systematic pass. |
 | F6 | Selection colours can be overwritten by a later stylesheet | Audit every item view per palette; guard the ordering. |
 | F19 | Concurrent background writers starve the catalogue insert | Writer count, not write size; see memory "SQLite single-writer budget". |
