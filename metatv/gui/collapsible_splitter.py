@@ -5,7 +5,7 @@ from PyQt6.QtGui import QColor, QMouseEvent, QPainter
 
 from metatv.core import runtime_env
 from metatv.gui import theme as _theme
-from metatv.gui.cursor_affordance import set_clickable, set_resizable
+from metatv.gui.cursor_affordance import set_resizable
 
 
 class CollapsibleSplitterHandle(QSplitterHandle):
@@ -37,14 +37,13 @@ class CollapsibleSplitterHandle(QSplitterHandle):
         super().__init__(orientation, parent)
         self.drag_started = False
         self.click_pos = None
-        # Discoverability: tooltip + pointing-hand cursor.  A QSplitterHandle is
-        # not a QAbstractButton, so it must opt into the hand via the single
-        # cursor_affordance chokepoint — never a hand-rolled setCursor call here.
+        # Discoverability: tooltip + the platform's resize arrows, on every
+        # platform. Dragging is the primary gesture, and the arrows are what
+        # says "this column can be resized" (owner, 2026-10-20 — macOS got them
+        # first, 2026-10-19). Through the cursor_affordance chokepoint, never
+        # a hand-rolled setCursor here.
         self.setToolTip("Drag to resize · click to collapse/expand")
-        if runtime_env.is_macos():
-            set_resizable(self, orientation)
-        else:
-            set_clickable(self)
+        set_resizable(self, orientation)
 
     @classmethod
     def grip_thickness(cls) -> int:
