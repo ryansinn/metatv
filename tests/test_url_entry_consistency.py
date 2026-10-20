@@ -37,16 +37,35 @@ def qapp():
 
 
 @pytest.fixture
-def add_dialog(qapp, tmp_path):
-    """The real dialog, wired like main_window_providers wires it."""
-    from metatv.gui.dialogs import AddProviderDialog
+def add_dialog(qapp, tmp_path, owned_widgets):
+    """The source editor on a blank source — where every source is added now.
+
+    Named for the dialog it replaced; the assertions are the same, which is
+    the point: one surface, one behaviour.
+    """
+    from metatv.gui.provider_editor import ProviderEditorView
 
     db = Database(f"sqlite:///{tmp_path / 'urls.db'}")
     db.create_tables()
-    dlg = AddProviderDialog(None, MagicMock(), db, MagicMock())
-    yield dlg
-    dlg.deleteLater()
+    ed = owned_widgets.own(ProviderEditorView(db))
+    ed.start_new_source()
+    ed.url_input = ed._new_url_input
+    ed.url_list = _UrlTexts(ed)
+    yield ed
     db.close()
+
+
+class _UrlTexts:
+    """The added addresses, read the way the old tests read a QListWidget."""
+
+    def __init__(self, ed):
+        self._ed = ed
+
+    def count(self) -> int:
+        return len(self._ed._provider_urls)
+
+    def item(self, i):
+        return MagicMock(text=lambda: self._ed._provider_urls[i].url)
 
 
 # ── Enter submits ───────────────────────────────────────────────────────────
@@ -126,22 +145,18 @@ def _index_of(container, cls) -> int:
 def test_the_entry_field_comes_before_the_list(add_dialog):
     """THE layout assertion — order, not mere presence.
 
-    The setup dialog had the list first and the field underneath, while the
-    source editor had the field on top. Both surfaces contained both widgets,
-    so any "are they both there" check passed while the UX was inconsistent.
+    The old setup dialog had the list first and the field underneath, while
+    the source editor had the field on top. Adding now happens in the editor;
+    this keeps the entry above the list it feeds.
     """
-    container = add_dialog.url_input.parentWidget()
-    while container is not None and container.layout() is None:
-        container = container.parentWidget()
-    assert container is not None
-
+    container = add_dialog._url_list.parentWidget()
     field_at = _index_of(container, QLineEdit)
     list_at = _index_of(container, QListWidget)
 
     assert field_at != -1 and list_at != -1, "expected both widgets in one container"
     assert field_at < list_at, (
         f"the URL field is at {field_at} and the list at {list_at} — the field "
-        "must come first, as it does in the source editor"
+        "must come first"
     )
 
 

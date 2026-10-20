@@ -7,6 +7,7 @@ from urllib.parse import quote
 import aiohttp
 from loguru import logger
 
+from metatv.core.provider_probe import auth_granted
 from metatv.core.models import Channel, Provider, MediaType, StreamQuality, ProviderURL
 from metatv.core.connection_tracker import ConnectionTracker
 from metatv.core.content_identity import added_from_raw, rating_from_raw, valid_tmdb_id
@@ -144,8 +145,8 @@ class XtreamAPI:
                 auth = user_info.get("auth", 0)
 
                 # Servers may return auth as the *string* "0"/"false", which is
-                # truthy — normalize before deciding, else a rejected login passes.
-                if str(auth).strip().lower() in ("", "0", "false", "none"):
+                # truthy — normalized by the one shared definition.
+                if not auth_granted(auth):
                     error_msg = "Authentication failed — check username and password"
                     if provider_url:
                         await ConnectionTracker.record_failure(provider_url, error_msg)

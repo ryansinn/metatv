@@ -123,6 +123,7 @@ class SourcesManagerView(QWidget):
         self._provider_editor.analyze_requested.connect(self.providerAnalyzeClicked.emit)
         self._provider_editor.toggle_active_requested.connect(self.providerToggleClicked.emit)
         self._provider_editor.epg_refresh_requested.connect(self.providerEpgRefreshClicked.emit)
+        self._provider_editor.new_source_cancelled.connect(self._on_new_source_cancelled)
 
         self._empty_label = QLabel("Select a source on the left to view its configuration.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -178,6 +179,25 @@ class SourcesManagerView(QWidget):
         # row was selected (or before any row was) — resync the action bar's
         # busy visual so switching back to it mid-operation still shows it.
         self._provider_editor.set_toggle_busy(provider_id in self._busy_ids)
+
+    def start_new_source(self) -> None:
+        """Show the editor on a blank source: the one Add Source path."""
+        self.sources_tree.clearSelection()
+        self.sources_tree.setCurrentItem(None)
+        self._empty_label.setVisible(False)
+        self._provider_editor.setVisible(True)
+        self._provider_editor.start_new_source()
+
+    def _on_new_source_cancelled(self) -> None:
+        """Back to the previously selected source, or the empty prompt."""
+        if self._selected_id and self._selected_id in self._item_widgets:
+            self._provider_editor.load_provider(self._selected_id, force=True)
+            self.select_provider(self._selected_id)
+        elif self._item_widgets:
+            self.select_provider(next(iter(self._item_widgets)))
+        else:
+            self._provider_editor.setVisible(False)
+            self._empty_label.setVisible(True)
 
     # ------------------------------------------------------------------ #
     # Data                                                                 #
