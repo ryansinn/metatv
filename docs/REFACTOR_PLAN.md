@@ -10,11 +10,24 @@ a code comment citing a row ID that is not here refers to this file's git histor
 - Say what actually differs: a pure duplicate and a policy difference need different fixes.
 - A mistake that recurs at different call sites is a **class**: log the predicate, its
   census count and the sites — or better, close it with a guard (GUARD-6, #830).
-- IDs are never reused. Next free: **D69**, **F60**.
+- IDs are never reused. Next free: **D69**, **F62**, **WIP-6**.
 
 ## Ready to build
 
 Nothing queued (the last ten closed 2026-10-19).
+
+## Work in progress — designed, waiting on the owner's answers
+
+Nothing here is built. Each row is a design or a set of open questions; build only after
+the owner answers. Recorded 2026-10-21.
+
+| # | What | Where it stands |
+|---|---|---|
+| WIP-1 | **Source Analytics becomes a tab in the Sources editor** | Design: artifact "Source Analytics Tab" (claude.ai/artifact/BQDrAD5y7bKoaZG7Dp3fMV), Q1–Q12, rendered on the owner's library. The owner proposed the tab; the separate `SourceAnalyticsView` and the Analyze button go. Sections: Only here · Shared with your other sources · Playback · Connections · Server addresses · Catalogue & guide · Unrecognized prefixes. Today's four queries take ~60 s on the owner's library (fingerprint 15.6 s, overlap 24.8 s, unique 5.9 s, prefixes 14.2 s); overlap and unique compare lowercased **live-only** names (`repositories/analytics.py:107–220`) instead of `content_key` — on `COALESCE(content_key,'id:'\|\|id)` all three media types took 2 s. Build order: (1) the tab from stored data; (2) a `playback_events` table (outcome, HTTP code, time to picture, seconds watched — none stored today, log only); (3) connection hold time: on a 458/509 refusal while MetaTV holds no stream, poll the account endpoint (`active_cons`, no stream slot used) every 30 s, auto-start when free, record the hold (TREX measured by hand: ~22 min) → "usually frees up within …"; (4) failures by time of day once data exists. Supersedes "Sources, Refit" §5 Q17–Q19, never built. |
+| WIP-2 | **Sources editor still clips at common widths** | "Sources, Refit" (claude.ai/artifact/56U1W8kTcxySywtWF6tDoQ) Q1–Q16 are unanswered except Q10 (Add Source in the editor, shipped #963). Rendered 2026-10-20 at 1600 px: the action row and Account Info still clip ("Refresh Guid…", "Refresh A…"). WIP-1's tab inherits this space. |
+| WIP-3 | **Exclusions dialog** | Open questions: add a Genre section; replace "Content Types" (a hand-typed list, 7 groups / 28 exact provider category names) with tag-based Channel Categories (live counts: Sports 8,758 · News 738 · Music 683 · Kids 623 · 24/7 208 · Adult 184 · Religious 33); make every section collapsible with remembered state; does excluding a genre hide a title carrying *any* excluded genre?; one row per country (Chile and Colombia appear twice). |
+| WIP-4 | **Onboarding, remaining** (branch `onboarding`, not main) | Owner-approved: R5 persistent no-sources notification, wording per cause incl. all-disabled; R6 five empty states, kept simple; R7 one line pointing at the Exclusions chip in the new-regions prompt plus a chip pulse; the clipped "Sourc" label; a re-runnable tour from the Tools menu, later. Design: artifact "First Run" round 2 (claude.ai/artifact/N2dC3RFFxojzxXJPv8Meh1). |
+| WIP-5 | **Deferred by the owner** | Genre subgenres (Cooking, Travel, Religious… stay unfolded until a subgenre model exists) and per-language genre aliases — memory `project_genre_subgenres_and_translations`; compiled builds (Nuitka parked on branch `nuitka-builds`, standalone refuses PyQt6 on macOS; next try PyInstaller + a Nuitka-compiled `metatv` module); downloads & recordings rework (design pass first). |
 
 ## Needs investigation first
 
@@ -36,6 +49,8 @@ Nothing queued (the last ten closed 2026-10-19).
 | F55 | **Class:** SQL case-insensitive matching folds ASCII only — `lower()`, `LIKE` and `.ilike()` leave `Ş`, `É`, `Ö`… untouched, so any comparison against Python's `lower()`/`casefold()`, or a lowercase search term, misses a non-ASCII capital | Confirmed: `lower('ÉCOLE')` = `École`; `'Şaşmaz' LIKE '%şaşmaz%'` = 0. **Census (2026-10-19):** 20,306 channel titles and 1,660 tags carry a non-ASCII capital; sites = 24 `.ilike(` calls in 11 files (`watchlist_matching`, `epg_watchlist`, `filter_utils`, `search_ranking`, `channel_lens`, `channel`, `epg`, `tag_facet_query`, `main_window_metadata`, two scripts) + `func.lower` at `search_ranking.py` (`_word_padded`, two title rankers) and `tag.py` tag search. Visible effect: searching "école" misses "ÉCOLE". One instance already crashed: the tag lookup (#932, below). Fix options: register a Python casefold SQL function on connect (loses index use on those predicates), or store a casefolded search field at ingestion (compute-once; needs a column + migration). |
 | F56 | **Compromise from #932 (tag lookup):** the fix matches the exact stored value OR the ASCII-lowered one, which ends the crash but does not fold non-ASCII case | Two spellings differing only in a non-ASCII capital ("ŞAŞMAZ" / "Şaşmaz") would still become two tags. Census 2026-10-19: 0 such pairs among all tags. Closes with F55's real fold. |
 | F59 | **Class:** production companies stored as `person` tags ("Amblin Entertainment", "Marvel Entertainment") | Census 2026-10-20 on the owner's library: **3,248** person tags / **7,483** links whose value contains Entertainment, Pictures, Productions, Studios, Films, Media, Ltd, Inc., GmbH or Company. Likely the credits feeder taking TMDb production companies into the person facet. Found while reviewing genre tags; not touched.
+| F60 | Channel rows belong to sources that no longer exist | Found 2026-10-20: ~50 rows under three provider ids absent from `providers` (`38497d8e…`, `3ae8ea40…`, `41241966…`). FKs are off, so provider delete must prune every child table by hand; find which path skipped `channels`, then sweep the orphans. |
+| F61 | Qt `Aborted` on macOS CI in `test_qa_checklist_navigation.py` | #973's run, macos-14 shard 3/4: abort while `qa_checklist_window.run` → `_resolve_base_url` → `build_info.git` waited on a subprocess. Passed on the next run; unrelated to #973. Watch for a repeat before digging. |
 
 ## Needs an owner decision
 
