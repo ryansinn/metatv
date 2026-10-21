@@ -10,7 +10,7 @@ a code comment citing a row ID that is not here refers to this file's git histor
 - Say what actually differs: a pure duplicate and a policy difference need different fixes.
 - A mistake that recurs at different call sites is a **class**: log the predicate, its
   census count and the sites — or better, close it with a guard (GUARD-6, #830).
-- IDs are never reused. Next free: **D70**, **F62**, **WIP-6**.
+- IDs are never reused. Next free: **D70**, **F62**, **WIP-7**.
 
 ## Ready to build
 
@@ -97,6 +97,7 @@ the owner answers. Recorded 2026-10-21.
 | WIP-3 | **Exclusions dialog** | Open questions: add a Genre section; replace "Content Types" (a hand-typed list, 7 groups / 28 exact provider category names) with tag-based Channel Categories (live counts: Sports 8,758 · News 738 · Music 683 · Kids 623 · 24/7 208 · Adult 184 · Religious 33); make every section collapsible with remembered state; does excluding a genre hide a title carrying *any* excluded genre?; one row per country (Chile and Colombia appear twice). |
 | WIP-4 | **Onboarding, remaining** (branch `onboarding`, not main) | Owner-approved: R5 persistent no-sources notification, wording per cause incl. all-disabled; R6 five empty states, kept simple; R7 one line pointing at the Exclusions chip in the new-regions prompt plus a chip pulse; the clipped "Sourc" label; a re-runnable tour from the Tools menu, later. Design: artifact "First Run" round 2 (claude.ai/artifact/N2dC3RFFxojzxXJPv8Meh1). |
 | WIP-5 | **Deferred by the owner** | Genre subgenres (Cooking, Travel, Religious… stay unfolded until a subgenre model exists) and per-language genre aliases — memory `project_genre_subgenres_and_translations`; compiled builds (Nuitka parked on branch `nuitka-builds`, standalone refuses PyQt6 on macOS; next try PyInstaller + a Nuitka-compiled `metatv` module); downloads & recordings rework (design pass first). |
+| WIP-6 | **Shortened titles in the sidebar don't show the full title on hover** (owner, 2026-10-21, seen in Recommended) | Not a design question — a bug to fix later. Cause: `chip_row.build_chip_row` makes the whole row `WA_TransparentForMouseEvents` when it has no trailing button (`gui/chip_row.py:641–642`), so the eliding title label's own full-title tooltip (`chip_row.py:187/192`) never receives the hover; the `QListWidgetItem` underneath answers instead, and in Recommended its tooltip is only reason · rating · genres (`gui/sidebar/recommended.py:245–248`), with no title. Fix at the shared row, not per section: the row is transparent on purpose (the list item keeps selection and clicks, `chip_row.py:449–454`), so have each host put the full title as the first line of the item tooltip — better, one helper next to `build_chip_row` that every caller uses (Recommended, History, Favorites, Queue, Watch Alerts, transfers: `grep -rln "build_chip_row(" metatv/gui`). Check each of those sections, not just Recommended. Test: an elided title's item tooltip contains the full title. |
 
 ## Needs investigation first
 
