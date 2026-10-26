@@ -606,9 +606,9 @@ class _SeriesMixin:
 
             label_suffix = f" ({len(selected_episode_items)} episodes)" if len(selected_episode_items) > 1 else ""
             if target_watched:
-                mark_action = QAction(_icon_utils.role_icon("watched"), "Mark as Watched{label_suffix}", self)
+                mark_action = QAction(_icon_utils.role_icon("watched"), f"Mark as Watched{label_suffix}", self)
             else:
-                mark_action = QAction(_icon_utils.role_icon("episode"), "Mark as Unwatched{label_suffix}", self)
+                mark_action = QAction(_icon_utils.role_icon("episode"), f"Mark as Unwatched{label_suffix}", self)
 
             mark_action.triggered.connect(
                 lambda: self._toggle_episodes_watched(selected_episode_items, target_watched)
