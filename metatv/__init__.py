@@ -1,5 +1,5 @@
 """MetaTV - IPTV Stream Organizer"""
 
-__version__ = "0.200.0"
+__version__ = "0.201.0"
 __author__ = "MetaTV Contributors"
 __license__ = "GPL-3.0"
