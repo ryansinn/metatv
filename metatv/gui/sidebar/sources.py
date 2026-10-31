@@ -86,12 +86,10 @@ class ProviderItemWidget(QWidget):
             layout.addWidget(icon_lbl)
 
         # Status dot — green=active, red=expired, grey=inactive
-        if is_expired:
-            dot_role, dot_color = "status_dot", _theme.COLOR_ERR
-        elif is_active:
-            dot_role, dot_color = "status_dot", _theme.COLOR_OK
-        else:
-            dot_role, dot_color = "inactive_dot", _theme.COLOR_MUTED_2
+        from metatv.gui.subscription_status import source_status_dot
+
+        dot_role, dot_token, _tip = source_status_dot(is_active, is_expired)
+        dot_color = getattr(_theme, dot_token)
         self._status_lbl = QLabel()
         self._status_lbl.setPixmap(_icon_utils.role_pixmap(dot_role, dot_color, 10))
         self._status_lbl.setFixedWidth(12)

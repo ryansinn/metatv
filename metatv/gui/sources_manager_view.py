@@ -1,34 +1,21 @@
 """Sources manager — full-view provider list + configuration (Wave 6, Wave 7).
 
-Replaces the old sidebar ``SourcesSection`` (see ``gui/sidebar/sources.py``,
-which now only supplies :class:`ProviderItemWidget` and its helper — the
-per-provider row widget this view reuses verbatim, same signals, never a
-parallel implementation). Opened from the sidebar status strip
-(``gui/sidebar/sources_strip.py``).
+Replaces the old sidebar ``SourcesSection``. Opened from the sidebar status
+strip (``gui/sidebar/sources_strip.py``).
 
-LEFT column: every provider as a selectable :class:`ProviderItemWidget` row,
-constructed with ``show_actions=False`` (Wave 7) — status dot, provider name
-(no longer truncated), and expiry/inactive state only. The five per-row icon
-buttons (refresh / edit / analyze / toggle / EPG-refresh) the pre-Wave-7 row
-rendered now live in the embedded editor's Summary-tab action bar
-(``ProviderEditorView._build_action_bar``); this view's public
-``providerToggleClicked``/``providerEpgRefreshClicked``
-signals are unchanged (so ``main_window.py``'s handler wiring for them is
-untouched) — they now fire from the editor's action bar via the pass-through
-connections in ``__init__`` instead of from row buttons. Refresh never had a
-pass-through: it fires straight off the editor's own ``refresh_requested``,
-connected directly to ``MainWindow.refresh_provider`` (see ``main_window.py``)
-— a redundant, always-dead ``providerRefreshClicked`` signal that duplicated
-that same wiring with no emitter of its own was deleted as dead code (audit
-slice 4, 2026-09-07; caught by ``tests/test_signals_reach_a_slot.py`` once
-``SourcesSection``'s coincidentally-same-named signal, which had been masking
-it, was deleted alongside it). The "edit" action needed no re-pointing:
-selecting a row already loads it into the editor, so there was never a
-separate "edit mode" to invoke.
+TOP: every provider as a chip in a wrapping strip (owner, 2026-10-31 — it
+replaced a fixed 280 px left column, mostly empty height for the three to five
+sources most people have, that took width from the editor). A chip is icon ·
+status dot · the first 14 characters of the name, with "expired" / "disabled" /
+days left on a smaller second line; the full name is on hover. Every action
+lives in the embedded editor's Summary-tab action bar; this view's public
+``providerToggleClicked``/``providerEpgRefreshClicked`` signals fire from it via
+the pass-through connections in ``__init__``. Refresh fires straight off the
+editor's own ``refresh_requested`` (connected in ``main_window.py``).
 
-CENTER: the host's single ``ProviderEditorView`` instance, embedded here
+BELOW, full width: the host's single ``ProviderEditorView`` instance, embedded here
 instead of added directly to the content stack — never a second instance /
-parallel save-delete-refresh plumbing. Selecting a row calls
+parallel save-delete-refresh plumbing. Selecting a chip calls
 ``load_provider()`` on it directly (in-view, no separate "edit mode" switch).
 """
 from __future__ import annotations
@@ -36,24 +23,113 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
-)
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
-from metatv.gui.sidebar.sources import ProviderItemWidget
+from metatv.gui.flow_layout import FlowLayout
+from metatv.gui.subscription_status import source_status_dot, subscription_color
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.core.database import Database
 
 
+#: Characters of a source's name a chip shows before "…" (owner, 2026-10-31).
+CHIP_NAME_CHARS = 14
+
+
+def chip_name(name: str) -> str:
+    """The first CHIP_NAME_CHARS characters of *name*, "…" when cut."""
+    return name if len(name) <= CHIP_NAME_CHARS else name[:CHIP_NAME_CHARS].rstrip() + "…"
+
+
+def chip_subline(is_active: bool, exp_date: "datetime | None", now: datetime) -> str:
+    """The chip's second line, in words: "expired", "disabled · 27 days left",
+    "27 days left", "disabled" or "" — the state the dot shows, said too."""
+    if exp_date is not None and exp_date <= now:
+        return "expired"
+    parts = [] if is_active else ["disabled"]
+    if exp_date is not None:
+        days = (exp_date - now).days
+        parts.append(f"{days} day left" if days == 1 else f"{days} days left")
+    return " · ".join(parts)
+
+
+class _SourceChip(QPushButton):
+    """One source in the strip: icon · status dot · name, days left beneath.
+
+    A QPushButton for the press/hover/focus behaviour and the segmented
+    selected/unselected roles; its two lines are a child layout the button
+    sizes itself from (a QPushButton's own size hint only measures its text).
+    The full name, state and expiry are on the tooltip.
+    """
+
+    #: provider_id — connected to the view's bound method, which PyQt holds
+    #: weakly; a lambda capturing the view would keep it alive.
+    chosen = pyqtSignal(str)
+
+    def __init__(self, provider, now: datetime, parent=None) -> None:
+        super().__init__(parent)
+        self._provider_id = provider.id
+        self.clicked.connect(self._on_clicked)
+        is_expired = bool(provider.account_exp_date and provider.account_exp_date <= now)
+        role, token, state = source_status_dot(bool(provider.is_active), is_expired)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 4, 10, 4)
+        outer.setSpacing(0)
+        top = QHBoxLayout()
+        top.setSpacing(5)
+        icon = getattr(provider, "icon", "") or ""
+        if icon:
+            top.addWidget(QLabel(icon))
+        dot = QLabel()
+        _icon_utils.set_label_icon(dot, role, 10)
+        _theme.style_fn(dot, lambda: f"color: {getattr(_theme, token)};")
+        top.addWidget(dot)
+        self.name_label = QLabel(chip_name(provider.name))
+        self.name_label.setTextFormat(Qt.TextFormat.PlainText)
+        top.addWidget(self.name_label)
+        outer.addLayout(top)
+        self.days_label = QLabel(chip_subline(bool(provider.is_active), provider.account_exp_date, now))
+        exp, created = provider.account_exp_date, provider.account_created_at
+        active = bool(provider.is_active)
+        _theme.style_fn(self.days_label, lambda: (
+            f"font-size: {_theme.FONT_SM}; color: "
+            f"{(active and subscription_color(exp, created)) or _theme.COLOR_MUTED_2};"))
+        self.days_label.setVisible(bool(self.days_label.text()))
+        outer.addWidget(self.days_label)
+        for child in self.findChildren(QLabel):
+            child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+        self.setToolTip(" · ".join(t for t in (provider.name, state, self.days_label.text()) if t))
+        cursor_affordance.set_clickable(self)
+        self.set_selected(False)
+
+    def _on_clicked(self) -> None:
+        self.chosen.emit(self._provider_id)
+
+    def set_selected(self, selected: bool) -> None:
+        _theme.style(self, "SEGMENTED_ACTIVE" if selected else "SEGMENTED_INACTIVE")
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        return self.layout().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        return self.layout().minimumSize()
+
+
 class SourcesManagerView(QWidget):
-    """Main-area Sources manager: provider list (left) + config (center)."""
+    """Main-area Sources manager: a strip of source chips over the editor.
+
+    The chips replaced a fixed 280 px left column (owner, 2026-10-31): with the
+    three to five sources most people have, that column was mostly empty
+    height, and it took width from the editor where the detail lives.
+    """
 
     providerToggleClicked = pyqtSignal(str)
     providerEpgRefreshClicked = pyqtSignal(str)
@@ -69,7 +145,7 @@ class SourcesManagerView(QWidget):
         # provider_ids with an operation in flight — survives refresh() rebuilds
         # (mirrors the retired SourcesSection's _busy_ids, same purpose).
         self._busy_ids: set[str] = set()
-        self._item_widgets: dict[str, ProviderItemWidget] = {}
+        self._chips: dict[str, _SourceChip] = {}
         self._selected_id: str | None = None
 
         self.setObjectName("sourcesManagerView")
@@ -82,8 +158,11 @@ class SourcesManagerView(QWidget):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(10, 8, 10, 8)
         title = QLabel(f"{_icon_utils.role_html('provider')}&nbsp;<b>Sources</b>")
-        header_layout.addWidget(title)
-        header_layout.addStretch()
+        header_layout.addWidget(title, 0, Qt.AlignmentFlag.AlignTop)
+        strip = QWidget()
+        self._strip = FlowLayout(strip, spacing=6)
+        self._strip.setContentsMargins(8, 0, 8, 0)
+        header_layout.addWidget(strip, 1)
 
         self._add_btn = QPushButton("Add Source")
         _icon_utils.set_button_icon(self._add_btn, "add")
@@ -92,19 +171,8 @@ class SourcesManagerView(QWidget):
         _theme.style(self._add_btn, "SOURCES_ADD_BTN")
         cursor_affordance.set_clickable(self._add_btn)
         self._add_btn.clicked.connect(self.addProviderClicked.emit)
-        header_layout.addWidget(self._add_btn)
+        header_layout.addWidget(self._add_btn, 0, Qt.AlignmentFlag.AlignTop)
         outer.addWidget(header)
-
-        body = QWidget()
-        body_layout = QHBoxLayout(body)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(0)
-
-        self.sources_tree = QTreeWidget()
-        self.sources_tree.setHeaderHidden(True)
-        self.sources_tree.setFixedWidth(280)
-        self.sources_tree.itemClicked.connect(self._on_item_clicked)
-        body_layout.addWidget(self.sources_tree)
 
         center = QWidget()
         self._center_layout = QVBoxLayout(center)
@@ -123,14 +191,13 @@ class SourcesManagerView(QWidget):
         self._provider_editor.epg_refresh_requested.connect(self.providerEpgRefreshClicked.emit)
         self._provider_editor.new_source_cancelled.connect(self._on_new_source_cancelled)
 
-        self._empty_label = QLabel("Select a source on the left to view its configuration.")
+        self._empty_label = QLabel("Select a source above to view its configuration.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setWordWrap(True)
         _theme.style(self._empty_label, "EXPLORE_STATUS")
         self._center_layout.addWidget(self._empty_label)
 
-        body_layout.addWidget(center, 1)
-        outer.addWidget(body, 1)
+        outer.addWidget(center, 1)
 
     # ------------------------------------------------------------------ #
     # Lifecycle                                                            #
@@ -142,10 +209,10 @@ class SourcesManagerView(QWidget):
         when it still exists; otherwise falls back to the first row.
         """
         self.refresh()
-        if self._selected_id and self._selected_id in self._item_widgets:
+        if self._selected_id and self._selected_id in self._chips:
             self.select_provider(self._selected_id)
-        elif self._item_widgets:
-            self.select_provider(next(iter(self._item_widgets)))
+        elif self._chips:
+            self.select_provider(next(iter(self._chips)))
 
     def on_deactivate(self) -> None:
         """Hide the embedded editor so a stale form isn't visible under another
@@ -155,21 +222,13 @@ class SourcesManagerView(QWidget):
     # ------------------------------------------------------------------ #
     # Selection                                                            #
     # ------------------------------------------------------------------ #
-    def _on_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        provider_id = item.data(0, Qt.ItemDataRole.UserRole)
-        if provider_id:
-            self.select_provider(provider_id)
-
     def select_provider(self, provider_id: str) -> None:
         """Load *provider_id* into the embedded editor and highlight its row."""
-        if provider_id not in self._item_widgets:
+        if provider_id not in self._chips:
             return
         self._selected_id = provider_id
-        for i in range(self.sources_tree.topLevelItemCount()):
-            item = self.sources_tree.topLevelItem(i)
-            if item and item.data(0, Qt.ItemDataRole.UserRole) == provider_id:
-                self.sources_tree.setCurrentItem(item)
-                break
+        for pid, chip in self._chips.items():
+            chip.set_selected(pid == provider_id)
         self._empty_label.setVisible(False)
         self._provider_editor.setVisible(True)
         self._provider_editor.load_provider(provider_id)
@@ -180,19 +239,19 @@ class SourcesManagerView(QWidget):
 
     def start_new_source(self) -> None:
         """Show the editor on a blank source: the one Add Source path."""
-        self.sources_tree.clearSelection()
-        self.sources_tree.setCurrentItem(None)
+        for chip in self._chips.values():
+            chip.set_selected(False)
         self._empty_label.setVisible(False)
         self._provider_editor.setVisible(True)
         self._provider_editor.start_new_source()
 
     def _on_new_source_cancelled(self) -> None:
         """Back to the previously selected source, or the empty prompt."""
-        if self._selected_id and self._selected_id in self._item_widgets:
+        if self._selected_id and self._selected_id in self._chips:
             self._provider_editor.load_provider(self._selected_id, force=True)
             self.select_provider(self._selected_id)
-        elif self._item_widgets:
-            self.select_provider(next(iter(self._item_widgets)))
+        elif self._chips:
+            self.select_provider(next(iter(self._chips)))
         else:
             self._provider_editor.setVisible(False)
             self._empty_label.setVisible(True)
@@ -201,11 +260,12 @@ class SourcesManagerView(QWidget):
     # Data                                                                 #
     # ------------------------------------------------------------------ #
     def refresh(self) -> None:
-        """Rebuild the provider tree from the database."""
-        self.sources_tree.clear()
-        self._item_widgets = {}
-
-        from metatv.gui.subscription_status import subscription_color
+        """Rebuild the source chips from the database."""
+        while self._strip.count():
+            item = self._strip.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self._chips = {}
 
         with self.db.session_scope(commit=False) as session:
             repos = RepositoryFactory(session)
@@ -213,36 +273,10 @@ class SourcesManagerView(QWidget):
             now = datetime.now()
 
             for provider in providers:
-                item = QTreeWidgetItem(self.sources_tree)
-                item.setText(0, "")
-                item.setData(0, Qt.ItemDataRole.UserRole, provider.id)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-                is_expired = bool(
-                    provider.account_exp_date and provider.account_exp_date <= now
-                )
-                sub_color = ""
-                if not is_expired and provider.account_exp_date:
-                    sub_color = subscription_color(
-                        provider.account_exp_date, provider.account_created_at
-                    )
-                icon = getattr(provider, "icon", "") or ""
-
-                # Wave 7: no action buttons/EPG pip on the row — status dot,
-                # name, expiry state only (see class docstring). The row's
-                # click (below, itemClicked → _on_item_clicked → select_provider)
-                # is the only interaction left; every action moved to the
-                # editor's action bar.
-                widget = ProviderItemWidget(
-                    provider.id, provider.name,
-                    is_active=provider.is_active,
-                    icon=icon,
-                    sub_color=sub_color,
-                    is_expired=is_expired,
-                    show_actions=False,
-                )
-                self._item_widgets[provider.id] = widget
-                self.sources_tree.setItemWidget(item, 0, widget)
+                chip = _SourceChip(provider, now)
+                chip.chosen.connect(self.select_provider)
+                self._strip.addWidget(chip)
+                self._chips[provider.id] = chip
 
         if not providers:
             self._selected_id = None

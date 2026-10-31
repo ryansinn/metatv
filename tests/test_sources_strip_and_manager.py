@@ -205,8 +205,7 @@ class TestSourcesManagerView:
         view = SourcesManagerView(SimpleNamespace(), db, editor)
         view.on_activate()
 
-        assert len(view._item_widgets) == 2
-        assert view.sources_tree.topLevelItemCount() == 2
+        assert len(view._chips) == 2
         assert view._selected_id in ("p1", "p2")
         # The embedded (real) editor actually loaded the selected provider.
         assert editor._provider_id == view._selected_id

@@ -78,20 +78,18 @@ def _sources_manager_view(qapp, db, config=None):
 
 
 # ─────────────────────────────────────────────────────────────────────────── #
-# A. Left-column rows — no action buttons, full name
+# A. Source chips — no action buttons, full name on hover
 # ─────────────────────────────────────────────────────────────────────────── #
 
-def test_left_row_has_no_action_buttons_and_full_name(qapp, file_db):
+def test_source_chip_has_no_action_buttons_and_full_name_on_hover(qapp, file_db):
     long_name = "A Very Long Provider Name That Would Have Truncated Before"
     pid = _seed_provider(file_db, name=long_name)
     view = _sources_manager_view(qapp, file_db)
     view.refresh()
 
-    widget = view._item_widgets[pid]
-    assert widget._action_btns == []
-    assert widget._toggle_btn is None
-    assert widget._epg_btn is None
-    assert widget._name_lbl.text() == long_name
+    chip = view._chips[pid]
+    assert chip.findChildren(QPushButton) == []
+    assert chip.toolTip().startswith(long_name)
 
 
 # ─────────────────────────────────────────────────────────────────────────── #

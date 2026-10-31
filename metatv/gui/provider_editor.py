@@ -396,18 +396,12 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
         left-column rows' dot (green=active, red=expired, gray=disabled), so a
         glance at either surface agrees. The verbose account_status string stays
         fully available in Account Info's "Status:" line."""
-        if is_expired:
-            _theme.style_fn(self._status_dot_lbl, lambda: f"color: {_theme.COLOR_ERR};")
-            _icon_utils.set_label_icon(self._status_dot_lbl, "status_dot", 10)
-            self._status_dot_lbl.setToolTip("Subscription expired")
-        elif is_active:
-            _theme.style_fn(self._status_dot_lbl, lambda: f"color: {_theme.COLOR_OK};")
-            _icon_utils.set_label_icon(self._status_dot_lbl, "status_dot", 10)
-            self._status_dot_lbl.setToolTip("Active")
-        else:
-            _theme.style_fn(self._status_dot_lbl, lambda: f"color: {_theme.COLOR_MUTED_2};")
-            _icon_utils.set_label_icon(self._status_dot_lbl, "inactive_dot", 10)
-            self._status_dot_lbl.setToolTip("Disabled")
+        from metatv.gui.subscription_status import source_status_dot
+
+        role, token, tip = source_status_dot(is_active, is_expired)
+        _theme.style_fn(self._status_dot_lbl, lambda: f"color: {getattr(_theme, token)};")
+        _icon_utils.set_label_icon(self._status_dot_lbl, role, 10)
+        self._status_dot_lbl.setToolTip(tip)
 
     # ── Action bar (Summary tab) ─────────────────────────────────────────────
 
