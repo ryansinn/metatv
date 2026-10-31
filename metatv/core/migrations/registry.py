@@ -38,6 +38,7 @@ from metatv.core.migrations import (
     orphan_sweep,
     person_aliases,
     person_identity,
+    playback_events_fold,
     poster_backfill,
     prefix_rescan,
     query_indexes,
@@ -75,6 +76,7 @@ _MODULES = {m.__name__.rsplit(".", 1)[-1]: m for m in (
     orphan_sweep,
     person_aliases,
     person_identity,
+    playback_events_fold,
     poster_backfill,
     prefix_rescan,
     query_indexes,
@@ -122,6 +124,7 @@ TASKS: tuple[tuple[str, str, str], ...] = (
     # a new task here.
     ("raw_field_backfill", "RawFieldBackfillTask", ""),
     ("orphan_sweep", "OrphanSweepTask", ""),
+    ("playback_events_fold", "PlaybackEventsFoldTask", ""),
     # The classifier only sees rows with special_view IS NULL; this re-labels
     # existing ones after a special_content.py fix.
     ("sports_reclassify", "SportsReclassifyTask", ""),

@@ -237,6 +237,8 @@ class ProviderRepository:
 
         from metatv.core.repositories.channel import ChannelRepository
         ChannelRepository(self.session).prune_provider_content([provider_id])
+        from metatv.core.repositories.playback_events import PlaybackEventRepository
+        PlaybackEventRepository(self.session).delete_for_provider(provider_id)
 
         self.session.delete(provider)
         self.session.commit()

@@ -446,6 +446,21 @@ class ServerAddressDTO:
 
 
 @dataclass(frozen=True)
+class PlaybackSummaryDTO:
+    """How plays from one source went, over the kept 90 days (Source Analytics Q6)."""
+    since: datetime | None            # first kept play (UTC-naive), None when none recorded
+    started: int                      # plays that advanced (dropped ones included)
+    never_started: int
+    refused: int                      # connection limit
+    dropped: int                      # advanced, then cut mid-play
+    median_time_to_picture_ms: int | None
+
+    @property
+    def attempts(self) -> int:
+        return self.started + self.never_started + self.refused
+
+
+@dataclass(frozen=True)
 class PrefixStatDTO:
     """Unrecognized prefix token with count and sample channel names."""
     prefix: str

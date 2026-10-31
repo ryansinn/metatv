@@ -15,6 +15,7 @@ from .analytics import AnalyticsRepository
 from .tag import TagRepository
 from .stream_retry import StreamRetryRepository
 from .stream_info import StreamInfoRepository
+from .playback_events import PlaybackEventRepository
 
 
 class RepositoryFactory:
@@ -35,6 +36,7 @@ class RepositoryFactory:
         self._tags = None
         self._stream_retry = None
         self._stream_info = None
+        self._playback_events = None
     
     @property
     def providers(self) -> ProviderRepository:
@@ -114,6 +116,13 @@ class RepositoryFactory:
         return self._tags
 
     @property
+    def playback_events(self) -> PlaybackEventRepository:
+        """Get play-outcome repository"""
+        if self._playback_events is None:
+            self._playback_events = PlaybackEventRepository(self.session)
+        return self._playback_events
+
+    @property
     def stream_info(self) -> StreamInfoRepository:
         """Get the stored stream-measurement repository (PLAYED-1)"""
         if self._stream_info is None:
@@ -144,4 +153,5 @@ __all__ = [
     'TagRepository',
     'StreamRetryRepository',
     'StreamInfoRepository',
+    'PlaybackEventRepository',
 ]
