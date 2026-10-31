@@ -73,3 +73,18 @@ class PlaybackWeeklyDB(Base):
     week_start  = Column(Date, primary_key=True)    # Monday, UTC
     outcome     = Column(String, primary_key=True)
     count       = Column(Integer, nullable=False, default=0)
+
+
+class ConnectionHoldDB(Base):
+    """How long a source held its connections after refusing a play (Q7).
+
+    Written by ``gui/connection_wait.py``: on a connection-limit refusal while
+    MetaTV holds nothing from the source, it polls the account endpoint until a
+    connection frees and records the wait here. One row per resolved wait.
+    """
+    __tablename__ = "connection_holds"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    provider_id = Column(String, nullable=False, index=True)
+    refused_at  = Column(DateTime, nullable=False)   # UTC-naive
+    seconds     = Column(Integer, nullable=False)

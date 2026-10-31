@@ -16,8 +16,9 @@ from statistics import median
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from metatv.core.playback_models import PlaybackEventDB, PlaybackWeeklyDB
-from metatv.core.repositories.dtos import PlaybackSummaryDTO
+from metatv.core.database import ProviderDB
+from metatv.core.playback_models import ConnectionHoldDB, PlaybackEventDB, PlaybackWeeklyDB
+from metatv.core.repositories.dtos import ConnectionsDTO, PlaybackSummaryDTO
 
 #: Outcomes a row can carry. ``refused`` = the source's connection limit.
 OUTCOMES = ("started", "never_started", "refused", "dropped")
@@ -86,6 +87,21 @@ class PlaybackEventRepository:
             median_time_to_picture_ms=int(median(times)) if times else None,
         )
 
+    def record_hold(self, provider_id: str, refused_at: datetime, seconds: int) -> None:
+        """A connection wait resolved: the source held its connections *seconds* (Q7)."""
+        self.session.add(ConnectionHoldDB(provider_id=provider_id, refused_at=refused_at,
+                                          seconds=max(0, int(seconds))))
+
+    def connections(self, provider_id: str) -> ConnectionsDTO:
+        """The account's limit and use at its last check, plus the recorded waits."""
+        limit, in_use = self.session.query(ProviderDB.max_connections, ProviderDB.account_active_cons
+                                           ).filter(ProviderDB.id == provider_id).first() or (None, None)
+        waits = sorted(s for (s,) in self.session.query(ConnectionHoldDB.seconds)
+                       .filter(ConnectionHoldDB.provider_id == provider_id))
+        return ConnectionsDTO(limit=limit, in_use=in_use, waits=len(waits),
+                              median_seconds=int(median(waits)) if waits else None,
+                              longest_seconds=waits[-1] if waits else None)
+
     def fold_old(self, now: datetime, keep_days: int = KEEP_DAYS) -> int:
         """Fold rows older than *keep_days* into weekly per-source counts; returns rows folded."""
         cutoff = now - timedelta(days=keep_days)
@@ -115,3 +131,4 @@ class PlaybackEventRepository:
         """A deleted source takes its play history with it (foreign keys are off)."""
         self.session.query(PlaybackEventDB).filter_by(provider_id=provider_id).delete()
         self.session.query(PlaybackWeeklyDB).filter_by(provider_id=provider_id).delete()
+        self.session.query(ConnectionHoldDB).filter_by(provider_id=provider_id).delete()

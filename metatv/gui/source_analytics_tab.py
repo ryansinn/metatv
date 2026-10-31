@@ -13,6 +13,8 @@ Sections, in the order that answers the question first:
 * **Playback** — how plays from this source went: started, never loaded,
   refused at the connection limit, dropped mid-play, time to picture (Q6).
   Recorded by ``gui/playback_start_watch.py`` from 2026-10-31 on.
+* **Connections** — the account's limit, and how long the source usually takes
+  to free one after refusing a play (Q7, recorded by ``gui/connection_wait.py``).
 * **Server addresses** — each address's recent success rate and speed.
 * **Catalogue & guide** — titles per type, guide coverage, how far ahead (Q4),
   and titles per region (region is how these catalogues label language).
@@ -39,12 +41,13 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.region_codes import REGION_FULL_NAMES
 from metatv.core.repositories.dtos import (
-    CatalogueMixDTO, GuideCoverageDTO, PlaybackSummaryDTO, PrefixStatDTO, ServerAddressDTO,
+    CatalogueMixDTO, ConnectionsDTO, GuideCoverageDTO, PlaybackSummaryDTO, PrefixStatDTO, ServerAddressDTO,
     TitleOverlapDTO, ViewingDTO,
 )
 from metatv.core.time_display import short_date_text
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
+from metatv.gui.connection_wait import minutes_text
 from metatv.gui.chip_row import MiddleElideLabel
 from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.progress_paint import ProgressBar
@@ -187,7 +190,7 @@ class SourceAnalyticsTab(QWidget):
         self._expires: datetime | None = None
         # One token per query type (the seam's contract): these load together
         # and must not supersede one another; a provider switch bumps them all.
-        self._tokens = {k: [0] for k in ("overlap", "viewing", "playback", "catalogue", "addresses", "prefixes")}
+        self._tokens = {k: [0] for k in ("overlap", "viewing", "playback", "connections", "catalogue", "addresses", "prefixes")}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -196,6 +199,7 @@ class SourceAnalyticsTab(QWidget):
         self._viewing = _Section("What you watch here")
         self._shared = _Section("Shared with your other sources")
         self._playback = _Section("Playback")
+        self._connections = _Section("Connections")
         self._addresses = _Section("Server addresses")
         self._catalogue = _Section("Catalogue & guide")
         self._prefixes = _Section("Unrecognized prefixes")
@@ -246,6 +250,9 @@ class SourceAnalyticsTab(QWidget):
         self._run_query(lambda repos: repos.playback_events.summary(pid), self._on_playback,
                         token_ref=self._tokens["playback"],
                         on_error=lambda e: show_panel_error(self._playback.body, e))
+        self._run_query(lambda repos: repos.playback_events.connections(pid), self._on_connections,
+                        token_ref=self._tokens["connections"],
+                        on_error=lambda e: show_panel_error(self._connections.body, e))
         self._run_query(lambda repos: (repos.analytics.guide_coverage(pid),
                                        repos.providers.get_by_id(pid).account_exp_date,
                                        repos.analytics.catalogue_mix(pid)),
@@ -260,7 +267,7 @@ class SourceAnalyticsTab(QWidget):
 
     def _sections(self) -> tuple[_Section, ...]:
         """In the order that answers "is this source worth keeping" first (Q2)."""
-        return (self._only, self._viewing, self._shared, self._playback, self._addresses,
+        return (self._only, self._viewing, self._shared, self._playback, self._connections, self._addresses,
                 self._catalogue, self._prefixes)
 
     def deactivate(self) -> None:
@@ -417,6 +424,24 @@ class SourceAnalyticsTab(QWidget):
             ("Time to picture", f"{ttp / 1000:.1f} s typical" if ttp else "not recorded yet"),
         )
         _facts(self._playback, facts)
+
+    def _on_connections(self, conns: ConnectionsDTO) -> None:
+        clear_layout(self._connections.body)
+        limit = (f"{conns.limit} at a time" + (f" · {conns.in_use} in use at the last check"
+                                              if conns.in_use is not None else "")
+                 if conns.limit else "not reported by the source")
+        if not conns.waits:
+            _facts(self._connections, (("Limit", limit),))
+            self._connections.text("When this source turns a play away because its connections are "
+                                   "in use, MetaTV waits for one to free up, starts the title, and "
+                                   "records how long it took. No waits yet.")
+            return
+        _facts(self._connections, (
+            ("Limit", limit),
+            ("Usually frees up within", minutes_text(conns.median_seconds)),
+            ("Longest wait", minutes_text(conns.longest_seconds)),
+            ("Waits recorded", f"{conns.waits:,}"),
+        ))
 
     def _on_addresses(self, addresses: list[ServerAddressDTO]) -> None:
         clear_layout(self._addresses.body)

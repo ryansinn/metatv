@@ -892,11 +892,16 @@ def _tap_http_error(key: str, code: int) -> None:
 
 @pytest.mark.parametrize("code", [509, 458])
 def test_a_limit_refusal_recorded_after_arm_names_the_connection_limit(code):
-    """458 is another panel's spelling of 509 (2026-10-11): same message."""
+    """458 is another panel's spelling of 509 (2026-10-11): same message.
+
+    With MetaTV itself holding another stream from the source, so the refusal
+    is reported rather than waited out (Q7, tests/test_connection_wait.py)."""
     key = f"prov-{code}-key"
     host = _host()
     host.player_manager = MagicMock()
     host.player_manager.resolve_key.return_value = key
+    host.player_manager.connection_accountant.holders.return_value = [
+        SimpleNamespace(holder_id="another-window")]
     mpv_log_tap.clear_exit(key)
     attempt = PlayAttempt("p1", "Mariners at Red Sox", "http://x/1.ts",
                            provider_id=key)

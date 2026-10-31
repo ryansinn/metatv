@@ -200,7 +200,7 @@ def test_sections_follow_the_approved_order(qapp, file_db):
         tab = ed._analytics_tab
         order = sorted(tab._sections(), key=lambda sec: sec.mapTo(tab, sec.rect().topLeft()).y())
         assert [sec.title.text() for sec in order] == [
-            "Only on TREX", "What you watch here", "Shared with your other sources", "Playback",
+            "Only on TREX", "What you watch here", "Shared with your other sources", "Playback", "Connections",
             "Server addresses",
             "Catalogue & guide", "Unrecognized prefixes"]
     finally:
