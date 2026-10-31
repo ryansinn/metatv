@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import html as _html
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QCursor
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QCursor, QPainter
 from PyQt6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QPushButton, QToolTip, QVBoxLayout, QWidget,
 )
@@ -78,22 +78,47 @@ def reliability_tint_token(pu: ProviderURL) -> "str | None":
 
 
 class _ClickToCopyLabel(QLabel):
-    """A ``QLabel`` whose full text copies to the clipboard on left-click.
+    """A URL label whose full text copies to the clipboard on left-click.
 
-    Replaces the old ``TextSelectableByMouse`` flag (select + manual Ctrl+C)
-    with a single click — the URL row has no dedicated copy button, so the
-    text itself is the affordance.
+    The one click-to-copy URL label for the Sources editor — the URL rows and
+    the auto-detected guide URL. It was two classes that had drifted: one
+    copied what it displayed, the other held a full value it said "may be
+    elided" yet never elided, and they confirmed a copy differently.
+
+    Too narrow, it paints the address shortened in the middle (the scheme and
+    the end both stay readable) instead of setting its parent's minimum width;
+    ``text()`` stays the full address, which is what a click copies and what
+    the tooltip shows. Painted through the widget's style so a stylesheet's
+    colour, hover underline and strike-through still apply.
     """
 
     def __init__(self, text: str = "", parent=None):
-        super().__init__(text, parent)
+        super().__init__(parent)
+        self.setTextFormat(Qt.TextFormat.PlainText)
         cursor_affordance.set_clickable(self)
-        self.setToolTip("Click to copy URL")
+        self.set_url(text)
+
+    def set_url(self, url: str) -> None:
+        self.setText(url or "")
+        self.setToolTip(f"{url}\nClick to copy" if url else "")
+
+    def copy(self) -> None:
+        if self.text():
+            QApplication.clipboard().setText(self.text())
+            QToolTip.showText(QCursor.pos(), "Copied ✓", self)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        return QSize(self.fontMetrics().horizontalAdvance("…"), super().minimumSizeHint().height())
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        rect = self.contentsRect()
+        shown = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideMiddle, rect.width())
+        self.style().drawItemText(QPainter(self), rect, int(self.alignment().value), self.palette(),
+                                  self.isEnabled(), shown, self.foregroundRole())
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            QApplication.clipboard().setText(self.text())
-            QToolTip.showText(QCursor.pos(), "Copied ✓", self)
+            self.copy()
             return
         super().mousePressEvent(event)
 
@@ -181,6 +206,10 @@ class URLRowWidget(QWidget):
         stats_text = "removed — will be deleted on Save" if pending_remove else self._build_stats(provider_url)
         self._stats_label = QLabel(stats_text)
         _theme.style(self._stats_label, "META_HINT")
+        # Rich text (inline icons) cannot elide; when the row is narrow the tail
+        # gives way instead of widening the editor, and the hover has it all.
+        self._stats_label.setMinimumWidth(1)
+        self._stats_label.setToolTip(stats_text)
         info_col.addWidget(self._stats_label)
         if tint_token:
             # style_fn, so the tint is re-read on a theme switch rather than

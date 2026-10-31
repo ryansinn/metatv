@@ -301,16 +301,20 @@ def test_footer_buttons_live_outside_every_tab(qapp, file_db):
 
 
 def test_delete_is_visually_separated_from_save_group(qapp, file_db):
+    """On the painted footer: Delete, then the divider, then Test · Discard ·
+    Save — asserted on geometry, since the Save group is its own wrapping row."""
     from metatv.gui.provider_editor import ProviderEditorView
     ed = ProviderEditorView(file_db)
-    footer_layout = ed._delete_btn.parentWidget().layout()
-    delete_idx = footer_layout.indexOf(ed._delete_btn)
-    divider_idx = footer_layout.indexOf(ed._footer_divider)
-    test_idx = footer_layout.indexOf(ed._test_btn)
-    discard_idx = footer_layout.indexOf(ed._discard_btn)
-    save_idx = footer_layout.indexOf(ed._save_btn)
-
-    assert delete_idx < divider_idx < test_idx < discard_idx < save_idx
+    ed.resize(900, 600)
+    ed.show()
+    qapp.processEvents()
+    x = {name: btn.mapTo(ed, btn.rect().topLeft()).x()
+         for name, btn in (("delete", ed._delete_btn), ("divider", ed._footer_divider),
+                           ("test", ed._test_btn), ("discard", ed._discard_btn),
+                           ("save", ed._save_btn))}
+    delete_right = x["delete"] + ed._delete_btn.width()
+    ed.hide()
+    assert delete_right <= x["divider"] < x["test"] < x["discard"] < x["save"], x
 
 
 def test_delete_reaches_original_handler(qapp, file_db):
