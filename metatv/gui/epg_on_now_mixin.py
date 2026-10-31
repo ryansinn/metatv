@@ -290,6 +290,11 @@ class _EpgOnNowMixin:
             self._on_now_excluded_ct_ids = (
                 repos.tags.channel_ids_for_content_types(_ct_slugs) if _ct_slugs else set()
             )
+            # Measured audio contradicting an excluded prefix outranks it (ledger
+            # D69) — the same exemption the channel list honours, so a live channel
+            # heard in another language is not hidden here and shown there.
+            self._on_now_exempt_ids = repos.stream_info.prefix_exempt_ids(
+                global_exclusion_set(self.config))
             repo = repos.epg
             filler = self.config.epg_filler_patterns if hide_filler else []
             dismissed = self._dismissed_ids()
@@ -395,7 +400,8 @@ class _EpgOnNowMixin:
             if category in epg_hidden:
                 continue
             region = self._channel_region_map.get(prog.channel_db_id or "", "")
-            if is_channel_excluded(category, region, global_excluded):
+            if (prog.channel_db_id not in self._on_now_exempt_ids
+                    and is_channel_excluded(category, region, global_excluded)):
                 continue
             # Content-provenance layer (P1-6 sibling): drop channels carrying a
             # globally-excluded content_type tag (AI Generated / AI Voiceover).

@@ -78,6 +78,21 @@ def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_us
     return channels
 
 
+def _resolve_exclusions(repos, params: dict) -> tuple[tuple, dict]:
+    """``(sets, rank)``: the ``_apply_python_exclusions`` argument tuple
+    (prefixes, user categories, content-type ids, heard-keep ids), and the
+    ``get_all`` kwargs that let ``collapse_variants`` elect a copy that pass
+    keeps — heard-keep included (ledger D69). Page 1 and page N share it."""
+    prefixes = params.get('excluded_prefixes', set())
+    user_cats = params.get('excluded_user_categories', set())
+    ct_slugs = params.get('excluded_tag_content_types') or set()
+    ct_ids = repos.tags.channel_ids_for_content_types(ct_slugs) if ct_slugs else set()
+    heard_keep = repos.stream_info.prefix_exempt_ids(prefixes)
+    rank = {'excluded_prefixes': prefixes or None, 'excluded_user_categories': user_cats or None,
+            'excluded_channel_ids': ct_ids or None, 'exclusion_exempt_ids': heard_keep or None}
+    return (prefixes, user_cats, ct_ids, heard_keep), rank
+
+
 class _ChannelListMixin:
     """Channel-list load, filter pipeline, and context-menu glue methods mixed into :class:`MainWindow`."""
 
@@ -564,25 +579,12 @@ class _ChannelListMixin:
         # get_all() uses them to RANK candidates, never to filter; the Python
         # pass below stays authoritative so the hidden-by-exclusions count and
         # the ×N variant badge are unaffected.
-        excluded_prefixes = params.get('excluded_prefixes', set())
-        excluded_user_cats = params.get('excluded_user_categories', set())
-        # Content-provenance layer: resolve the excluded content_type slugs to a
-        # channel-id set (bounded, indexed — safe off the UI thread).
-        _excl_ct_slugs = params.get('excluded_tag_content_types') or set()
-        excluded_ct_ids = (repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
-                           if _excl_ct_slugs else set())
-        heard_keep = repos.stream_info.prefix_exempt_ids(excluded_prefixes)
+        _excl_sets, _rank_excl = _resolve_exclusions(repos, params)
+        excluded_prefixes, excluded_user_cats, excluded_ct_ids, heard_keep = _excl_sets
         # The reveal ("show" on the gold bar) must not deprioritise anything, or
         # the revealed rows would still lose the representative slot.
-        _rank_excl = (
-            {}
-            if params.get('bypass_global_exclusions') or hidden_only
-            else {
-                'excluded_prefixes': excluded_prefixes or None,
-                'excluded_user_categories': excluded_user_cats or None,
-                'excluded_channel_ids': excluded_ct_ids or None,
-            }
-        )
+        if params.get('bypass_global_exclusions') or hidden_only:
+            _rank_excl = {}
         # Canonical provider scoping: hide inactive + expired sources (see
         # ProviderRepository.get_hidden_provider_ids — single source of truth).
         providers_to_exclude = repos.providers.get_hidden_provider_ids()
@@ -2042,6 +2044,13 @@ class _ChannelListMixin:
         providers_to_exclude = repos.providers.get_hidden_provider_ids()
         _id_filter = query_params.get('context_id_filter')
         id_filter_show_all = bool(_id_filter) and bool(query_params.get('id_filter_show_all'))
+        # Global Exclusions, as page 1: skipped under any reveal (exclusions bypass,
+        # id-filter show-all, hidden_only), resolved before the query so page N elects
+        # representatives exactly as page 1 does.
+        apply_exclusions = not (hidden_only or downloaded_only or id_filter_show_all
+                                or query_params.get('bypass_global_exclusions'))
+        _excl_sets, _rank_excl = (_resolve_exclusions(repos, query_params)
+                                  if apply_exclusions else ((), {}))
 
         if hidden_only:
             # get_hidden_channels does not support offset/limit — use get_all
@@ -2105,6 +2114,7 @@ class _ChannelListMixin:
                 dead_signal_streak_floor=query_params.get('dead_signal_streak_floor'),
                 limit=page_size,
                 offset=offset,
+                **_rank_excl,
             )
         # Raw SQL count BEFORE Python-side exclusion. has_more and the next OFFSET
         # advance by this — never by the surviving count — so exclusions can't
@@ -2112,21 +2122,8 @@ class _ChannelListMixin:
         raw_count = len(rows)
         has_more = raw_count >= page_size
 
-        # Apply Global Exclusions (same layer + chokepoint as _query_channels).  Skipped
-        # when the user has revealed a layer for this view — the exclusions-reveal bypass
-        # or the id-filter show-all reveal — so paged rows match page 1's revealed set
-        # (hidden_only page 1 never applies them either, so page N mustn't).
-        bypass_exclusions = bool(query_params.get('bypass_global_exclusions'))
-        if not (hidden_only or downloaded_only) and not id_filter_show_all and not bypass_exclusions:
-            _excl_ct_slugs = query_params.get('excluded_tag_content_types') or set()
-            _excl_ct_ids = (repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
-                            if _excl_ct_slugs else set())
-            _prefixes = query_params.get('excluded_prefixes', set())
-            rows = _apply_python_exclusions(
-                rows, _prefixes,
-                query_params.get('excluded_user_categories', set()),
-                _excl_ct_ids, repos.stream_info.prefix_exempt_ids(_prefixes),
-            )
+        if apply_exclusions:
+            rows = _apply_python_exclusions(rows, *_excl_sets)
 
         dtos = rows_to_dtos(repos, rows, query_params.get('search_query'))
         return dtos, has_more, raw_count
