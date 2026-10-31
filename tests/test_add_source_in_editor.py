@@ -78,7 +78,7 @@ def test_a_new_source_shows_only_what_a_new_source_has(editor):
     assert not editor._save_btn.isEnabled(), "Add must wait for a passing test"
     assert editor._discard_btn.text() == "Cancel"
     for w in (editor._delete_btn, editor._action_refresh_btn,
-              editor._action_toggle_btn, editor._action_analyze_btn):
+              editor._action_toggle_btn):
         assert w.isHidden(), f"{w.text()!r} belongs to an existing source"
 
 

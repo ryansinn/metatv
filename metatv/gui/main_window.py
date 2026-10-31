@@ -71,7 +71,6 @@ from metatv.gui.discover_view import DiscoverView
 from metatv.gui.epg_view import EpgView
 from metatv.gui.preferences_view import PreferencesView
 from metatv.gui.recipe_view import RecipeView
-from metatv.gui.source_analytics_view import SourceAnalyticsView
 from metatv.core.epg_manager import EpgManager
 from metatv.core.series_monitor import SeriesMonitorManager
 from metatv.core.vod_watch_alert_manager import VodWatchAlertManager
@@ -1644,7 +1643,12 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnec
         # (below), never added to the content stack directly. Constructed here
         # (unparented) so its existing save/delete/refresh/account-info plumbing
         # stays exactly as-is; SourcesManagerView.__init__ reparents it.
-        self.provider_editor = ProviderEditorView(self.db, self.config, self.epg_manager)
+        self.provider_editor = ProviderEditorView(self.db, self.config, self.epg_manager,
+                                                  run_query=self._run_query)
+        # Analytics tab "Browse them": the source's only-here titles as a strict
+        # context filter, through the one chokepoint every chip uses.
+        self.provider_editor.browse_ids_requested.connect(
+            lambda label, ids: self._activate_context_filter(label, _details_id_filter=set(ids)))
         self.provider_editor.done.connect(self.exit_provider_edit_mode)
         self.provider_editor.provider_saved.connect(self._on_provider_saved)
         self.provider_editor.provider_added.connect(self._on_provider_added)
@@ -1661,18 +1665,11 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnec
         self.sources_manager_view = SourcesManagerView(
             self.config, self.db, self.provider_editor, self
         )
-        self.sources_manager_view.providerAnalyzeClicked.connect(self.enter_provider_analytics_mode)
         self.sources_manager_view.providerToggleClicked.connect(self.toggle_provider_active)
         self.sources_manager_view.providerEpgRefreshClicked.connect(self._on_provider_epg_refresh)
         self.sources_manager_view.addProviderClicked.connect(self.add_provider)
         self.sources_manager_view.setVisible(False)
         self._list_layout.addWidget(self.sources_manager_view)
-
-        # Source analytics view (hidden by default)
-        self.source_analytics_view = SourceAnalyticsView(self)  # _view suffix is load-bearing
-        self.source_analytics_view.done.connect(self.exit_provider_analytics_mode)
-        self.source_analytics_view.setVisible(False)
-        self._list_layout.addWidget(self.source_analytics_view)
 
         # Missing TMDb data diagnostic view (hidden by default; Tools menu).
         from metatv.gui.missing_tmdb_view import MissingTmdbView

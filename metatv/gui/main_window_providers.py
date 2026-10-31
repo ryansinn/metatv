@@ -239,19 +239,6 @@ class _ProviderMixin:
         self.switch_to_list_view()
         self.load_providers()
 
-    def enter_provider_analytics_mode(self, provider_id: str):
-        """Switch center panel to source analytics for the given provider."""
-        self._hide_all_content_views()
-        self.source_analytics_view.setVisible(True)
-        self.source_analytics_view.on_activate(provider_id)
-        self.stats_label.setText("Analyzing source — click a source to switch")
-        self._deactivate_view_chips()
-
-    def exit_provider_analytics_mode(self):
-        """Return to the normal channel list view."""
-        self.source_analytics_view.on_deactivate()
-        self.switch_to_list_view()
-
     def enter_missing_tmdb_mode(self):
         """Switch center panel to the Missing TMDb data diagnostic view.
 
@@ -550,6 +537,9 @@ class _ProviderMixin:
         # derived, so any provider mutation can change it. reload() self-guards on visible.
         if "reconnect_engaged_view" in self.__dict__:
             self.reconnect_engaged_view.reload()
+        # Sources editor's Analytics tab caches the title overlap per session.
+        if "provider_editor" in self.__dict__:
+            self.provider_editor.forget_analytics()
         # EPG scope (get_epg_active_provider_ids) shifts with source active/hidden
         # state. Re-resolve provider ids + reload live only when EPG is on screen;
         # a hidden EPG view re-resolves its scope on its next on_activate().

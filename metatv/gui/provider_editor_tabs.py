@@ -141,6 +141,40 @@ class _ProviderEditorTabsMixin:
         layout.addStretch(1)
         return _wrap_scroll(content)
 
+    # ── Analytics (fourth tab) ──────────────────────────────────────────── #
+
+    def _build_analytics_tab(self) -> QScrollArea:
+        from metatv.gui.source_analytics_tab import SourceAnalyticsTab
+
+        self._analytics_tab = SourceAnalyticsTab(self._run_query_fn or self._run_query_inline)
+        self._analytics_tab.browse_requested.connect(self.browse_ids_requested.emit)
+        self._analytics_scroll = _wrap_scroll(self._analytics_tab)
+        return self._analytics_scroll
+
+    def _sync_analytics_tab(self) -> None:
+        """Load the Analytics tab while it is the tab showing; drop its loads when not."""
+        if self._tabs.currentWidget() is self._analytics_scroll:
+            self._analytics_tab.show_provider(None if self._new_source else self._provider_id)
+        else:
+            self._analytics_tab.deactivate()
+
+    def forget_analytics(self) -> None:
+        """The catalogue changed: drop the cached title overlap, reload if showing."""
+        self._analytics_tab.forget_cached_overlap()
+        self._sync_analytics_tab()
+
+    def _run_query_inline(self, query_fn, on_result, *, token_ref=None, on_error=None) -> None:
+        """Synchronous stand-in for ``MainWindow._run_query`` when the editor is
+        hosted without the seam (tests). The app always passes the real one."""
+        try:
+            with self.db.session_scope(commit=False) as session:
+                result = query_fn(RepositoryFactory(session))
+        except Exception as exc:  # surfaced on the section, like the seam's on_error
+            if on_error is not None:
+                on_error(exc)
+            return
+        on_result(result)
+
     # ── Account Info (Summary tab) ──────────────────────────────────────── #
 
     def _build_account_info_group(self, layout: QVBoxLayout) -> None:

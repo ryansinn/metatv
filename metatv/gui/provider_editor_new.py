@@ -55,6 +55,7 @@ class _NewSourceMixin:
         self._new_tested_ok = False
         self._provider_id = None
         self._pending_account_info = None
+        self._sync_analytics_tab()
         self._provider_urls = []
         self._pending_url_removals = set()
         self._loading = True
@@ -90,7 +91,7 @@ class _NewSourceMixin:
     def _set_new_mode_chrome(self, new: bool) -> None:
         """Hide what only an existing source has; relabel the primary button."""
         for w in (self._delete_btn, self._footer_divider, self._status_dot_lbl,
-                  self._action_refresh_btn, self._action_analyze_btn,
+                  self._action_refresh_btn,
                   self._epg_refresh_btn, self._action_toggle_btn,
                   self._refresh_acct_btn):
             w.setVisible(not new)

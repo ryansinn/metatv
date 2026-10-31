@@ -406,54 +406,43 @@ class EpisodeFavoriteDTO:
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class SourceFingerprintDTO:
-    """Per-source summary: counts, quality/region histograms, prefix coverage."""
-    provider_id: str
+class AnalyticsSourceDTO:
+    """A source as the Analytics tab names it — state included, never dropped."""
+    id: str
     name: str
-    live_count: int
-    movie_count: int
-    series_count: int
-    total_count: int
-    live_visible: int
-    movie_visible: int
-    series_visible: int
-    total_visible: int
-    quality_histogram: dict[str, int]      # e.g. {"HD": 100, "4K": 50, "FHD": 200}
-    region_histogram: dict[str, int]       # e.g. {"EN": 500, "FR": 300}
-    recognized_count: int                  # prefixes in canonical lexicon
-    unrecognized_count: int                # prefixes NOT in lexicon
-    recognized_pct: float                  # percentage 0-100
-    adult_pct: float                       # percentage 0-100
-    untagged_pct: float                    # percentage 0-100 (detected_prefix empty)
-    special_view_breakdown: dict[str, int] # e.g. {"ppv": 10, "sports": 5}
+    is_active: bool
+    is_expired: bool
 
 
 @dataclass(frozen=True)
-class OverlapMatrixDTO:
-    """Pairwise overlap between two sources for a media type."""
-    provider_a_id: str
-    provider_b_id: str
-    provider_a_name: str
-    provider_b_name: str
-    media_type: str
-    shared: int                   # titles in both
-    a_only: int                   # titles only in A
-    b_only: int                   # titles only in B
-    jaccard: float                # 0-1, shared / (a_total + b_total - shared)
+class TitleOverlapDTO:
+    """Titles per source, the ones only it carries, and what each pair shares.
+
+    Keyed by media type (``live``/``movie``/``series``). Counts are distinct
+    titles (``content_key``), not channel rows.
+    """
+    sources: tuple[AnalyticsSourceDTO, ...]
+    totals: dict[tuple[str, str], int]            # (provider_id, media) → titles
+    only: dict[tuple[str, str], int]              # (provider_id, media) → titles only it carries
+    shared: dict[tuple[str, str, str], int]       # (provider_id, other_id, media) → titles both carry
+    only_ids: dict[str, frozenset[str]]           # provider_id → channel ids of its only-here titles
 
 
 @dataclass(frozen=True)
-class UniqueChannelDTO:
-    """Channel that exists only on this provider (not on any other)."""
-    channel_id: str
-    name: str
-    detected_title: str | None
-    detected_prefix: str | None
-    detected_quality: str | None
-    detected_region: str | None
-    detected_year: str | None
-    media_type: str
-    provider_name: str
+class GuideCoverageDTO:
+    """How much of a source's live line-up has guide data."""
+    live_channels: int
+    with_guide: int
+    guide_until: datetime | None
+
+
+@dataclass(frozen=True)
+class ServerAddressDTO:
+    """One server address: recent attempts, how many worked, typical latency."""
+    url: str
+    tried: int
+    worked: int
+    median_latency_ms: int | None
 
 
 @dataclass(frozen=True)

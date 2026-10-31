@@ -12,7 +12,7 @@ constructed with ``show_actions=False`` (Wave 7) — status dot, provider name
 buttons (refresh / edit / analyze / toggle / EPG-refresh) the pre-Wave-7 row
 rendered now live in the embedded editor's Summary-tab action bar
 (``ProviderEditorView._build_action_bar``); this view's public
-``providerAnalyzeClicked``/``providerToggleClicked``/``providerEpgRefreshClicked``
+``providerToggleClicked``/``providerEpgRefreshClicked``
 signals are unchanged (so ``main_window.py``'s handler wiring for them is
 untouched) — they now fire from the editor's action bar via the pass-through
 connections in ``__init__`` instead of from row buttons. Refresh never had a
@@ -55,7 +55,6 @@ if TYPE_CHECKING:
 class SourcesManagerView(QWidget):
     """Main-area Sources manager: provider list (left) + config (center)."""
 
-    providerAnalyzeClicked = pyqtSignal(str)
     providerToggleClicked = pyqtSignal(str)
     providerEpgRefreshClicked = pyqtSignal(str)
     addProviderClicked = pyqtSignal()
@@ -120,7 +119,6 @@ class SourcesManagerView(QWidget):
         # (previously unemitted) `refresh_requested` signal, already connected
         # directly to `self.refresh_provider` on this same embedded instance —
         # no pass-through needed here for it.
-        self._provider_editor.analyze_requested.connect(self.providerAnalyzeClicked.emit)
         self._provider_editor.toggle_active_requested.connect(self.providerToggleClicked.emit)
         self._provider_editor.epg_refresh_requested.connect(self.providerEpgRefreshClicked.emit)
         self._provider_editor.new_source_cancelled.connect(self._on_new_source_cancelled)

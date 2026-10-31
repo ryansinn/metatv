@@ -38,7 +38,8 @@ _RADIUS = 2
 _MIN_FILL_PX = 4
 
 
-def paint_progress(painter: QPainter, rect: QRect, pct: float) -> None:
+def paint_progress(painter: QPainter, rect: QRect, pct: float, *,
+                   warn_at: "float | None" = NEARLY_OVER_PCT) -> None:
     """Paint a progress bar for ``pct`` (0-100) into ``rect``.
 
     Args:
@@ -48,6 +49,9 @@ def paint_progress(painter: QPainter, rect: QRect, pct: float) -> None:
             insets to leave cell padding, a widget usually passes its own rect.
         pct: How far through, 0-100. Clamped, so a programme that has run over
             renders full rather than overflowing its track.
+        warn_at: The share at which the fill turns to the warning colour —
+            "nearly over" for a programme. ``None`` for a bar that measures a
+            share with no warning state (the Sources Analytics tab).
     """
     pct = max(0.0, min(100.0, float(pct)))
     painter.save()
@@ -58,7 +62,7 @@ def paint_progress(painter: QPainter, rect: QRect, pct: float) -> None:
     painter.drawRoundedRect(rect, _RADIUS, _RADIUS)
 
     fill_w = max(_MIN_FILL_PX, int(rect.width() * pct / 100))
-    fill = _theme.COLOR_WARN if pct >= NEARLY_OVER_PCT else _theme.COLOR_ACCENT
+    fill = _theme.COLOR_WARN if warn_at is not None and pct >= warn_at else _theme.COLOR_ACCENT
     painter.setBrush(to_qcolor(fill))
     painter.drawRoundedRect(
         QRect(rect.x(), rect.y(), fill_w, rect.height()), _RADIUS, _RADIUS
@@ -121,9 +125,11 @@ class ProgressBar(QWidget):
     _REPAINT_THRESHOLD_PCT = 0.5
 
     def __init__(self, pct: float = 0.0, *, width: "int | None" = None,
-                 height: int = 8, parent: "QWidget | None" = None) -> None:
+                 height: int = 8, warn_at: "float | None" = NEARLY_OVER_PCT,
+                 parent: "QWidget | None" = None) -> None:
         super().__init__(parent)
         self._pct = max(0.0, min(100.0, float(pct)))
+        self._warn_at = warn_at
         self._w = width
         self._h = height
         if width is None:
@@ -151,5 +157,6 @@ class ProgressBar(QWidget):
         # when a temporary is collected is a bug waiting for a different
         # interpreter.
         painter = QPainter(self)
-        paint_progress(painter, QRect(0, 0, self.width(), self.height()), self._pct)
+        paint_progress(painter, QRect(0, 0, self.width(), self.height()), self._pct,
+                       warn_at=self._warn_at)
         painter.end()

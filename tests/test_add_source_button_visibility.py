@@ -12,8 +12,8 @@ Icon registry enforcement (owner-mandated rule):
 Harness notes:
 - ``SourcesManagerView`` only stores ``config``/``db`` (never queries them) and embeds
   ``provider_editor`` via ``addWidget()``, which requires a real ``QWidget`` — so the
-  stand-in below is a trivial ``QWidget`` subclass carrying just the three signals
-  ``__init__`` connects (``analyze_requested``/``toggle_active_requested``/
+  stand-in below is a trivial ``QWidget`` subclass carrying just the two signals
+  ``__init__`` connects (``toggle_active_requested``/
   ``epg_refresh_requested``), not a hand-rolled non-widget fake.
 - Gets a real ``Config()`` (all icon attributes are real defaults — no need for a
   fake config that can drift out of sync with what the widget reads) and a real
@@ -57,7 +57,6 @@ class _FakeProviderEditor(QWidget):
     its signals (four, with Cancel on a new source). Nothing else about the real editor is exercised by these tests.
     """
 
-    analyze_requested = pyqtSignal(str)
     toggle_active_requested = pyqtSignal(str)
     epg_refresh_requested = pyqtSignal(str)
     new_source_cancelled = pyqtSignal()

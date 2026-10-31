@@ -33,7 +33,6 @@ CONTENT_VIEW_ATTRS: tuple[str, ...] = (
     "preferences_view",
     "discover_view",
     "provider_editor",
-    "source_analytics_view",
     "recipe_view",
     "missing_tmdb_view",
     "reconnect_engaged_view",

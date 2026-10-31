@@ -36,11 +36,39 @@ def clear_layout(layout: QLayout) -> None:
         item = layout.takeAt(0)
         widget = item.widget()
         if widget is not None:
+            # Hidden now: deleteLater() runs on a later loop pass, and until then
+            # the taken widget still paints at its old place under the new rows.
+            widget.hide()
             widget.deleteLater()
             continue
         child_layout = item.layout()
         if child_layout is not None:
             clear_layout(child_layout)
+
+
+def show_loading(layout: QLayout, text: str = "Loading…") -> None:
+    """Clear *layout* and show a single muted loading row."""
+    clear_layout(layout)
+    loading = QLabel(text)
+    _theme.style(loading, "SECTION_HINT")
+    layout.addWidget(loading)
+
+
+def show_panel_error(layout: QLayout, exc_or_text: "Exception | str") -> None:
+    """The centre-panel twin of ``CollapsibleSection.show_load_error``.
+
+    Clears *layout* and renders one visible "couldn't load" row instead
+    of leaving a "Loading…" placeholder that a failed background read
+    will never replace (CLAUDE.md: "On the None/error branch, render a
+    visible error row ... never clear(); return"). Module-level so a panel
+    that is not a ``ToolView`` (the Sources editor's Analytics tab) shares it.
+    """
+    detail = str(exc_or_text)
+    logger.warning("Panel load failed: {}", detail)
+    clear_layout(layout)
+    err = QLabel(f"{_icon_utils.role_html('warning')}&nbsp;Couldn't load — {_html.escape(detail, quote=False)}")
+    _theme.style(err, "SECTION_HINT")
+    layout.addWidget(err)
 
 
 class ToolView(ContentView):
@@ -85,22 +113,8 @@ class ToolView(ContentView):
 
     def show_loading(self, layout: QLayout, text: str = "Loading…") -> None:
         """Clear *layout* and show a single muted loading row."""
-        clear_layout(layout)
-        loading = QLabel(text)
-        _theme.style(loading, "SECTION_HINT")
-        layout.addWidget(loading)
+        show_loading(layout, text)
 
     def show_panel_error(self, layout: QLayout, exc_or_text: "Exception | str") -> None:
-        """The centre-panel twin of ``CollapsibleSection.show_load_error``.
-
-        Clears *layout* and renders one visible "couldn't load" row instead
-        of leaving a "Loading…" placeholder that a failed background read
-        will never replace (CLAUDE.md: "On the None/error branch, render a
-        visible error row ... never clear(); return").
-        """
-        detail = str(exc_or_text)
-        logger.warning("Panel load failed: {}", detail)
-        clear_layout(layout)
-        err = QLabel(f"{_icon_utils.role_html('warning')}&nbsp;Couldn't load — {_html.escape(detail, quote=False)}")
-        _theme.style(err, "SECTION_HINT")
-        layout.addWidget(err)
+        """See the module-level :func:`show_panel_error`."""
+        show_panel_error(layout, exc_or_text)

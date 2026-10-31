@@ -1,7 +1,5 @@
-"""Behavioral tests for AnalyticsRepository.
-
-Tests the core analytics business logic: overlap matrix set math, fingerprint
-histograms, unique content filtering, and prefix recognition.
+"""Behavioral tests for AnalyticsRepository — the Sources editor's Analytics tab data:
+title overlap by content_key, guide coverage, server addresses, prefix worklist.
 """
 
 import tempfile
@@ -85,216 +83,127 @@ def _make_channel(
     return ch
 
 
-class TestOverlapMatrix:
-    """Test overlap matrix computation."""
+def _titled(session, provider_id, key, media_type="movie", name=None):
+    """A channel carrying a content_key — the identity every collapse uses."""
+    ch = _make_channel(session, provider_id, name or f"{key}@{provider_id}", media_type=media_type)
+    ch.content_key = key
+    session.flush()
+    return ch
 
-    def test_overlap_matrix_basic(self, session):
-        """Basic set math: A={alpha,beta,gamma}, B={beta,gamma,delta}."""
-        # Setup
-        _make_provider(session, "a", "Provider A")
-        _make_provider(session, "b", "Provider B")
 
-        _make_channel(session, "a", "alpha")
-        _make_channel(session, "a", "beta")
-        _make_channel(session, "a", "gamma")
+class TestTitleOverlap:
+    """Same title = stored content_key, every media type, every source at once."""
 
-        _make_channel(session, "b", "beta")
-        _make_channel(session, "b", "gamma")
-        _make_channel(session, "b", "delta")
-
+    def test_totals_only_here_and_shared(self, session):
+        for pid in ("a", "b", "c"):
+            _make_provider(session, pid, pid.upper())
+        # a: alpha beta gamma (+ a second copy of alpha); b: beta gamma delta; c: gamma
+        for key in ("alpha", "beta", "gamma"):
+            _titled(session, "a", key)
+        _titled(session, "a", "alpha", name="alpha 4K@a")
+        for key in ("beta", "gamma", "delta"):
+            _titled(session, "b", key)
+        _titled(session, "c", "gamma")
+        _titled(session, "a", "news", media_type="live")
+        _titled(session, "b", "news", media_type="live")
         session.commit()
 
-        # Test
-        repos = RepositoryFactory(session)
-        matrix = repos.analytics.overlap_matrix(["a", "b"], "live")
+        o = RepositoryFactory(session).analytics.title_overlap()
 
-        # Find A→B pair
-        a_to_b = next((m for m in matrix if m.provider_a_id == "a" and m.provider_b_id == "b"), None)
-        assert a_to_b is not None
-        assert a_to_b.shared == 2  # beta, gamma
-        assert a_to_b.a_only == 1  # alpha
-        assert a_to_b.b_only == 1  # delta
-        assert abs(a_to_b.jaccard - 0.5) < 0.001  # 2/4 = 0.5
+        assert o.totals[("a", "movie")] == 3, "two copies of alpha are one title"
+        assert o.only[("a", "movie")] == 1          # alpha
+        assert o.only[("b", "movie")] == 1          # delta
+        assert ("c", "movie") not in o.only         # gamma is everywhere
+        assert o.shared[("a", "b", "movie")] == 2   # beta, gamma
+        assert o.shared[("a", "c", "movie")] == 1   # gamma
+        assert o.shared[("a", "b", "live")] == 1, "live channels compare by title too"
+        assert len(o.only_ids["a"]) == 2, "both copies of the only-here title are browsable"
 
-    def test_overlap_matrix_three_providers(self, session):
-        """Test N×N matrix with 3 providers (9 pairs)."""
-        _make_provider(session, "p1", "Provider 1")
-        _make_provider(session, "p2", "Provider 2")
-        _make_provider(session, "p3", "Provider 3")
-
-        # Each provider has 2 channels
-        _make_channel(session, "p1", "title1")
-        _make_channel(session, "p1", "title2")
-        _make_channel(session, "p2", "title1")
-        _make_channel(session, "p2", "title3")
-        _make_channel(session, "p3", "title3")
-        _make_channel(session, "p3", "title4")
-
+    def test_a_row_without_a_key_is_its_own_title(self, session):
+        _make_provider(session, "a", "A")
+        _make_provider(session, "b", "B")
+        _make_channel(session, "a", "untitled", media_type="movie")
+        _make_channel(session, "b", "untitled", media_type="movie")
         session.commit()
+        o = RepositoryFactory(session).analytics.title_overlap()
+        assert o.only[("a", "movie")] == 1 and o.only[("b", "movie")] == 1
 
-        repos = RepositoryFactory(session)
-        matrix = repos.analytics.overlap_matrix(["p1", "p2", "p3"], "live")
-
-        # Should have 9 pairs (3×3)
-        assert len(matrix) == 9
-
-        # Identity pairs should have 100% overlap
-        for provider_id in ["p1", "p2", "p3"]:
-            identity = next(
-                (m for m in matrix if m.provider_a_id == provider_id and m.provider_b_id == provider_id),
-                None
-            )
-            assert identity is not None
-            assert abs(identity.jaccard - 1.0) < 0.001  # 100%
-
-
-class TestSourceFingerprint:
-    """Test source fingerprint computation."""
-
-    def test_source_fingerprint_counts(self, session):
-        """Verify counts and visible counts."""
-        _make_provider(session, "p1", "Test Provider")
-
-        # Create 100 live, 50 movie, 25 series
-        for i in range(100):
-            _make_channel(session, "p1", f"live_{i}", media_type="live")
-        for i in range(50):
-            _make_channel(session, "p1", f"movie_{i}", media_type="movie")
-        for i in range(25):
-            _make_channel(session, "p1", f"series_{i}", media_type="series")
-
-        # Hide 10 live and 5 movie
-        live_rows = session.query(ChannelDB).filter_by(provider_id="p1", media_type="live").limit(10).all()
-        for row in live_rows:
-            row.is_hidden = True
-        movie_rows = session.query(ChannelDB).filter_by(provider_id="p1", media_type="movie").limit(5).all()
-        for row in movie_rows:
-            row.is_hidden = True
-
+    def test_disabled_and_expired_sources_stay_in(self, session):
+        from datetime import datetime, timedelta
+        _make_provider(session, "a", "A")
+        off = _make_provider(session, "b", "B")
+        off.is_active = False
+        off.account_exp_date = datetime.now() - timedelta(days=1)
+        _titled(session, "a", "alpha")
+        _titled(session, "b", "alpha")
         session.commit()
+        o = RepositoryFactory(session).analytics.title_overlap()
+        b = next(s for s in o.sources if s.id == "b")
+        assert b.is_expired and not b.is_active
+        assert o.shared[("a", "b", "movie")] == 1
 
-        repos = RepositoryFactory(session)
-        fp = repos.analytics.source_fingerprint("p1")
-
-        # Verify counts
-        assert fp.live_count == 100
-        assert fp.movie_count == 50
-        assert fp.series_count == 25
-        assert fp.total_count == 175
-
-        # Verify visible counts
-        assert fp.live_visible == 90
-        assert fp.movie_visible == 45
-        assert fp.series_visible == 25
-        assert fp.total_visible == 160
-
-    def test_source_fingerprint_quality_histogram(self, session):
-        """Verify quality histogram computation."""
-        _make_provider(session, "p1", "Test Provider")
-
-        # Create channels with different qualities
-        _make_channel(session, "p1", "hd_1", detected_quality="HD")
-        _make_channel(session, "p1", "hd_2", detected_quality="HD")
-        _make_channel(session, "p1", "fhd_1", detected_quality="FHD")
-        _make_channel(session, "p1", "4k_1", detected_quality="4K")
-        _make_channel(session, "p1", "none")  # No quality
-
+    def test_channels_of_a_deleted_source_are_ignored(self, session):
+        _make_provider(session, "a", "A")
+        _titled(session, "a", "alpha")
+        _titled(session, "gone", "alpha")   # ledger F60: provider row no longer exists
         session.commit()
+        o = RepositoryFactory(session).analytics.title_overlap()
+        assert o.only[("a", "movie")] == 1
+        assert [s.id for s in o.sources] == ["a"]
 
-        repos = RepositoryFactory(session)
-        fp = repos.analytics.source_fingerprint("p1")
 
-        assert fp.quality_histogram["HD"] == 2
-        assert fp.quality_histogram["FHD"] == 1
-        assert fp.quality_histogram["4K"] == 1
-        assert "none" not in fp.quality_histogram  # Should not have empty string key
-
-    def test_source_fingerprint_region_histogram(self, session):
-        """Verify region histogram computation."""
-        _make_provider(session, "p1", "Test Provider")
-
-        _make_channel(session, "p1", "en_1", detected_region="EN")
-        _make_channel(session, "p1", "en_2", detected_region="EN")
-        _make_channel(session, "p1", "fr_1", detected_region="FR")
-        _make_channel(session, "p1", "none")  # No region
-
+class TestGuideCoverage:
+    def test_counts_this_sources_channels_from_any_feed(self, session):
+        from datetime import datetime, timedelta
+        from metatv.core.database import EpgProgramDB
+        _make_provider(session, "a", "A")
+        _make_provider(session, "b", "B")
+        mine = [_make_channel(session, "a", f"live {i}") for i in range(4)]
+        theirs = _make_channel(session, "b", "other live")
+        start = datetime(2026, 11, 1, 20, 0)
+        rows = [("b", mine[0].id), ("a", mine[1].id), ("a", theirs.id)]   # a's feed also matches b
+        for feed, cid in rows:
+            session.add(EpgProgramDB(provider_id=feed, channel_epg_id="x", channel_db_id=cid,
+                                     channel_name="x", title="Show", start_time=start,
+                                     stop_time=start + timedelta(hours=1)))
         session.commit()
+        g = RepositoryFactory(session).analytics.guide_coverage("a")
+        assert (g.live_channels, g.with_guide) == (4, 2)
+        assert g.guide_until == start + timedelta(hours=1)
 
-        repos = RepositoryFactory(session)
-        fp = repos.analytics.source_fingerprint("p1")
 
-        assert fp.region_histogram["EN"] == 2
-        assert fp.region_histogram["FR"] == 1
-
-    def test_source_fingerprint_prefix_recognition(self, session):
-        """Verify recognized vs unrecognized prefix counting."""
-        _make_provider(session, "p1", "Test Provider")
-
-        # EN is recognized (in lexicon)
-        _make_channel(session, "p1", "recognized", detected_prefix="EN")
-        # XX is not recognized
-        _make_channel(session, "p1", "unrecognized", detected_prefix="XX")
-        # No prefix
-        _make_channel(session, "p1", "no_prefix")
-
+class TestServerAddresses:
+    def test_recent_attempts_rank_best_first(self, session):
+        prov = _make_provider(session, "a", "A")
+        attempt = lambda ok, ms=None: {"timestamp": "2026-10-30T10:00:00", "success": ok,
+                                       "response_time_ms": ms, "host_at_fault": True}
+        prov.urls = [
+            {"url": "http://slow.example:80", "success_count": 9, "failure_count": 1,
+             "recent_attempts": [attempt(True, 3000), attempt(False)]},
+            {"url": "http://fast.example:80", "success_count": 5, "failure_count": 0,
+             "recent_attempts": [attempt(True, 900), attempt(True, 1100)]},
+            {"url": "http://never.example:80", "success_count": 0, "failure_count": 0},
+        ]
         session.commit()
-
-        repos = RepositoryFactory(session)
-        fp = repos.analytics.source_fingerprint("p1")
-
-        assert fp.recognized_count == 1
-        assert fp.unrecognized_count == 1
-        # recognized_pct = 1/3 = 33.3%
-        assert 33.0 < fp.recognized_pct < 34.0
-
-
-class TestUniqueTitles:
-    """Test unique content drill-down."""
-
-    def test_unique_titles_basic(self, session):
-        """Provider A={alpha,beta,gamma}, B={beta,gamma,delta}; A-only={alpha}."""
-        _make_provider(session, "a", "Provider A")
-        _make_provider(session, "b", "Provider B")
-
-        _make_channel(session, "a", "alpha")
-        _make_channel(session, "a", "beta")
-        _make_channel(session, "a", "gamma")
-
-        _make_channel(session, "b", "beta")
-        _make_channel(session, "b", "gamma")
-        _make_channel(session, "b", "delta")
-
-        session.commit()
-
-        repos = RepositoryFactory(session)
-        unique = repos.analytics.unique_titles("a", "live")
-
-        # Should have exactly 1 unique title
-        assert len(unique) == 1
-        assert unique[0].name == "alpha"
-
-    def test_unique_titles_ignores_hidden(self, session):
-        """Hidden channels don't participate in overlap computation."""
-        _make_provider(session, "a", "Provider A")
-        _make_provider(session, "b", "Provider B")
-
-        _make_channel(session, "a", "visible_a")
-        _make_channel(session, "a", "hidden_a", is_hidden=True)
-
-        _make_channel(session, "b", "visible_b")
-
-        session.commit()
-
-        repos = RepositoryFactory(session)
-        unique_a = repos.analytics.unique_titles("a", "live")
-
-        # Only visible channels are returned (hidden=False filter)
-        assert len(unique_a) == 1
-        assert unique_a[0].name == "visible_a"
+        out = RepositoryFactory(session).analytics.server_addresses("a")
+        assert [a.url for a in out][:2] == ["http://fast.example:80", "http://slow.example:80"]
+        assert (out[0].tried, out[0].worked, out[0].median_latency_ms) == (2, 2, 1000)
+        assert (out[1].tried, out[1].worked) == (2, 1), "recent history, not the lifetime 9 of 10"
+        assert out[2].tried == 0
 
 
 class TestUnrecognizedPrefixes:
     """Test unrecognized prefix detection."""
+
+    def test_samples_come_from_this_source(self, session):
+        """The samples used to come from any source carrying the prefix."""
+        _make_provider(session, "p1", "One")
+        _make_provider(session, "p2", "Two")
+        _make_channel(session, "p2", "XX| from two", detected_prefix="XX")
+        _make_channel(session, "p1", "XX| from one", detected_prefix="XX")
+        session.commit()
+        stats = RepositoryFactory(session).analytics.unrecognized_prefixes("p1")
+        assert [(s.prefix, s.count, s.sample_names) for s in stats] == [("XX", 1, ["XX| from one"])]
 
     def test_unrecognized_prefixes_filters_recognized(self, session):
         """Prefixes in lexicon should not be returned."""

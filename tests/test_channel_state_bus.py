@@ -238,8 +238,7 @@ def test_failed_rating_write_tells_the_status_bar_and_never_publishes(db):
 
     Drives the REAL _toggle_rating with the REAL db.session_scope made to
     raise (rather than a bad channel_id, which could just as easily be
-    swallowed somewhere else) — the same "raising context manager" shape
-    test_source_analytics_view.py's failure test uses.
+    swallowed somewhere else) — a "raising context manager".
     """
     from contextlib import contextmanager
 
