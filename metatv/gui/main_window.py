@@ -206,6 +206,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnec
     # error).  The purge runs OFF the UI thread; this marshals the outcome back so
     # the editor reset + canonical view refresh happen on the main thread.
     _provider_delete_finished = pyqtSignal(str, bool, str)
+    _provider_delete_progress = pyqtSignal(str, int)  # provider_id, stage index
 
     def __init__(self, config: Config, config_recovered: bool = False):
         super().__init__()
@@ -527,6 +528,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnec
         # Provider-delete: off-thread purge worker → main-thread finished slot.
         self._provider_delete_notifs: dict[str, str] = {}
         self._provider_delete_finished.connect(self._on_provider_delete_finished)
+        self._provider_delete_progress.connect(self._on_provider_delete_progress)
 
         self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)

@@ -220,7 +220,7 @@ class ProviderRepository:
         self.session.refresh(provider)
         return provider
     
-    def delete(self, provider_id: str) -> bool:
+    def delete(self, provider_id: str, progress=None) -> bool:
         """Delete provider and cascade-prune its non-engaged content.
 
         Non-engaged channels (not favorited, not played, not queued) and all
@@ -230,13 +230,19 @@ class ProviderRepository:
         Engaged channels of this provider are intentionally kept — they remain
         accessible in History / Favorites / Watch Queue and are hidden from
         forward-looking views via ``get_hidden_provider_ids()``.
+
+        *progress* is called with a ``channel_pruning.PROVIDER_DELETE_STAGES``
+        index as each stage starts; it runs on the caller's thread.
         """
         provider = self.get_by_id(provider_id)
         if not provider:
             return False
 
         from metatv.core.repositories.channel import ChannelRepository
-        ChannelRepository(self.session).prune_provider_content([provider_id])
+        ChannelRepository(self.session).prune_provider_content([provider_id], progress)
+        from metatv.core.repositories.channel_pruning import PROVIDER_DELETE_STAGES
+        if progress:
+            progress(len(PROVIDER_DELETE_STAGES) - 1)
         from metatv.core.repositories.playback_events import PlaybackEventRepository
         PlaybackEventRepository(self.session).delete_for_provider(provider_id)
 

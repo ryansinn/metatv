@@ -19,6 +19,7 @@ from loguru import logger
 
 from metatv.core.notifications import StepStatus
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.repositories.channel_pruning import PROVIDER_DELETE_STAGES
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
@@ -54,6 +55,13 @@ def _make_steps(epg: bool) -> list[tuple[str, StepStatus]]:
     if epg:
         labels += [_STEP_EPG_DL, _STEP_EPG_PARSE]
     return [(lbl, StepStatus.PENDING) for lbl in labels]
+
+
+def _delete_steps(active: int) -> list[tuple[str, StepStatus]]:
+    """The source-delete checklist with stage *active* running (-1: none yet)."""
+    return [(label, StepStatus.DONE if i < active else
+             StepStatus.ACTIVE if i == active else StepStatus.PENDING)
+            for i, label in enumerate(PROVIDER_DELETE_STAGES)]
 
 
 def _advance_steps(
@@ -423,23 +431,29 @@ class _ProviderMixin:
         if sources is not None:
             sources.set_provider_busy(provider_id, True)
 
-        # Indeterminate work — suppress the bar so it doesn't sit frozen at 0%
-        # (the toast title is the progress indicator).
+        # The stage checklist is the progress indicator; a bar would sit at 0%.
         notif_id = self.notification_manager.show_progress(
-            title="Deleting source…", show_bar=False,
+            title="Deleting source…", show_bar=False, steps=_delete_steps(-1),
         )
         self._provider_delete_notifs[provider_id] = notif_id
 
         def _worker() -> None:
             try:
                 with self.db.session_scope() as session:
-                    deleted = RepositoryFactory(session).providers.delete(provider_id)
+                    deleted = RepositoryFactory(session).providers.delete(
+                        provider_id, lambda i: self._provider_delete_progress.emit(provider_id, i))
                 self._provider_delete_finished.emit(provider_id, bool(deleted), "")
             except Exception as exc:  # noqa: BLE001 — reported to the main thread
                 logger.exception("Provider delete failed")
                 self._provider_delete_finished.emit(provider_id, False, str(exc))
 
         self.executor.submit(_worker)
+
+    def _on_provider_delete_progress(self, provider_id: str, stage: int) -> None:
+        """Main-thread slot: tick the delete toast's checklist to *stage*."""
+        notif_id = self._provider_delete_notifs.get(provider_id)
+        if notif_id is not None:
+            self.notification_manager.set_steps(notif_id, _delete_steps(stage))
 
     def _on_provider_delete_finished(
         self, provider_id: str, success: bool, error: str
