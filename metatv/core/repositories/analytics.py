@@ -12,17 +12,26 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
+from metatv.core.playback_models import PlaybackEventDB
 from metatv.core.repositories.dtos import (
     AnalyticsSourceDTO,
+    CatalogueMixDTO,
     GuideCoverageDTO,
     PrefixStatDTO,
     ServerAddressDTO,
     TitleOverlapDTO,
+    ViewingDTO,
 )
 from metatv.core.quality_vocab import QUALITY_TOKENS
 from metatv.core.region_codes import REGION_FULL_NAMES, PLATFORM_CODES
 
 _SAMPLE_NAMES = 5
+
+#: Most-played titles a source's Viewing section names.
+TOP_TITLES = 3
+
+#: One title per content_key; a row without one is its own title.
+_TITLE_KEY = func.coalesce(ChannelDB.content_key, func.concat("id:", ChannelDB.id))
 
 
 class AnalyticsRepository:
@@ -133,6 +142,50 @@ class AnalyticsRepository:
             ))
         out.sort(key=lambda a: (-(a.worked / a.tried if a.tried else -1), a.median_latency_ms or 10**9))
         return out
+
+    def viewing(self, provider_id: str) -> ViewingDTO:
+        """What has been watched from *provider_id*: titles, plays, most played, time.
+
+        Titles and plays read the per-channel history, so they reach back
+        before play recording began; time watched is only what
+        ``playback_events`` has recorded since.
+        """
+        played = [ChannelDB.provider_id == provider_id, ChannelDB.play_count > 0]
+        titles, plays, last = self.session.query(
+            func.count(func.distinct(_TITLE_KEY)), func.sum(ChannelDB.play_count),
+            func.max(ChannelDB.last_played),
+        ).filter(*played).one()
+        by_media = dict(
+            self.session.query(ChannelDB.media_type, func.count(func.distinct(_TITLE_KEY)))
+            .filter(*played).group_by(ChannelDB.media_type)
+        )
+        title = func.coalesce(ChannelDB.detected_title, ChannelDB.name)
+        top = tuple(
+            (name, int(n)) for name, n in self.session.query(title, func.sum(ChannelDB.play_count))
+            .filter(*played).group_by(_TITLE_KEY)
+            .order_by(func.sum(ChannelDB.play_count).desc(), title).limit(TOP_TITLES)
+        )
+        seconds, since = self.session.query(
+            func.sum(PlaybackEventDB.seconds_watched), func.min(PlaybackEventDB.started_at),
+        ).filter(PlaybackEventDB.provider_id == provider_id).one()
+        return ViewingDTO(
+            titles=titles or 0, plays=int(plays or 0), last_played=last, by_media=by_media,
+            top=top, seconds_watched=int(seconds or 0), watched_since=since,
+        )
+
+    def catalogue_mix(self, provider_id: str) -> CatalogueMixDTO:
+        """Titles per detected region on *provider_id*, largest first.
+
+        Region is the axis these sources sort by: the provider's own
+        ``language`` field is empty on every source in the owner's library,
+        and a region code ("FR", "IN") is how the catalogues label language.
+        """
+        rows = self.session.query(ChannelDB.detected_region, func.count(func.distinct(_TITLE_KEY))) \
+            .filter(ChannelDB.provider_id == provider_id).group_by(ChannelDB.detected_region).all()
+        unknown = sum(n for code, n in rows if not code)
+        regions = tuple(sorted(((code, n) for code, n in rows if code), key=lambda r: (-r[1], r[0])))
+        return CatalogueMixDTO(regions=regions, unknown=unknown,
+                               total=unknown + sum(n for _, n in regions))
 
     def unrecognized_prefixes(self, provider_id: str | None = None) -> list[PrefixStatDTO]:
         """Prefix tokens no lookup table recognises, with counts and sample names.
