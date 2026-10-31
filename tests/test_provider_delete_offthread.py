@@ -30,7 +30,9 @@ from unittest.mock import MagicMock
 from metatv.core.database import (
     ProviderDB, ChannelDB, TagDB, ContentTagDB,
 )
+from metatv.core.notifications import StepStatus
 from metatv.core.repositories.channel import ChannelRepository
+from metatv.core.repositories.channel_pruning import PROVIDER_DELETE_STAGES
 from metatv.core.repositories.provider import ProviderRepository
 from metatv.gui.main_window import MainWindow
 
@@ -39,6 +41,7 @@ from metatv.gui.main_window import MainWindow
 # test_post_refresh_resweep.py) — avoids constructing a real QMainWindow.
 _REQUEST = MainWindow._on_provider_delete_requested
 _FINISHED = MainWindow._on_provider_delete_finished
+_PROGRESS = MainWindow._on_provider_delete_progress
 
 
 # ── Fixtures & helpers ───────────────────────────────────────────────────────
@@ -173,6 +176,9 @@ def _seam_self(db_obj, *, on_deleted, sources=None):
     me._provider_delete_finished = SimpleNamespace(
         emit=lambda pid, ok, err: _FINISHED(me, pid, ok, err)
     )
+    me._provider_delete_progress = SimpleNamespace(
+        emit=lambda pid, stage: _PROGRESS(me, pid, stage)
+    )
     return me
 
 
@@ -238,3 +244,35 @@ def test_delete_requested_noop_on_empty_provider_id(db):
 # Healing a pre-existing orphaned-content_tags backlog (a channel deleted by
 # something other than prune_provider_content) is OrphanSweepTask's job now —
 # see tests/test_orphan_sweep_task.py::test_run_removes_content_tags_for_missing_channels_only.
+
+
+def test_provider_delete_reports_every_stage_in_order(db):
+    """A source delete took 70 s behind one unchanging toast: each stage now
+    announces itself, in order, ending on the caller-owned last stage."""
+    with db.session_scope() as session:
+        _provider(session, "pid-stages")
+        _channel(session, "pid-stages")
+    seen: list[int] = []
+    with db.session_scope() as session:
+        assert ProviderRepository(session).delete("pid-stages", seen.append)
+    assert seen == list(range(len(PROVIDER_DELETE_STAGES)))
+
+
+def test_delete_toast_ticks_its_checklist_through_the_stages(db):
+    """The toast opens with every stage pending, and each stage update marks
+    the earlier ones done and the current one running."""
+    with db.session_scope() as session:
+        _provider(session, "pid-toast")
+        _channel(session, "pid-toast")
+    me = _seam_self(db, on_deleted=MagicMock())
+    _REQUEST(me, "pid-toast")
+
+    opening = me.notification_manager.show_progress.call_args.kwargs["steps"]
+    assert [lbl for lbl, _ in opening] == list(PROVIDER_DELETE_STAGES)
+    assert {st for _, st in opening} == {StepStatus.PENDING}
+    ticks = [c.args[1] for c in me.notification_manager.set_steps.call_args_list]
+    assert len(ticks) == len(PROVIDER_DELETE_STAGES)
+    third = ticks[2]
+    assert [st for _, st in third[:3]] == [StepStatus.DONE, StepStatus.DONE, StepStatus.ACTIVE]
+    assert {st for _, st in third[3:]} == {StepStatus.PENDING}
+    assert ticks[-1][-1][1] is StepStatus.ACTIVE

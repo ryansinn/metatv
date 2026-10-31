@@ -28,6 +28,7 @@ delete it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime  # noqa: F401 - used in type context by callers
 
 from loguru import logger
@@ -37,6 +38,14 @@ from metatv.core.database import (AlertMatchDB, ChannelDB, ContentTagDB,
                                   EpgProgramDB, EpisodeDB, MetadataDB,
                                   SeasonDB, UserRatingDB)
 from metatv.core.repositories.epg import delete_programmes_chunked
+
+#: The stages of a source delete, in the order ``prune_provider_content`` runs
+#: them; ``progress(i)`` is called as stage *i* starts. A source delete took 70 s
+#: on a 294k-channel source behind one unchanging "Deleting source…" toast.
+PROVIDER_DELETE_STAGES: tuple[str, ...] = (
+    "Tags", "Guide entries", "Episodes & seasons", "Ratings & alerts",
+    "Metadata", "Channels", "Guide feed", "Leftover episodes", "Play records",
+)
 
 
 class _ChannelPruningMixin:
@@ -157,7 +166,8 @@ class _ChannelPruningMixin:
         self._delete_channel_cascade(vanished, counts)
         return counts
 
-    def _delete_channel_cascade(self, scope, counts: dict) -> None:
+    def _delete_channel_cascade(self, scope, counts: dict,
+                                progress: Callable[[int], None] | None = None) -> None:
         """Delete non-engaged channels matching *scope*, and everything hanging off them.
 
         Extracted so ``prune_provider_content`` (the source is gone) and
@@ -173,7 +183,10 @@ class _ChannelPruningMixin:
                 The engagement test is applied on top and is NOT the caller's to
                 supply — favourited, played and queued rows survive every caller.
             counts: Mutated in place with per-table delete counts.
+            progress: Called with a ``PROVIDER_DELETE_STAGES`` index (0-5) as
+                each stage starts.
         """
+        step = progress or (lambda _i: None)
         engaged = self._engaged_channel_predicate()
 
         # The doomed set as a reusable correlated subquery. Because the channels
@@ -194,11 +207,13 @@ class _ChannelPruningMixin:
         )
 
         # content_tags first (no FK cascade — the leak this also fixes).
+        step(0)
         counts["content_tags"] += (
             self.session.query(ContentTagDB)
             .filter(ContentTagDB.channel_key.in_(doomed_channel_keys))
             .delete(synchronize_session=False)
         )
+        step(1)
         # chunked-delete-exempt: one step of an ATOMIC cascade; per-chunk commits
         # would publish a half-pruned tree (why: docs/REFACTOR_PLAN.md D16).
         counts["epg_by_channel"] += (
@@ -210,6 +225,7 @@ class _ChannelPruningMixin:
         # source_id, never its id — doomed_channel_ids can't be used here.
         # _series_channel_exists() translates through (source_id, provider_id).
         doomed_scope = and_(scope, ~engaged)
+        step(2)
         counts["episodes"] += (
             self.session.query(EpisodeDB)
             .filter(self._series_channel_exists(EpisodeDB, doomed_scope))
@@ -220,6 +236,7 @@ class _ChannelPruningMixin:
             .filter(self._series_channel_exists(SeasonDB, doomed_scope))
             .delete(synchronize_session=False)
         )
+        step(3)
         counts["ratings"] += (
             self.session.query(UserRatingDB)
             .filter(UserRatingDB.channel_id.in_(doomed_channel_ids))
@@ -230,6 +247,7 @@ class _ChannelPruningMixin:
             .filter(AlertMatchDB.channel_id.in_(doomed_channel_ids))
             .delete(synchronize_session=False)
         )
+        step(4)
         # MetadataDB rows referenced by the doomed channels (subquery reads
         # channels.metadata_id — must run before the channels row is deleted).
         counts["metadata"] += (
@@ -239,6 +257,7 @@ class _ChannelPruningMixin:
         )
         # Finally, the channels themselves — deleted LAST so the correlated
         # doomed-set subquery above still resolved while the child deletes ran.
+        step(5)
         counts["channels"] += (
             self.session.query(ChannelDB)
             .filter(scope)
@@ -250,6 +269,7 @@ class _ChannelPruningMixin:
     def prune_provider_content(
         self,
         provider_ids: list[str],
+        progress: Callable[[int], None] | None = None,
     ) -> dict[str, int]:
         """Delete non-engaged channels (and their dependents) for a set of providers.
 
@@ -278,6 +298,8 @@ class _ChannelPruningMixin:
         Args:
             provider_ids: Provider IDs whose non-engaged content should be
                 purged.  May be an empty list (returns zero counts immediately).
+            progress: Called with a ``PROVIDER_DELETE_STAGES`` index as each
+                stage starts (stages 0-7; the caller owns stage 8).
 
         Returns:
             Dict with counts: ``channels``, ``metadata``, ``content_tags``,
@@ -305,7 +327,9 @@ class _ChannelPruningMixin:
         )
 
         # Step 2 — the channel-level cascade, shared with prune_vanished_channels.
-        self._delete_channel_cascade(ChannelDB.provider_id.in_(provider_ids), counts)
+        step = progress or (lambda _i: None)
+        self._delete_channel_cascade(ChannelDB.provider_id.in_(provider_ids), counts, step)
+        step(6)
         # Step 3 — feed-side EPG: programmes whose provider_id is one of the removed
         # providers (these are EPG feed entries, not channel matches).
         counts["epg_by_provider"] += delete_programmes_chunked(
@@ -329,6 +353,7 @@ class _ChannelPruningMixin:
         # matches a DIFFERENT provider's series that happens to share a
         # source_id. _series_channel_exists() is the same helper
         # _delete_channel_cascade uses for the mirror-image (doomed) case.
+        step(7)
         kept_filter = ChannelDB.provider_id.in_(provider_ids)
         counts["episodes"] += (
             self.session.query(EpisodeDB)
