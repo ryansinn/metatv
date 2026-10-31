@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=770,
-    version="0.207.0",
+    version="0.208.0",
     date="2026-10-31",
     title="Sources Analytics shows what you watch from each source, and its regions",
     items=("A new \"What you watch here\" section on the Sources editor's Analytics tab: how many "
