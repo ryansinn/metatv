@@ -131,7 +131,9 @@ def test_all_views_are_deactivated_not_a_chosen_few():
         #
         # The test was ALSO wrong, in the way that made this invisible: it keyed
         # "source_analytics_view", a name that existed nowhere in production, so
-        # the guard passed while guarding nothing.
+        # the guard passed while guarding nothing. (The view itself was retired
+        # for the Sources editor's Analytics tab on 2026-10-31; the fake keeps
+        # the name because the suffix rule it exposed still stands.)
         #
         # Fixed by renaming the attribute rather than dropping the suffix
         # filter. The filter is load-bearing —

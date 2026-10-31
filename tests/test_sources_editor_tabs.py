@@ -2,10 +2,10 @@
 
 Covers:
   A. Left-column rows: no action buttons, full (untruncated) provider name.
-  B. Summary-tab action bar: four labelled actions, each reaching its
-     re-pointed signal/handler (Refresh / Analyze / Refresh Guide / Toggle).
+  B. Summary-tab action bar: three labelled actions, each reaching its
+     re-pointed signal/handler (Refresh / Refresh Guide / Toggle).
   C. Busy state renders on the action bar (toggle + EPG-refresh), not the row.
-  D. The three tabs exist in order, each with its specified widgets; no
+  D. The four tabs exist in order, each with its specified widgets; no
      destructive zone in Settings.
   E. The persistent footer (Delete / Test Connection / Discard / Save Changes)
      is reachable from every tab and Delete is visually separated from the
@@ -98,7 +98,7 @@ def test_left_row_has_no_action_buttons_and_full_name(qapp, file_db):
 # B. Action bar — four labelled actions, each reaches its re-pointed signal
 # ─────────────────────────────────────────────────────────────────────────── #
 
-def test_action_bar_has_four_labelled_actions(qapp, file_db):
+def test_action_bar_has_three_labelled_actions(qapp, file_db):
     pid = _seed_provider(file_db)
     view = _sources_manager_view(qapp, file_db)
     view.refresh()
@@ -106,7 +106,6 @@ def test_action_bar_has_four_labelled_actions(qapp, file_db):
     ed = view._provider_editor
 
     assert "Refresh" in ed._action_refresh_btn.text()
-    assert "Analyze" in ed._action_analyze_btn.text()
     assert "Refresh Guide" in ed._epg_refresh_btn.text()
     assert ed._action_toggle_btn.text() in ("Disable", "Enable")
 
@@ -123,20 +122,6 @@ def test_refresh_action_reaches_refresh_requested_signal(qapp, file_db):
     got = []
     ed.refresh_requested.connect(got.append)
     ed._action_refresh_btn.click()
-    assert got == [pid]
-
-
-def test_analyze_action_reaches_manager_view_signal(qapp, file_db):
-    """New analyze_requested signal, passed through to the SAME public
-    providerAnalyzeClicked signal main_window.py already connects."""
-    pid = _seed_provider(file_db)
-    view = _sources_manager_view(qapp, file_db)
-    view.refresh()
-    view.select_provider(pid)
-
-    got = []
-    view.providerAnalyzeClicked.connect(got.append)
-    view._provider_editor._action_analyze_btn.click()
     assert got == [pid]
 
 
@@ -240,13 +225,11 @@ def _tab_content(ed, index: int):
     return ed._tabs.widget(index).widget()
 
 
-def test_three_tabs_exist_in_order(qapp, file_db):
+def test_four_tabs_exist_in_order(qapp, file_db):
     from metatv.gui.provider_editor import ProviderEditorView
     ed = ProviderEditorView(file_db)
-    assert ed._tabs.count() == 3
-    assert ed._tabs.tabText(0) == "Summary"
-    assert ed._tabs.tabText(1) == "Connection"
-    assert ed._tabs.tabText(2) == "Settings"
+    assert [ed._tabs.tabText(i) for i in range(ed._tabs.count())] == [
+        "Summary", "Connection", "Settings", "Analytics"]
 
 
 def test_summary_tab_contains_expected_widgets(qapp, file_db):
@@ -254,7 +237,7 @@ def test_summary_tab_contains_expected_widgets(qapp, file_db):
     ed = ProviderEditorView(file_db)
     summary = _tab_content(ed, 0)
     for w in (ed._icon_picker, ed._name_input, ed._status_dot_lbl, ed._enabled_check,
-              ed._action_refresh_btn, ed._action_analyze_btn, ed._epg_refresh_btn,
+              ed._action_refresh_btn, ed._epg_refresh_btn,
               ed._action_toggle_btn, ed._acct_status_lbl, ed._acct_remaining_lbl,
               ed._refresh_acct_btn):
         assert summary.isAncestorOf(w), f"{w} not in Summary tab"

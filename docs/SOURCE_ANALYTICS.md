@@ -1,6 +1,12 @@
 # Source Analytics — Scoping & Design
 
-**Status:** Scoping / design only. No code until the phasing in §7 is approved. This document
+**Status (2026-10-31):** superseded in its UI parts. The separate `SourceAnalyticsView` this
+document describes was built, then replaced by the **Analytics tab in the Sources editor**
+(`gui/source_analytics_tab.py`; design: artifact "Source Analytics Tab", every recommendation
+accepted 2026-10-31; ledger WIP-1). Same-title identity is the stored `content_key` across all
+media types, not lowercased live names. Kept for the dialect-profile reasoning below.
+
+**Original status:** Scoping / design only. No code until the phasing in §7 is approved. This document
 characterizes a **source-analytics surface** ("data-nerd tab") that quantifies what each
 provider actually contains, how much it overlaps with the others, and what is *unique* to it —
 so a user can decide whether a newly-added source is worth keeping or is mostly a re-skin of one

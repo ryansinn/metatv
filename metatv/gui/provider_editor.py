@@ -269,12 +269,10 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
     * Refresh        → reuses the pre-existing (previously unemitted)
       ``refresh_requested`` signal, already connected in ``main_window.py`` to
       ``self.refresh_provider`` — no new plumbing needed, just a new emitter.
-    * Analyze / Enable-Disable / Refresh Guide → three NEW signals
-      (``analyze_requested``, ``toggle_active_requested``,
-      ``epg_refresh_requested``); ``SourcesManagerView`` connects each to its
-      existing public ``providerAnalyzeClicked``/``providerToggleClicked``/
-      ``providerEpgRefreshClicked`` signals, so ``main_window.py``'s handler
-      wiring for those three is completely unchanged.
+    * Enable-Disable / Refresh Guide → ``toggle_active_requested`` /
+      ``epg_refresh_requested``; ``SourcesManagerView`` connects each to its
+      public ``providerToggleClicked``/``providerEpgRefreshClicked`` signal.
+      (Analyze became the Analytics tab, 2026-10-31.)
     * "Refresh Guide" reuses the pre-Wave-7 ``_epg_refresh_btn`` attribute name
       (relocated from the old EPG group into the action bar, restyled/retexted)
       so ``tests/test_provider_editor_epg_autodetect.py`` needed no changes.
@@ -285,15 +283,16 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
     provider_delete_requested = pyqtSignal(str)  # provider_id — user confirmed delete; MainWindow runs the purge off-thread
     refresh_requested = pyqtSignal(str)     # provider_id — action bar "Refresh" clicked
     account_info_updated = pyqtSignal(str)  # provider_id — account info changed (expiration, connections, etc.)
-    analyze_requested = pyqtSignal(str)         # provider_id — action bar "Analyze" clicked
+    browse_ids_requested = pyqtSignal(str, object)  # ("Only on X", channel ids) — Analytics "Browse them"
     toggle_active_requested = pyqtSignal(str)   # provider_id — action bar Enable/Disable clicked
     epg_refresh_requested = pyqtSignal(str)     # provider_id — action bar "Refresh Guide" clicked
     provider_added = pyqtSignal(str, bool)      # provider_id, epg_enabled — a NEW source was added
     new_source_cancelled = pyqtSignal()         # Cancel pressed on a new, unsaved source
 
-    def __init__(self, db: Database, config=None, epg_manager=None, parent=None):
+    def __init__(self, db: Database, config=None, epg_manager=None, parent=None, run_query=None):
         super().__init__(parent)
         self.db = db
+        self._run_query_fn = run_query  # MainWindow._run_query — the Analytics tab's async seam
         self.config = config
         self._epg_manager = epg_manager
         self._provider_id: Optional[str] = None
@@ -322,6 +321,7 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
         self._tabs.addTab(self._build_summary_tab(), "Summary")
         self._tabs.addTab(self._build_connection_tab(), "Connection")
         self._tabs.addTab(self._build_settings_tab(), "Settings")
+        self._tabs.addTab(self._build_analytics_tab(), "Analytics")
         root.addWidget(self._tabs, 1)
 
         self._build_footer_row(root)
@@ -345,6 +345,7 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
         if self.config is not None:
             self.config.provider_editor_selected_tab = index
             _cfgsave.save_soon(self)
+        self._sync_analytics_tab()
 
     def _build_header_row(self, layout: QVBoxLayout) -> None:
         """Icon + provider name (with a small status dot beside it, consistent
@@ -425,13 +426,6 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
         self._action_refresh_btn.clicked.connect(self._on_action_refresh_clicked)
         row.addWidget(self._action_refresh_btn)
 
-        self._action_analyze_btn = QPushButton("Analyze")
-        _icon_utils.set_button_icon(self._action_analyze_btn, "analyze")
-        self._action_analyze_btn.setToolTip("Analyze source overlap and content")
-        _theme.style(self._action_analyze_btn, "PANEL_BTN")
-        self._action_analyze_btn.clicked.connect(self._on_action_analyze_clicked)
-        row.addWidget(self._action_analyze_btn)
-
         # Reuses the pre-Wave-7 "_epg_refresh_btn" name (relocated here from the
         # EPG group; see the class docstring) — its enabled-state is still
         # computed by _update_epg_refresh_btn_state() in provider_editor_tabs.py.
@@ -456,10 +450,6 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
     def _on_action_refresh_clicked(self) -> None:
         if self._provider_id:
             self.refresh_requested.emit(self._provider_id)
-
-    def _on_action_analyze_clicked(self) -> None:
-        if self._provider_id:
-            self.analyze_requested.emit(self._provider_id)
 
     def _on_action_epg_clicked(self) -> None:
         if self._provider_id:
@@ -629,6 +619,7 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
         # Prompt if there are unsaved changes?  Keep simple for now.
         self._provider_id = provider_id
         self._pending_account_info = None
+        self._sync_analytics_tab()
 
         session = self.db.get_session()
         self._loading = True
@@ -975,8 +966,7 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
                   self._username_input, self._password_input, self._refresh_combo,
                   self._force_adult_check, self._url_list, self._new_url_input,
                   self._refresh_acct_btn, self._test_btn,
-                  self._action_refresh_btn, self._action_analyze_btn,
-                  self._action_toggle_btn]:
+                  self._action_refresh_btn, self._action_toggle_btn]:
             w.setEnabled(enabled)
         # The action bar's Refresh Guide button has its own gating (EPG
         # on + has URL) — _update_epg_refresh_btn_state, called from
