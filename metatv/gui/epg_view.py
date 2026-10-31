@@ -152,6 +152,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         # channel_db_ids carrying a globally-excluded content_type tag (AI Generated,
         # AI Voiceover). Resolved off-thread in _fetch_on_now; dropped in _render_on_now.
         self._on_now_excluded_ct_ids: set[str] = set()
+        self._on_now_exempt_ids: set[str] = set()
 
         # Cached data for tabs
         self._on_now_programs: list[EpgProgramDB] = []

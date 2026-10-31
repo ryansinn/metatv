@@ -147,6 +147,7 @@ def _make_render_host(config=None) -> SimpleNamespace:
     host._channel_title_map = {}
     host._channel_region_map = {}   # read by the render loop's global-exclusion fallback
     host._on_now_excluded_ct_ids = set()  # content-provenance drop set (resolved in _fetch_on_now)
+    host._on_now_exempt_ids = set()
 
     # REC-2: no recording by default — a test seeds a fake progress() list to
     # exercise the recording/scheduled indicator, and _host() to exercise the
@@ -835,3 +836,27 @@ def _rec_icon_is(item, column: int, role: str, colour: str) -> bool:
     from metatv.gui import icon_utils
     return (item.icon(column).pixmap(16, 16).toImage()
             == icon_utils.role_icon(role, colour).pixmap(16, 16).toImage())
+
+
+def test_render_on_now_keeps_an_excluded_prefix_heard_in_another_language(qapp):
+    """Ledger D69: an NL channel under an NL exclusion whose measured audio is
+    English stays in On now, as it does in the channel list; its unmeasured
+    NL sibling is still hidden."""
+    host = _make_render_host(_minimal_config(global_filter_excluded_prefixes=["NL"]))
+    for cid in ("heard", "guess"):
+        host._channel_prefix_map[cid] = "NL"
+        host._channel_title_map[cid] = f"Channel {cid}"
+        host._channel_name_map[cid] = f"NL - Channel {cid}"
+    host._on_now_exempt_ids = {"heard"}
+
+    host._render_on_now([_FakeProgram(channel_db_id="heard", title="Film"),
+                         _FakeProgram(channel_db_id="guess", title="Film")])
+
+    tree = host.on_now_list
+    shown = [tree.topLevelItem(g).child(i).text(1)
+             for g in range(tree.topLevelItemCount())
+             for i in range(tree.topLevelItem(g).childCount())]
+    from tests.conftest import destroy_widget
+    destroy_widget(tree, host.on_now_search, host.on_now_stats,
+                   host.on_now_prefix_dropdown, host.on_now_type_dropdown)
+    assert shown == ["Channel heard"], f"On now showed {shown}"

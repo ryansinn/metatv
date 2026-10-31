@@ -765,6 +765,7 @@ def test_render_on_now_bolds_show_column_for_watchlist_match(qapp):
     host._channel_title_map = {"ch4": "NBC"}
     host._channel_region_map = {}
     host._on_now_excluded_ct_ids = set()
+    host._on_now_exempt_ids = set()
     host._apply_on_now_filters = lambda: None
     host._update_filler_btn_label = lambda: None
     host.recording_manager = SimpleNamespace(progress=lambda: [])

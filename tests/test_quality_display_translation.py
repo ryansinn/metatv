@@ -250,6 +250,7 @@ def _on_now_host():
     host._channel_title_map = {}
     host._channel_region_map = {}
     host._on_now_excluded_ct_ids = set()
+    host._on_now_exempt_ids = set()
     host.recording_manager = SimpleNamespace(progress=lambda: [])
     host._recording_progress_rows = lambda: host.recording_manager.progress()
     host._render_on_now = lambda progs: EpgView._render_on_now(host, progs)

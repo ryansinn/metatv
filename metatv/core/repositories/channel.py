@@ -83,6 +83,7 @@ _COUNT_WATCHED_IGNORED = frozenset({
     "collapse_variants",
     "excluded_channel_ids",
     "excluded_prefixes",
+    "exclusion_exempt_ids",
     "excluded_user_categories",
     "tag_excludes",
     "limit",
@@ -118,6 +119,7 @@ def _collapse_rank_penalty(
     excluded_prefixes=None,
     excluded_user_categories=None,
     excluded_channel_ids=None,
+    exclusion_exempt_ids=None,
     channel_cls,
 ):
     """A 3-tier penalty for how good an ambassador a row is for its title.
@@ -154,6 +156,12 @@ def _collapse_rank_penalty(
     region" rule, so negating it here keeps one definition of excluded rather
     than growing a second that can drift from the Python pass it is mirroring.
 
+    ``exclusion_exempt_ids`` are the copies whose measured audio contradicts
+    their excluded prefix (``StreamInfoRepository.prefix_exempt_ids``). The
+    caller's Python pass keeps them, so the election must rank them as kept
+    too — else an exempt copy ranks 2 beside a truly-dropped sibling, loses on
+    quality, and the title vanishes (ledger D69).
+
     Returns None when nothing is excluded, so the caller adds no rank term at
     all and the SQL is byte-for-byte what it was.
     """
@@ -166,7 +174,8 @@ def _collapse_rank_penalty(
         # NOT(keep) == excluded, by the twin's own definition — so the
         # "language wins over region" rule stays owned by one function.
         drop.append(
-            _not(channel_exclusion_criterion(set(excluded_prefixes), channel_cls))
+            _not(channel_exclusion_criterion(
+                set(excluded_prefixes), channel_cls, keep_ids=exclusion_exempt_ids))
         )
     if excluded_user_categories:
         drop.append(channel_cls.user_category.in_(list(excluded_user_categories)))
@@ -335,6 +344,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                 excluded_prefixes: Optional[Set[str]] = None,
                 excluded_user_categories: Optional[Set[str]] = None,
                 excluded_channel_ids: Optional[Set[str]] = None,
+                exclusion_exempt_ids: Optional[Set[str]] = None,
                 include_raw: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
@@ -411,6 +421,9 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                 representative slot — it simply isn't a candidate, so the best
                 *visible* variant always wins.  Default False — existing
                 callers/behaviour unchanged.
+            exclusion_exempt_ids: Copies the caller's exclusion pass keeps
+                despite an excluded prefix (``StreamInfoRepository.prefix_exempt_ids``);
+                with ``collapse_variants`` they rank as visible in the election.
             include_raw: Eagerly load ``raw_data`` instead of deferring it
                 (see below) — True only for a caller that reads ``.raw_data``.
 
@@ -482,6 +495,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                     "excluded_prefixes": excluded_prefixes,
                     "excluded_user_categories": excluded_user_categories,
                     "excluded_channel_ids": excluded_channel_ids,
+                    "exclusion_exempt_ids": exclusion_exempt_ids,
                 },
             )
 
