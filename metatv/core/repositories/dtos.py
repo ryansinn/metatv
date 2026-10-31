@@ -461,6 +461,31 @@ class PlaybackSummaryDTO:
 
 
 @dataclass(frozen=True)
+class ViewingDTO:
+    """What you have actually watched from one source (Source Analytics).
+
+    Titles and plays come from the per-channel history (``play_count`` /
+    ``last_played``), which predates play recording; ``seconds_watched`` comes
+    from ``playback_events`` and only covers plays since that started.
+    """
+    titles: int                                   # distinct titles played (content_key)
+    plays: int
+    last_played: datetime | None                  # UTC-naive
+    by_media: dict[str, int]                      # media_type -> titles played
+    top: tuple[tuple[str, int], ...]              # (title, plays), most played first
+    seconds_watched: int
+    watched_since: datetime | None                # first recorded play, None when none
+
+
+@dataclass(frozen=True)
+class CatalogueMixDTO:
+    """Titles per region on one source, largest first (Source Analytics)."""
+    regions: tuple[tuple[str, int], ...]          # (region code, titles)
+    unknown: int                                  # titles with no detected region
+    total: int
+
+
+@dataclass(frozen=True)
 class PrefixStatDTO:
     """Unrecognized prefix token with count and sample channel names."""
     prefix: str

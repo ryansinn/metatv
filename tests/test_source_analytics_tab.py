@@ -193,14 +193,85 @@ def test_playback_section_with_nothing_recorded(qapp, file_db):
 
 
 def test_sections_follow_the_approved_order(qapp, file_db):
-    """Q2: Only here · Shared · Playback · Server addresses · Catalogue & guide · Prefixes."""
+    """Q2 order, with What you watch second: is the source worth keeping, answered first."""
     _seed(file_db)
     ed = _analytics(qapp, file_db)
     try:
         tab = ed._analytics_tab
         order = sorted(tab._sections(), key=lambda sec: sec.mapTo(tab, sec.rect().topLeft()).y())
         assert [sec.title.text() for sec in order] == [
-            "Only on TREX", "Shared with your other sources", "Playback", "Server addresses",
+            "Only on TREX", "What you watch here", "Shared with your other sources", "Playback",
+            "Server addresses",
             "Catalogue & guide", "Unrecognized prefixes"]
+    finally:
+        destroy_widget(ed)
+
+
+def _play(db, provider_id, key, plays, *, title=None, media="movie", region=None, last=None):
+    """One channel on *provider_id* with a play history."""
+    from metatv.core.database import ChannelDB
+    with db.session_scope() as s:
+        s.add(ChannelDB(id=str(uuid.uuid4()), source_id=str(uuid.uuid4()), provider_id=provider_id,
+                        name=title or key, detected_title=title, media_type=media, content_key=key,
+                        detected_region=region, play_count=plays, last_played=last))
+
+
+def test_what_you_watch_names_titles_plays_and_the_most_played(qapp, file_db):
+    _seed(file_db)
+    _play(file_db, "trex", "fut", 12, title="Futurama", media="series",
+          last=datetime(2026, 10, 30, 9, 0))
+    _play(file_db, "trex", "fut", 7, title="Futurama", media="series")   # a second row, same title
+    _play(file_db, "trex", "ac", 5, title="Altered Carbon & Co", media="series")
+    _play(file_db, "trex", "ib", 2, title="Innocent Blood")
+    _play(file_db, "trex", "low", 1, title="Least")
+    _play(file_db, "prosat", "other", 50, title="Not TREX")
+    from metatv.core.repositories import RepositoryFactory
+    with file_db.session_scope() as s:
+        repo = RepositoryFactory(s).playback_events
+        event = repo.record(provider_id="trex", channel_id="c", title="t", outcome="started",
+                            started_at=datetime(2026, 10, 31, 9, 0))
+        repo.update(event, seconds_watched=5400)
+    ed = _analytics(qapp, file_db)
+    try:
+        viewing = ed._analytics_tab._viewing
+        texts = _texts(viewing)
+        assert "4 (2 films · 2 series)" in texts                 # titles, not rows
+        assert "27" in texts                                     # plays, ProSat's excluded
+        assert any(t.startswith("1.5 h since") for t in texts)
+        most = next(t for t in texts if t.startswith("Most played"))
+        assert most.index("Futurama (19)") < most.index("Altered Carbon &amp; Co (5)") \
+            < most.index("Innocent Blood (2)")
+        assert "Least" not in most                               # top three only
+        assert viewing.subtitle.text().startswith("last played ")
+    finally:
+        destroy_widget(ed)
+
+
+def test_what_you_watch_with_nothing_played(qapp, file_db):
+    _seed(file_db)
+    ed = _analytics(qapp, file_db)
+    try:
+        assert "Nothing played from this source yet." in _texts(ed._analytics_tab._viewing)
+    finally:
+        destroy_widget(ed)
+
+
+def test_region_bars_paint_each_regions_share(qapp, file_db):
+    """TREX's seeded 20 films have no region; add 30 French and 10 German: FR 50%, DE ~17%."""
+    _seed(file_db)
+    for i in range(30):
+        _play(file_db, "trex", f"fr{i}", 0, region="FR")
+    for i in range(10):
+        _play(file_db, "trex", f"de{i}", 0, region="DE")
+    ed = _analytics(qapp, file_db)
+    try:
+        cat = ed._analytics_tab._catalogue
+        texts = _texts(cat)
+        assert "50%" in texts and "17%" in texts
+        assert any("20 titles with no region" in t for t in texts)
+        bars = [b for b in cat.findChildren(ProgressBar) if b.isVisible()]
+        assert len(bars) == 2
+        assert _painted_fraction(bars[0]) == pytest.approx(0.50, abs=0.04)
+        assert _painted_fraction(bars[1]) == pytest.approx(1 / 6, abs=0.04)
     finally:
         destroy_widget(ed)
