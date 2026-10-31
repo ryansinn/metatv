@@ -35,9 +35,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from PyQt6.QtWidgets import (
-    QLabel, QPushButton, QSizePolicy, QWidget, QHBoxLayout, QVBoxLayout,
+    QAbstractItemView, QApplication, QLabel, QPushButton, QSizePolicy, QToolTip,
+    QWidget, QHBoxLayout, QVBoxLayout,
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import QEvent, QObject, Qt, QSize
 from PyQt6.QtGui import QColor, QPainter
 
 from metatv.core.quality_vocab import quality_display
@@ -57,6 +58,75 @@ class _ChipRow(QWidget):
     def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
         hint = super().sizeHint()
         return QSize(hint.width(), max(hint.height(), self.minimumHeight()))
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        # By the time a row is shown it sits in its host view, whoever wrapped it.
+        _watch_host_view(self)
+        super().showEvent(event)
+
+
+class _ElidedTitleTips(QObject):
+    """Viewport filter: an elided row title leads its item's tooltip.
+
+    A row is mouse-transparent (see :func:`build_chip_row`), so the title
+    label's own full-title tooltip never receives the hover — the view answers
+    with the ITEM's tooltip, which in most sections says why the row is there
+    and never names it. So when the hovered row's title is elided, this
+    prepends the full title to whatever the item (or row) would have shown.
+    Installed by the row itself on every view that hosts one, so no section
+    has to remember to opt in (ledger WIP-6).
+    """
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt override)
+        if event.type() != QEvent.Type.ToolTip:
+            return False
+        view = obj.parent()
+        if not isinstance(view, QAbstractItemView):
+            return False
+        index = view.indexAt(event.pos())
+        host = view.indexWidget(index) if index.isValid() else None
+        text = elided_title_tooltip(host, index.data(Qt.ItemDataRole.ToolTipRole)) if host else None
+        if text is None:
+            return False
+        QToolTip.showText(event.globalPos(), text, obj, view.visualRect(index))
+        return True
+
+
+_TIPS: _ElidedTitleTips | None = None
+
+
+def _watch_host_view(row: QWidget) -> None:
+    """Install the shared tooltip filter on the view whose viewport holds *row*."""
+    global _TIPS
+    w = row.parentWidget()
+    while w is not None:
+        view = w.parentWidget()
+        if isinstance(view, QAbstractItemView) and view.viewport() is w:
+            if not w.property("_elided_title_tips"):
+                if _TIPS is None:
+                    _TIPS = _ElidedTitleTips(QApplication.instance())
+                w.installEventFilter(_TIPS)
+                w.setProperty("_elided_title_tips", True)
+            return
+        w = view
+
+
+def elided_title_tooltip(host: QWidget, item_tip) -> str | None:
+    """The tooltip for a hovered row widget, or ``None`` to leave it to Qt.
+
+    ``host`` is the item's widget (a row, or a section's wrapper around one).
+    Returns the full title over the item's own tooltip — falling back to the
+    row's — when the title is elided. Un-elided, the row's own tooltip when the
+    item has none (the transparent row can never show it itself), else ``None``.
+    """
+    label = row_title_label(host)
+    row_tip = host.toolTip() or next(
+        (r.toolTip() for r in host.findChildren(_ChipRow) if r.toolTip()), "")
+    tip = str(item_tip or "") or row_tip
+    if label is None or not label.is_elided():
+        return row_tip if row_tip and not item_tip else None
+    title = label.text()
+    return f"{title}\n{tip}" if tip and not tip.startswith(title) else title
 
 
 def row_min_height() -> int:
@@ -194,6 +264,10 @@ class MiddleElideLabel(QLabel):
 
     def text(self) -> str:
         return self._full
+
+    def is_elided(self) -> bool:
+        """True when the painted text is shortened — the full text needs more width."""
+        return self.fontMetrics().horizontalAdvance(self._full) > self.width()
 
     def minimumSizeHint(self) -> QSize:
         h = super().minimumSizeHint().height()
