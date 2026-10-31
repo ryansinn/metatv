@@ -161,14 +161,16 @@ class TestGuideCoverage:
         mine = [_make_channel(session, "a", f"live {i}") for i in range(4)]
         theirs = _make_channel(session, "b", "other live")
         start = datetime(2026, 11, 1, 20, 0)
-        rows = [("b", mine[0].id), ("a", mine[1].id), ("a", theirs.id)]   # a's feed also matches b
+        # Channel side: mine[0], mine[1], mine[2] have a guide → 3 of 4. Counting a's
+        # FEED instead would say 2 (mine[1] + b's channel) — the definition this rejects.
+        rows = [("b", mine[0].id), ("a", mine[1].id), ("b", mine[2].id), ("a", theirs.id)]
         for feed, cid in rows:
             session.add(EpgProgramDB(provider_id=feed, channel_epg_id="x", channel_db_id=cid,
                                      channel_name="x", title="Show", start_time=start,
                                      stop_time=start + timedelta(hours=1)))
         session.commit()
         g = RepositoryFactory(session).analytics.guide_coverage("a")
-        assert (g.live_channels, g.with_guide) == (4, 2)
+        assert (g.live_channels, g.with_guide) == (4, 3)
         assert g.guide_until == start + timedelta(hours=1)
 
 
