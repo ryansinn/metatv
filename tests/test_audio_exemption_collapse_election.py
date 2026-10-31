@@ -152,3 +152,49 @@ def test_guard_sees_the_call_sites():
         text = path.read_text(encoding="utf-8")
         calls += text.count("channel_exclusion_criterion(") + text.count("is_channel_excluded(")
     assert calls >= 5
+
+
+# ── Page N must query the same axes as page 1 ────────────────────────────────
+#
+# Found while fixing D69: the pagination query had drifted from page 1's
+# ``_axes`` — no keyword exclusions, no hide-watched, no facets_hiding_untagged
+# — so scrolling past page 1 brought back rows page 1 hid.
+
+def _get_all_kwargs(func_name: str) -> set[str]:
+    src = (_ROOT / "gui" / "main_window_channels.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == func_name)
+    keys: set[str] = set()
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "dict"):
+            keys |= {k.arg for k in node.keywords if k.arg}
+    return keys
+
+
+def _page_n_main_branch_kwargs() -> set[str]:
+    src = (_ROOT / "gui" / "main_window_channels.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "_query_channels_page")
+    calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute) and n.func.attr == "get_all"]
+    widest = max(calls, key=lambda c: len(c.keywords))
+    return {k.arg for k in widest.keywords if k.arg}
+
+
+def test_page_n_queries_every_axis_page_one_does():
+    page_one = _get_all_kwargs("_query_channels")
+    assert len(page_one) > 20, "fixture: page 1's _axes dict was not found"
+    missing = page_one - _page_n_main_branch_kwargs() - {"limit"}
+    assert not missing, f"page N's query omits axes page 1 applies: {sorted(missing)}"
+
+
+def test_page_n_hides_watched_like_page_one(repos):
+    watched = _copy(repos, "EN - Watched", "EN", "HD")
+    repos.session.query(ChannelDB).filter_by(id=watched).update(
+        {"content_key": "w|movie|", "watch_completed": True})
+    repos.session.commit()
+    params = channel_query_params(hide_watched=True)
+    dtos, _has_more, _raw = _ChannelListMixin._query_channels_page(
+        repos, params, offset=0, page_size=50)
+    assert watched not in {d.id for d in dtos}

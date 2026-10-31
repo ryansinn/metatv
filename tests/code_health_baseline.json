@@ -16,7 +16,7 @@
     "metatv/gui/epg_watchlist_mixin.py": 1135,
     "metatv/gui/global_filter_dialog.py": 1729,
     "metatv/gui/main_window.py": 2477,
-    "metatv/gui/main_window_channels.py": 2206,
+    "metatv/gui/main_window_channels.py": 2209,
     "metatv/gui/main_window_favorites.py": 1093,
     "metatv/gui/main_window_streaming.py": 1408,
     "metatv/gui/provider_editor.py": 1038,

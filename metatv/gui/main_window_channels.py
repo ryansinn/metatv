@@ -2044,9 +2044,8 @@ class _ChannelListMixin:
         providers_to_exclude = repos.providers.get_hidden_provider_ids()
         _id_filter = query_params.get('context_id_filter')
         id_filter_show_all = bool(_id_filter) and bool(query_params.get('id_filter_show_all'))
-        # Global Exclusions, as page 1: skipped under any reveal (exclusions bypass,
-        # id-filter show-all, hidden_only), resolved before the query so page N elects
-        # representatives exactly as page 1 does.
+        # Global Exclusions as page 1: skipped under any reveal (bypass, id-filter show-all,
+        # hidden_only); resolved before the query so page N elects as page 1 does.
         apply_exclusions = not (hidden_only or downloaded_only or id_filter_show_all
                                 or query_params.get('bypass_global_exclusions'))
         _excl_sets, _rank_excl = (_resolve_exclusions(repos, query_params)
@@ -2110,7 +2109,11 @@ class _ChannelListMixin:
                 channel_ids=query_params.get('context_id_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=query_params.get('tag_includes'),
+                facets_hiding_untagged=query_params.get('facets_hiding_untagged'),
+                exclude_watched=query_params.get('hide_watched', False),
                 collapse_variants=query_params.get('collapse_variants', False),
+                excluded_keywords=(None if query_params.get('bypass_keyword_exclusions')
+                                   else (query_params.get('excluded_keywords') or None)),
                 dead_signal_streak_floor=query_params.get('dead_signal_streak_floor'),
                 limit=page_size,
                 offset=offset,
