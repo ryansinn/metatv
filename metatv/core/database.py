@@ -6,45 +6,20 @@ import json as _json
 import threading
 import time
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, Index, JSON, text, event, ForeignKey, UniqueConstraint
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.types import TypeDecorator
 from loguru import logger
 
 from metatv.core import channel_index_policy, write_gate
 from metatv.core.schema_migrations import COLUMN_MIGRATIONS
 from metatv.core.tag_source import TagSourceType, FeederList
 
-Base = declarative_base()
+from metatv.core.db_base import Base, JSONEncoded
 
 #: Log a main-thread commit that blocked at least this long. 100ms is the point
 #: a click stops feeling instant; below it the wait is invisible and logging it
 #: would only add noise.
 SLOW_MAIN_THREAD_COMMIT_MS = 100.0
-
-
-class JSONEncoded(TypeDecorator):
-    """Stores any JSON-serializable Python object as TEXT in SQLite.
-
-    Use instead of Column(JSON) to avoid SQLite JSON-type quirks. Assign plain
-    Python objects (lists, dicts, None); serialization is transparent.
-
-        cast = Column(JSONEncoded)   # assign/read a Python list — no json.dumps/loads needed
-    """
-
-    impl = Text
-    cache_ok = True
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return None
-        return _json.dumps(value)
-
-    def process_result_value(self, value, dialect):
-        if value is None:
-            return None
-        return _json.loads(value)
 
 
 class ChannelDB(Base):
@@ -783,28 +758,6 @@ class StreamRetryDB(Base):
     reliability_state = Column(String, default="ok")  # "ok"|"flagged"|"degraded"|"dead"
 
 
-class StreamInfoDB(Base):
-    """What a channel's stream actually contained when it was last measured
-    (PLAYED-1): resolution, fps, codecs, bitrates, audio and subtitle tracks.
-
-    One row per channel, replaced on every measurement. ``info`` is the plain
-    record ``core.stream_info.parse_mpv`` builds; ``source`` is ``"played"``
-    (captured while the user watched) or ``"probe"`` (fetched on request).
-    Only played channels get a row, and played channels are engaged, so a
-    provider delete never orphans one (it keeps engaged channels).
-    """
-    __tablename__ = "stream_info"
-
-    channel_id  = Column(String, primary_key=True)
-    info        = Column(JSONEncoded, nullable=False)
-    source      = Column(String, nullable=False, default="played")
-    measured_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    #: The name of what was measured. Providers recycle stream ids, so when a
-    #: catalog refresh finds a different name under this id the measurement is
-    #: about another title and is discarded (StreamInfoRepository.invalidate_changed).
-    fingerprint = Column(String)
-
-
 class TagDB(Base):
     """Canonical tag — a (type, value) pair in a known namespace.
 
@@ -1384,3 +1337,10 @@ class Database:
             logger.exception("Database: PRAGMA optimize failed on close")
         self.engine.dispose()
         logger.info("Database connection closed")
+
+
+# Models defined beside their concern, registered on ``Base`` by this import
+# (so ``create_all`` sees them) and re-exported for the existing import sites.
+from metatv.core.playback_models import PlaybackEventDB, PlaybackWeeklyDB, StreamInfoDB  # noqa: E402
+
+__all__ = ["Base", "Database", "JSONEncoded", "PlaybackEventDB", "PlaybackWeeklyDB", "StreamInfoDB"]

@@ -8,8 +8,11 @@ Sections, in the order that answers the question first:
 * **Shared with your other sources** — per source and media type, how much of
   this source another one also carries, plus a redundancy hint (Q10).
   Disabled and expired sources stay in, greyed and labelled (Q9).
-* **Catalogue & guide** — titles per type, guide coverage, how far ahead (Q4).
+* **Playback** — how plays from this source went: started, never loaded,
+  refused at the connection limit, dropped mid-play, time to picture (Q6).
+  Recorded by ``gui/playback_start_watch.py`` from 2026-10-31 on.
 * **Server addresses** — each address's recent success rate and speed.
+* **Catalogue & guide** — titles per type, guide coverage, how far ahead (Q4).
 * **Unrecognized prefixes** — the parser's worklist, last because it is a
   worklist rather than a verdict (Q2).
 
@@ -31,12 +34,13 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.repositories.dtos import (
-    GuideCoverageDTO, PrefixStatDTO, ServerAddressDTO, TitleOverlapDTO,
+    GuideCoverageDTO, PlaybackSummaryDTO, PrefixStatDTO, ServerAddressDTO, TitleOverlapDTO,
 )
 from metatv.core.time_display import short_date_text
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import MiddleElideLabel
+from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.progress_paint import ProgressBar
 from metatv.gui.tool_view import clear_layout, show_loading, show_panel_error
 
@@ -156,17 +160,18 @@ class SourceAnalyticsTab(QWidget):
         self._expires: datetime | None = None
         # One token per query type (the seam's contract): these load together
         # and must not supersede one another; a provider switch bumps them all.
-        self._tokens = {k: [0] for k in ("overlap", "catalogue", "addresses", "prefixes")}
+        self._tokens = {k: [0] for k in ("overlap", "playback", "catalogue", "addresses", "prefixes")}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(14)
         self._only = _Section("Only on this source")
         self._shared = _Section("Shared with your other sources")
-        self._catalogue = _Section("Catalogue & guide")
+        self._playback = _Section("Playback")
         self._addresses = _Section("Server addresses")
+        self._catalogue = _Section("Catalogue & guide")
         self._prefixes = _Section("Unrecognized prefixes")
-        sections = (self._only, self._shared, self._catalogue, self._addresses, self._prefixes)
+        sections = self._sections()
         for i, section in enumerate(sections):
             if i:
                 line = QFrame()
@@ -189,7 +194,7 @@ class SourceAnalyticsTab(QWidget):
         self.deactivate()
         self._provider_id = provider_id
         self._catalogue_counts = self._guide = self._expires = None
-        sections = (self._only, self._shared, self._catalogue, self._addresses, self._prefixes)
+        sections = self._sections()
         self._empty.setVisible(provider_id is None)
         for section in sections:
             section.setVisible(provider_id is not None)
@@ -207,6 +212,9 @@ class SourceAnalyticsTab(QWidget):
                                                 show_panel_error(self._shared.body, e),
                                                 show_panel_error(self._catalogue.body, e)))
         pid = provider_id
+        self._run_query(lambda repos: repos.playback_events.summary(pid), self._on_playback,
+                        token_ref=self._tokens["playback"],
+                        on_error=lambda e: show_panel_error(self._playback.body, e))
         self._run_query(lambda repos: (repos.analytics.guide_coverage(pid),
                                        repos.providers.get_by_id(pid).account_exp_date),
                         self._on_catalogue, token_ref=self._tokens["catalogue"],
@@ -217,6 +225,11 @@ class SourceAnalyticsTab(QWidget):
         self._run_query(lambda repos: repos.analytics.unrecognized_prefixes(pid), self._on_prefixes,
                         token_ref=self._tokens["prefixes"],
                         on_error=lambda e: show_panel_error(self._prefixes.body, e))
+
+    def _sections(self) -> tuple[_Section, ...]:
+        """In the order that answers "is this source worth keeping" first (Q2)."""
+        return (self._only, self._shared, self._playback, self._addresses,
+                self._catalogue, self._prefixes)
 
     def deactivate(self) -> None:
         """Drop every in-flight result (tab left, source switched, editor closed)."""
@@ -307,6 +320,39 @@ class SourceAnalyticsTab(QWidget):
         else:
             days = (self._expires - datetime.now()).days
             self._catalogue.subtitle.setText("expired" if days < 0 else f"{days} days left")
+
+    def _on_playback(self, summary: PlaybackSummaryDTO) -> None:
+        clear_layout(self._playback.body)
+        if not summary.attempts:
+            self._playback.subtitle.setText("")
+            self._playback.text("Nothing recorded yet — plays from this source are counted "
+                                "from now on.")
+            return
+        self._playback.subtitle.setText(f"since {short_date_text(summary.since)}" if summary.since else "")
+        ttp = summary.median_time_to_picture_ms
+        facts = (
+            ("Plays started", f"{summary.started:,} of {summary.attempts:,} "
+                              f"({summary.started / summary.attempts:.0%})"),
+            ("Never loaded", f"{summary.never_started:,}"),
+            ("Refused — connections in use", f"{summary.refused:,}"),
+            ("Dropped while playing", f"{summary.dropped:,}"),
+            ("Time to picture", f"{ttp / 1000:.1f} s typical" if ttp else "not recorded yet"),
+        )
+        holder = QWidget()
+        flow = FlowLayout(holder, h_spacing=24, v_spacing=6)
+        flow.setContentsMargins(0, 0, 0, 0)
+        for caption, value in facts:
+            pair = QWidget()
+            row = QHBoxLayout(pair)
+            row.setContentsMargins(0, 0, 0, 0)
+            name = QLabel(caption)
+            _theme.style(name, "META_HINT")
+            row.addWidget(name)
+            figure = QLabel(value)
+            _theme.style(figure, "FIELD_LABEL")
+            row.addWidget(figure)
+            flow.addWidget(pair)
+        self._playback.body.addWidget(holder)
 
     def _on_addresses(self, addresses: list[ServerAddressDTO]) -> None:
         clear_layout(self._addresses.body)

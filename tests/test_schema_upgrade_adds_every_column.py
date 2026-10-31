@@ -198,6 +198,12 @@ ORIGINAL_COLUMNS: dict[str, frozenset[str]] = {
         "stream_url",
     }),
     "stream_info": frozenset({"channel_id", "info", "source", "measured_at"}),
+    # Created whole by create_all() (2026-10-31, Source Analytics Q6/Q8) — no ALTERs.
+    "playback_events": frozenset({
+        "id", "provider_id", "channel_id", "title", "started_at", "outcome",
+        "http_code", "time_to_picture_ms", "seconds_watched",
+    }),
+    "playback_weekly": frozenset({"provider_id", "week_start", "outcome", "count"}),
     "tags": frozenset({
         "id", "type", "value",
     }),

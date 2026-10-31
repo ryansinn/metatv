@@ -198,6 +198,9 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
             that have no identity to hand (episode playback), which still get
             the counters reset — they simply report nothing if it fails.
     """
+    # Q6: the previous play's outcome row gets how long it ran — before the
+    # resets below erase what it played. This play's row is written at its verdict.
+    _finish_recorded_play(host)
     prev = host.__dict__.get("_health_attempt")
     if (prev is not None and not host.__dict__.get("_health_ever_progressed")
             and not host.__dict__.get("_health_reported")):
@@ -217,6 +220,8 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
     # BEFORE this timestamp belongs to a previous file in the same long-lived
     # mpv instance, not this play; see _http_refusal.
     host._health_armed_at = time.monotonic()
+    host._health_armed_utc = datetime.utcnow()
+    host._health_first_pos = None
     # PLAY-15: the previous play's DB-write closure, if any, is dropped here —
     # it never progressed, so it must never be recorded.
     host._pending_play_record = None
@@ -324,6 +329,9 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
     if isinstance(time_pos, (int, float)):
         if last is not None and time_pos > last + _PROGRESS_EPSILON:
             host._health_ever_progressed = True
+            host._health_first_pos = float(last)
+            _record_outcome(host, "started", time_to_picture_ms=int(
+                (time.monotonic() - host.__dict__.get("_health_armed_at", time.monotonic())) * 1000))
             host._health_last_time_pos = float(time_pos)
             host._health_last_duration = (
                 float(duration) if isinstance(duration, (int, float)) else None)
@@ -437,7 +445,9 @@ def on_player_gone(host: Any, exit_reason: "str | None" = None) -> bool:
             last_pos = host.__dict__.get("_health_last_time_pos")
             if dropped_mid_stream(last_pos, host.__dict__.get("_health_last_duration")):
                 _report_dropped_mid_stream(host, last_pos, exit_reason)
+                _finish_recorded_play(host, outcome="dropped")
                 return True
+        _finish_recorded_play(host)
         return False               # it played, then the user closed it (or genuinely finished)
     if (host.__dict__.get("_health_ever_played")
             and exit_reason not in STREAM_EXIT_REASONS):
@@ -489,6 +499,8 @@ def on_idle_tick(host: Any) -> bool:
     """
     ticks = host.__dict__.get("_health_idle_ticks", 0) + 1
     host._health_idle_ticks = ticks
+    if host.__dict__.get("_health_ever_progressed"):
+        _finish_recorded_play(host)        # it played, and now nothing is loaded
 
     if ticks == FAILED_AFTER_TICKS and not host.__dict__.get("_health_ever_played"):
         _report_never_started(host)
@@ -562,6 +574,8 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
     resume = getattr(attempt, "resume_seconds", 0) or 0
     stream_exit = exited and exit_reason in STREAM_EXIT_REASONS
     refused = _http_refusal(host, attempt)
+    _record_outcome(host, "refused" if refused in CONNECTION_LIMIT_STATUSES else "never_started",
+                    http_code=refused)
     if exited:
         logger.warning("playback never started for {!r} — the player exited "
                        "without playing anything (reason={!r}, resume={}s, refused={})",
@@ -633,6 +647,58 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
     except Exception:                                    # pragma: no cover
         logger.exception("could not record the failed play")
     return True
+
+
+def _write_play(host: Any, query_fn, on_result=None) -> None:
+    """Run a play-outcome write off the UI thread through the host's async seam.
+
+    Never raises: losing a statistic must not break the poll that noticed it.
+    """
+    try:
+        host._run_query(query_fn, on_result or (lambda _result: None), commit=True,
+                        on_error=lambda exc: logger.warning("could not record the play outcome: {}", exc))
+    except Exception:
+        logger.exception("could not record the play outcome")
+
+
+def _record_outcome(host: Any, outcome: str, *, http_code: "int | None" = None,
+                    time_to_picture_ms: "int | None" = None) -> None:
+    """Record this play's verdict for Source Analytics (Q6), once per play.
+
+    A play first reported never-started (FROZEN/OPENING) that then advances
+    turns its row into ``started`` rather than adding a second one. Plays with
+    no identity or no source (episodes launched without one) are not recorded.
+    """
+    attempt = host.__dict__.get("_health_attempt")
+    if attempt is None or not attempt.provider_id:
+        return
+    event_id = host.__dict__.get("_health_event_id")
+    if event_id is not None:
+        _write_play(host, lambda repos: repos.playback_events.update(
+            event_id, outcome=outcome, time_to_picture_ms=time_to_picture_ms))
+        return
+    started_at = host.__dict__.get("_health_armed_utc") or datetime.utcnow()
+
+    def _store(new_id: int) -> None:
+        if host.__dict__.get("_health_attempt") is attempt:   # still the same play
+            host._health_event_id = new_id
+
+    _write_play(host, lambda repos: repos.playback_events.record(
+        provider_id=attempt.provider_id, channel_id=attempt.channel_id,
+        title=attempt.channel_name, outcome=outcome, started_at=started_at,
+        http_code=http_code, time_to_picture_ms=time_to_picture_ms), _store)
+
+
+def _finish_recorded_play(host: Any, outcome: "str | None" = None) -> None:
+    """A recorded play ended: store how long it ran (and ``dropped`` if cut). Once."""
+    event_id = host.__dict__.pop("_health_event_id", None)
+    if event_id is None or not host.__dict__.get("_health_ever_progressed"):
+        return
+    first = host.__dict__.get("_health_first_pos")
+    last = host.__dict__.get("_health_last_time_pos")
+    watched = int(last - first) if first is not None and last is not None else None
+    _write_play(host, lambda repos: repos.playback_events.update(
+        event_id, outcome=outcome, seconds_watched=watched))
 
 
 def start_polling(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:

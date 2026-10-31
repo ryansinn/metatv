@@ -162,3 +162,45 @@ def test_switching_tabs_away_drops_in_flight_results(qapp, file_db):
         assert all(after[k] > before[k] for k in before)
     finally:
         destroy_widget(ed)
+
+
+def test_playback_section_reports_recorded_outcomes(qapp, file_db):
+    _seed(file_db)
+    from metatv.core.repositories import RepositoryFactory
+    when = datetime(2026, 10, 20, 21, 0)
+    with file_db.session_scope() as s:
+        repo = RepositoryFactory(s).playback_events
+        for outcome, ttp in [("started", 1200), ("started", 2400), ("refused", None), ("dropped", 1800)]:
+            repo.record(provider_id="trex", channel_id="c", title="t", outcome=outcome,
+                        started_at=when, time_to_picture_ms=ttp)
+    ed = _analytics(qapp, file_db)
+    try:
+        texts = _texts(ed._analytics_tab._playback)
+        assert "3 of 4 (75%)" in texts          # plays started (dropped counts as started)
+        assert "1.8 s typical" in texts
+        assert ed._analytics_tab._playback.subtitle.text().startswith("since ")
+    finally:
+        destroy_widget(ed)
+
+
+def test_playback_section_with_nothing_recorded(qapp, file_db):
+    _seed(file_db)
+    ed = _analytics(qapp, file_db)
+    try:
+        assert any("Nothing recorded yet" in t for t in _texts(ed._analytics_tab._playback))
+    finally:
+        destroy_widget(ed)
+
+
+def test_sections_follow_the_approved_order(qapp, file_db):
+    """Q2: Only here · Shared · Playback · Server addresses · Catalogue & guide · Prefixes."""
+    _seed(file_db)
+    ed = _analytics(qapp, file_db)
+    try:
+        tab = ed._analytics_tab
+        order = sorted(tab._sections(), key=lambda sec: sec.mapTo(tab, sec.rect().topLeft()).y())
+        assert [sec.title.text() for sec in order] == [
+            "Only on TREX", "Shared with your other sources", "Playback", "Server addresses",
+            "Catalogue & guide", "Unrecognized prefixes"]
+    finally:
+        destroy_widget(ed)
