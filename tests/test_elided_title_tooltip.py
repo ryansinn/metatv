@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from PyQt6.QtCore import QEvent, QPoint, QSize
+from PyQt6.QtCore import QEvent, QSize
 from PyQt6.QtGui import QHelpEvent
 from PyQt6.QtWidgets import (
     QApplication, QHBoxLayout, QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QWidget,
