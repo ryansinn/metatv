@@ -240,16 +240,13 @@ def is_channel_excluded(
 def global_exclusion_set(config) -> set[str]:
     """Return the user's active Global-Exclusion prefix/region codes.
 
-    The single builder of the *excluded* set that :func:`is_channel_excluded`
-    (and its SQL/ORM twin) consume.  Empty when Global Exclusions are paused
-    (``global_filter_paused``); otherwise the union of
+    The single builder of the *excluded* set :func:`is_channel_excluded` (and its
+    SQL twin) consume. Empty when paused (``global_filter_paused``); else the union of
 
-    - the category blacklist expanded to leaf prefix codes via
-      :func:`get_active_category_filter` (**not** ``config.
-      global_filter_excluded_categories`` read raw — that skips the group→leaf
-      expansion, so checked groups would exclude nothing; see
-      ``recipe_view._tag_scope`` for why this routing matters), and
-    - the explicit "Block [PREFIX]" codes via :func:`get_excluded_prefixes`.
+    - the category blacklist expanded to leaf codes via :func:`get_active_category_filter`
+      (**not** ``config.global_filter_excluded_categories`` read raw — that skips the
+      group→leaf expansion, so checked groups would exclude nothing), and
+    - the "Block [PREFIX]" codes (:func:`get_excluded_prefixes`) and finished-event prefixes.
 
     Args:
         config: The application ``Config`` (read on the main thread; the engine
@@ -264,7 +261,9 @@ def global_exclusion_set(config) -> set[str]:
     if getattr(config, "global_filter_paused", False):
         return set()
     cat_excluded, _ = get_active_category_filter(config)
-    return set(cat_excluded or []) | get_excluded_prefixes(config)
+    from metatv.core.content_labels import ENDED_EVENT_PREFIXES
+    ended = set() if getattr(config, "show_ended_events", False) else ENDED_EVENT_PREFIXES
+    return set(cat_excluded or []) | get_excluded_prefixes(config) | ended
 
 
 def channel_exclusion_criterion(excluded: set[str], channel_cls, keep_ids=None):

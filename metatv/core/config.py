@@ -1271,6 +1271,9 @@ class Config(BaseModel):
     #: Hide events whose last check found no picture. Off by default: seeing
     #: the scale of the problem is the point until the check has earned trust.
     hide_dead_events: bool = False
+    #: Show events the provider has marked finished ("End |", "ENDED |").
+    #: Off by default: a game that is over is not something to watch.
+    show_ended_events: bool = Field(default=False, json_schema_extra=PROFILE)
     #: Consecutive dead checks before an event is treated as dead for hiding.
     #: One bad check is a bad moment; three across different sittings is a fact.
     signal_dead_streak_to_hide: int = 2

@@ -841,16 +841,17 @@ class GlobalFilterDialog(QDialog):
         scroll.setWidget(inner)
         vl.addWidget(scroll)
 
-        # ── Include uncategorized ──────────────────────────────────────────────
+        # ── Untagged content and finished events (blacklist: checked = hidden) ─
         self._uncat_cb = QCheckBox("Hide content with no category label")
-        # Blacklist semantics: checked = hide untagged (include_uncategorized = False)
         self._uncat_cb.setChecked(not self._config.global_filter_include_uncategorized)
-        _theme.style_fn(self._uncat_cb, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT}; padding-top: 4px;")
-        self._uncat_cb.setToolTip(
-            "Content with no detected category prefix is usually general/English-language.\n"
-            "Leave unchecked to keep it visible (the safe default)."
-        )
-        vl.addWidget(self._uncat_cb)
+        self._uncat_cb.setToolTip("Content with no category prefix is usually general/English-language.\nLeave unchecked to keep it visible (the safe default).")
+        self._ended_cb = QCheckBox("Hide finished events")
+        self._ended_cb.setChecked(not self._config.show_ended_events)
+        self._ended_cb.setToolTip("Events the source marks as over — names starting \"End |\" or \"ENDED |\".\n"
+                                  "Sources keep listing a game after it ends; there is nothing left to watch.")
+        for cb in (self._uncat_cb, self._ended_cb):
+            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT}; padding-top: 4px;")
+            vl.addWidget(cb)
 
         # ── Globally hidden categories (explicit blocklist) ────────────────────
         self._hidden_row = QWidget()
@@ -1696,19 +1697,18 @@ class GlobalFilterDialog(QDialog):
         excluded_prefixes = [p for s in self._sections for p in s.checked_prefixes()]
         self._config.global_filter_excluded_categories = excluded_prefixes
 
-        # "Hide untagged" checkbox: checked = hide = include_uncategorized False
+        # Checked = hidden: untagged content, finished events.
         self._config.global_filter_include_uncategorized = not self._uncat_cb.isChecked()
+        self._config.show_ended_events = not self._ended_cb.isChecked()
 
         # Named content-type group exclusions
         excluded_types = [name for name, cb, _row in self._content_type_rows if cb.isChecked()]
         self._config.global_filter_excluded_content_types = excluded_types
 
         # Individually excluded source_category labels from the expandable Other section
-        if self._content_type_other_section:
-            excluded_raw = self._content_type_other_section.checked_labels()
-        else:
-            excluded_raw = list(getattr(self._config, "global_filter_excluded_source_categories", []))
-        self._config.global_filter_excluded_source_categories = excluded_raw
+        self._config.global_filter_excluded_source_categories = (
+            self._content_type_other_section.checked_labels() if self._content_type_other_section
+            else list(getattr(self._config, "global_filter_excluded_source_categories", [])))
 
         # User-defined category exclusions
         self._config.global_filter_excluded_user_categories = [

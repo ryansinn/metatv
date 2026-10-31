@@ -15,6 +15,11 @@ from metatv.core.tag_confidence import CONF_DENOTED, CONF_STRONG_PRIOR
 # read by classify_trailing_metadata, step 7 of parse_channel_name, and by ingestion.
 AGE_RATING_PREFIXES: frozenset[str] = frozenset({"18+", "16+", "12+"})
 
+#: Name prefixes a provider puts on an event that has already finished
+#: ("End | Pacers vs. Bucks", "ENDED | AZTEC VS. GALLUP"). The listing stays up
+#: after the game; Settings → "Show finished events" decides whether it shows.
+ENDED_EVENT_PREFIXES: frozenset[str] = frozenset({"END", "ENDED"})
+
 
 
 #: Spelled-out league names prefixing a dash-matchup fixture's team A — "MAJOR
