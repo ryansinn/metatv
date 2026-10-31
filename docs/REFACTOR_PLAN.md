@@ -14,76 +14,8 @@ a code comment citing a row ID that is not here refers to this file's git histor
 
 ## Ready to build
 
-### D69 — the audio exemption is missing from two exclusion sites (class)
-
-**The rule.** A Global Exclusion hides a copy by its prefix (`NL`, `GR`, …). When a stream
-scan proves the copy's audio is NOT the language that prefix denotes, the measurement wins
-and the copy stays visible: `StreamInfoRepository.prefix_exempt_ids(excluded_prefixes)`
-(`core/repositories/stream_info.py:33`, predicate `stream_info.audio_contradicts_prefix`)
-returns those ids, and the exclusion predicates take them as `keep_ids`
-(`filter_utils.channel_exclusion_criterion`, `filter_utils.py:270–324`;
-`channel_visibility.apply` via `VisibilityScope.exclusion_exempt_ids`;
-`main_window_channels._apply_python_exclusions` via `heard_keep`).
-
-**Owner's case, 2026-10-21 — works today.** `4814008b-…_2173106` "NL - DIGGER (2026)": NL is
-excluded, the probe heard English (`stream_info` row, source `probe`). Checked read-only on
-the owner's library: hidden without the exemption, visible with it, also tagged
-`language=English`. 100 copies are exempted this way on that library.
-
-**The class — predicate:** a call to `channel_exclusion_criterion` /
-`is_channel_excluded` (or a builder of one) that is not handed the exempt ids. Census
-2026-10-21, `grep -rn "channel_exclusion_criterion(\|is_channel_excluded(" metatv`: 5 call
-sites, 3 pass the exemption, **2 do not**:
-
-1. **Collapse election — the real bug.** `repositories/channel.py:116`
-   `_collapse_rank_penalty` builds tier 2 ("will be dropped") as
-   `NOT channel_exclusion_criterion(excluded_prefixes, cls)` at `:169` with no `keep_ids`,
-   so an exempt copy ranks as dropped. When a title's other copies are also under excluded
-   prefixes, both rank 2 and quality/id decides; if the non-exempt copy wins, the Python
-   pass (which DOES honour `heard_keep`) drops it, and **the title vanishes although its
-   English-audio copy should show** — the same failure the penalty was written to stop
-   (18,486 titles, see the comment at `channel.py:576–597`). DIGGER escapes only because
-   its other copy ("|GR| Digger", ProSat) is on an expired source and is removed by the
-   WHERE before the collapse.
-2. **EPG "On now".** `gui/epg_on_now_mixin.py:398` calls
-   `is_channel_excluded(category, region, global_excluded)` with no exemption. Live
-   channels get `stream_info` from playback and signal checks, so an excluded-prefix live
-   channel measured in another language is hidden here and shown in the channel list —
-   two surfaces disagree. Lower stakes; same fix shape.
-
-**The fix.**
-- `_collapse_rank_penalty`: add `exempt_ids=None` and pass it as
-  `keep_ids=exempt_ids` to the `channel_exclusion_criterion` at `:169`, so an exempt copy
-  ranks 0/1 like any visible copy. Thread it through `exclusion_sets`: the caller
-  `get_all(... collapse_variants=True)` builds that dict at `channel.py:481`; add an
-  `exclusion_exempt_ids` parameter to `get_all` beside `excluded_prefixes`.
-- `gui/main_window_channels.py:574–584`: `heard_keep` is already computed at `:574`,
-  before `_rank_excl` is built at `:578` — add `'exclusion_exempt_ids': heard_keep or None`
-  to `_rank_excl` and pass it into `get_all`.
-- Find every other `get_all(..., collapse_variants=True)` caller that passes
-  `excluded_prefixes` (Discover workers, search) and give it the same id set, resolved from
-  `prefix_exempt_ids` in the same session — never a second definition of "exempt".
-- `epg_on_now_mixin.py:398`: resolve `prefix_exempt_ids(global_excluded)` once where
-  `global_excluded` is resolved (off-thread, with the region map) and skip
-  `is_channel_excluded` for those channel ids, as `main_window_metadata.py:350–358` does.
-- **Close the class with a guard** rather than trusting the census: an AST test that
-  fails when `channel_exclusion_criterion(...)` is called without `keep_ids=` or
-  `is_channel_excluded(...)` is called outside a branch that consults an exempt set,
-  with an explicit allow-list for sites that cannot see stream data. (GUARD-6 is the
-  worked example.)
-
-**Test that proves it** (real `Database` on `tmp_path`): one title (shared
-`content_key`), two copies — copy A prefix `NL` with a `stream_info` probe of English audio,
-copy B prefix `GR` with no probe, B with the higher quality so it would win on quality;
-exclude `NL` and `GR`; `get_all(collapse_variants=True)` through the real load path must
-return the title, represented by A. Must FAIL on today's code (B elected, then dropped).
-For the EPG site: an excluded-prefix live channel with English `stream_info` appears in On
-now.
-
-**Why it matters.** "A verified fact beats the guess" is a rule the owner relies on
-(an English film filed under a Dutch category), and today it holds on one surface and
-silently fails on the collapsed list and On now — a title disappears with no row, count
-or hint explaining why.
+Nothing. (D69 — measured audio missing from the collapse election and EPG On now —
+closed with a guard by its PR; WIP-6 below is the next buildable row.)
 
 ## Work in progress — designed, waiting on the owner's answers
 
