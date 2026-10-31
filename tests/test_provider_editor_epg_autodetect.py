@@ -22,7 +22,8 @@ import pytest
 from PyQt6.QtWidgets import QCheckBox, QLineEdit, QPushButton, QLabel
 
 from metatv.core.epg_manager import EpgManager
-from metatv.gui.provider_editor import ProviderEditorView, _CopyableLabel
+from metatv.gui.provider_editor import ProviderEditorView
+from metatv.gui.url_row_widget import _ClickToCopyLabel
 
 
 @pytest.fixture(scope="module")
@@ -66,7 +67,7 @@ def _editor(qapp) -> ProviderEditorView:
     ed._epg_url_override_input = QLineEdit()
     ed._epg_refresh_btn = QPushButton()
     ed._epg_detect_badge = QLabel()
-    ed._epg_autodetected_lbl = _CopyableLabel()
+    ed._epg_autodetected_lbl = _ClickToCopyLabel()
     return ed
 
 
@@ -79,7 +80,7 @@ def test_autodetected_url_enables_refresh_without_override(qapp):
 
     assert "AUTODETECTED" in ed._epg_detect_badge.text()
     assert ed._epg_autodetected_lbl.isVisible()
-    assert ed._epg_autodetected_lbl._full_text == ed._loaded_epg_url
+    assert ed._epg_autodetected_lbl.text() == ed._loaded_epg_url
     assert ed._epg_refresh_btn.isEnabled()          # enabled despite empty override
 
 
@@ -112,8 +113,8 @@ def test_disabled_epg_keeps_refresh_off_even_with_url(qapp):
 
 def test_copyable_label_copies_full_url(qapp):
     from PyQt6.QtWidgets import QApplication
-    lbl = _CopyableLabel()
+    lbl = _ClickToCopyLabel()
     url = "http://host/xmltv.php?username=u&password=p"
     lbl.set_url(url)
-    lbl._copy()
+    lbl.copy()
     assert QApplication.clipboard().text() == url

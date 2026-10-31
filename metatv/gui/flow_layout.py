@@ -43,7 +43,8 @@ class FlowLayout(QLayout):
     def __init__(self, parent=None, spacing: int = 8, *,
                  h_spacing: "int | None" = None,
                  v_spacing: "int | None" = None,
-                 prefer_one_line: bool = False) -> None:
+                 prefer_one_line: bool = False,
+                 align_right: bool = False) -> None:
         super().__init__(parent)
         self._items: list[QWidgetItem] = []
         # A box layout hands a child its sizeHint() when there is room. Ours is
@@ -51,6 +52,9 @@ class FlowLayout(QLayout):
         # even with space to spare. prefer_one_line asks for the one-line width
         # instead; the minimum is unchanged, so it still wraps when squeezed.
         self._prefer_one_line = prefer_one_line
+        # Each wrapped line hugs the right edge — an action bar that wraps
+        # instead of clipping, without losing its right alignment.
+        self._align_right = align_right
         # A chip row usually wants tighter rows than columns, so the two are
         # separable; `spacing` sets both unless one is named explicitly.
         self._h_spacing = spacing if h_spacing is None else h_spacing
@@ -137,6 +141,16 @@ class FlowLayout(QLayout):
         x = effective.x()
         y = effective.y()
         row_height = 0
+        line: list[tuple] = []   # (item, x, hint) placed on the current line
+
+        def place_line() -> None:
+            if dry_run or not line:
+                return
+            _, last_x, last_hint = line[-1]
+            shift = (effective.right() + 1 - (last_x + last_hint.width())) if self._align_right else 0
+            for it, ix, ih in line:
+                it.setGeometry(QRect(QPoint(ix + max(0, shift), y), ih))
+            line.clear()
 
         for item in self._items:
             widget = item.widget()
@@ -159,16 +173,16 @@ class FlowLayout(QLayout):
             # Wrap to next row if item doesn't fit. right() is the LAST pixel
             # inside, so an item ending exactly on it still fits.
             if x + w - 1 > effective.right() and x > effective.x():
+                place_line()
                 x = effective.x()
                 y += row_height + self._v_spacing
                 row_height = 0
 
-            if not dry_run:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-
+            line.append((item, x, hint))
             x += w + self._h_spacing
             row_height = max(row_height, h)
 
+        place_line()
         return y + row_height - rect.y() + margins.bottom()
 
 

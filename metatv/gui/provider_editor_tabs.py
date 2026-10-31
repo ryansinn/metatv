@@ -48,6 +48,7 @@ from metatv.core.time_display import date_text
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
+from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.url_row_widget import URLRowWidget
 
 
@@ -71,10 +72,29 @@ _EPG_FRESHNESS_DEFAULT_TIP = (
 )
 
 
+class _VerticalScroll(QScrollArea):
+    """A vertical-only scroll area that reports its content's minimum WIDTH.
+
+    With the horizontal bar off, a plain ``QScrollArea`` advertises a small
+    minimum whatever its content needs, so the editor claimed it fit in less
+    room than it did and the overflow was silently clipped at the right edge
+    ("Refresh Guid…") — the mechanism behind WIP-2. Reporting the content's
+    width makes the editor's minimum honest; the content itself wraps.
+    """
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        hint = super().minimumSizeHint()
+        content = self.widget()
+        if content is None:
+            return hint
+        frame = 2 * self.frameWidth()
+        return QSize(max(hint.width(), content.minimumSizeHint().width() + frame), hint.height())
+
+
 def _wrap_scroll(content: QWidget) -> QScrollArea:
     """Wrap *content* in a borderless, resizable vertical-scroll area — one
     shared helper so all three tabs scroll identically."""
-    scroll = QScrollArea()
+    scroll = _VerticalScroll()
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QFrame.Shape.NoFrame)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -128,61 +148,57 @@ class _ProviderEditorTabsMixin:
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(8)
 
-        # Status row
-        status_row = QHBoxLayout()
+        # Status and dates rows: two "label value" pairs each, wrapping as
+        # pairs when narrow rather than setting the editor's minimum width.
         self._acct_status_lbl = QLabel("—")
         _theme.style(self._acct_status_lbl, "FIELD_LABEL")
-        status_row.addWidget(QLabel("Status:"))
-        status_row.addWidget(self._acct_status_lbl)
-        status_row.addSpacing(24)
-        status_row.addWidget(QLabel("Connections:"))
         self._acct_cons_lbl = QLabel("—")
         _theme.style(self._acct_cons_lbl, "FIELD_LABEL")
-        status_row.addWidget(self._acct_cons_lbl)
-        status_row.addStretch()
-        group_layout.addLayout(status_row)
-
-        # Dates row
-        dates_row = QHBoxLayout()
-        dates_row.addWidget(QLabel("Created:"))
         self._acct_created_lbl = QLabel("—")
-        dates_row.addWidget(self._acct_created_lbl)
-        dates_row.addSpacing(24)
-        dates_row.addWidget(QLabel("Expires:"))
         self._acct_exp_lbl = QLabel("—")
-        dates_row.addWidget(self._acct_exp_lbl)
-        dates_row.addStretch()
-        group_layout.addLayout(dates_row)
+        for pairs in ((("Status:", self._acct_status_lbl), ("Connections:", self._acct_cons_lbl)),
+                      (("Created:", self._acct_created_lbl), ("Expires:", self._acct_exp_lbl))):
+            row = QWidget()
+            flow = FlowLayout(row, h_spacing=24, v_spacing=8)
+            flow.setContentsMargins(0, 0, 0, 0)
+            for caption, value in pairs:
+                pair = QWidget()
+                pl = QHBoxLayout(pair)
+                pl.setContentsMargins(0, 0, 0, 0)
+                pl.addWidget(QLabel(caption))
+                pl.addWidget(value)
+                flow.addWidget(pair)
+            group_layout.addWidget(row)
 
         # EPG guide status — surfaces a provider feed serving stale/out-of-date data
         # (so a blank EPG view reads as "provider's guide is stale", not "our bug").
         # Mirrored by _epg_freshness_lbl in the Settings tab's EPG group — both are
         # kept in sync by _set_epg_status_label (single source of truth).
         epg_row = QHBoxLayout()
-        epg_row.addWidget(QLabel("EPG guide:"))
+        epg_row.addWidget(QLabel("EPG guide:"), 0, Qt.AlignmentFlag.AlignTop)
         self._acct_epg_lbl = QLabel("—")
-        epg_row.addWidget(self._acct_epg_lbl)
-        epg_row.addStretch()
+        self._acct_epg_lbl.setWordWrap(True)   # the freshness line runs long
+        epg_row.addWidget(self._acct_epg_lbl, 1)
         group_layout.addLayout(epg_row)
 
-        # Remaining bar
+        # Remaining: the words, then the bar on its own line — side by side
+        # they set the editor's minimum width.
         bar_row = QHBoxLayout()
         bar_row.addWidget(QLabel("Remaining:"))
         self._acct_remaining_lbl = QLabel("—")
-        bar_row.addWidget(self._acct_remaining_lbl)
+        bar_row.addWidget(self._acct_remaining_lbl, 1)
+        group_layout.addLayout(bar_row)
         self._acct_progress = QProgressBar()
         self._acct_progress.setTextVisible(False)
         self._acct_progress.setRange(0, 100)
         self._acct_progress.setValue(0)
         self._acct_progress.hide()
-        bar_row.addWidget(self._acct_progress, 1)
-        group_layout.addLayout(bar_row)
+        group_layout.addWidget(self._acct_progress)
 
         # Refresh button
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._refresh_acct_btn = QPushButton("↻  Refresh Account Info")
-        self._refresh_acct_btn.setFixedWidth(180)
         self._refresh_acct_btn.clicked.connect(self._fetch_account_info)
         btn_row.addWidget(self._refresh_acct_btn)
         group_layout.addLayout(btn_row)
@@ -345,6 +361,7 @@ class _ProviderEditorTabsMixin:
         group = QGroupBox("Credentials")
         form = QFormLayout(group)
         form.setSpacing(8)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         un_row = QHBoxLayout()
         self._username_input = QLineEdit()
@@ -391,12 +408,16 @@ class _ProviderEditorTabsMixin:
     # ── DNS / URLs (Connection tab) ─────────────────────────────────────── #
 
     def _build_urls_group(self, layout: QVBoxLayout) -> None:
-        group = QGroupBox(
-            "DNS / URLs  (most reliable first — ⤒ = try first next "
-            "connection; click a URL to copy)"
-        )
+        # A group title neither wraps nor elides, so the sentence that used to
+        # live in it set the whole editor's minimum width; it is a hint now.
+        group = QGroupBox("DNS / URLs")
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(6)
+        hint = QLabel("Most reliable first. ⤒ tries an address first on the next "
+                      "connection; click an address to copy it.")
+        hint.setWordWrap(True)
+        _theme.style(hint, "SECTION_HINT")
+        group_layout.addWidget(hint)
 
         # Input ABOVE the list it feeds (#16). A tester pasted URLs into the big
         # list below because that is the obvious target — the list is large and
@@ -508,6 +529,7 @@ class _ProviderEditorTabsMixin:
         group = QGroupBox("General")
         form = QFormLayout(group)
         form.setSpacing(8)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self._refresh_combo = QComboBox()
         self._refresh_combo.addItems(["Manual", "On App Launch", "Daily", "Weekly", "Every 30 Days"])
@@ -523,10 +545,13 @@ class _ProviderEditorTabsMixin:
         )
         form.addRow("Auto-refresh:", self._refresh_combo)
 
-        self._force_adult_check = QCheckBox("Mark all channels from this source as adult content")
+        # Short: the row label already says "Adult content", and a checkbox's
+        # text cannot wrap, so the long form set the editor's minimum width.
+        self._force_adult_check = QCheckBox("Treat every channel as adult")
         self._force_adult_check.setToolTip(
-            "Enable when this source doesn't tag channels with adult flags "
-            "but you want the adult content filter to apply to it."
+            "Mark all channels from this source as adult content. Enable when "
+            "this source doesn't tag channels with adult flags but you want the "
+            "adult content filter to apply to it."
         )
         form.addRow("Adult content:", self._force_adult_check)
 
@@ -544,7 +569,7 @@ class _ProviderEditorTabsMixin:
         the group's job is configuration, not the one-off action.
         """
         from metatv.core.epg_utils import EPG_INTERVAL_CHOICES
-        from metatv.gui.provider_editor import _CopyableLabel
+        from metatv.gui.url_row_widget import _ClickToCopyLabel
 
         group = QGroupBox("TV guide (EPG)")
         outer = QVBoxLayout(group)
@@ -565,6 +590,7 @@ class _ProviderEditorTabsMixin:
         form = QFormLayout(form_host)
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(8)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         outer.addWidget(form_host)
 
         # 1. Enable / disable — with a right-aligned auto-detect status badge
@@ -579,17 +605,18 @@ class _ProviderEditorTabsMixin:
         )
         self._epg_detect_badge = QLabel("")
         self._epg_detect_badge.setTextFormat(Qt.TextFormat.RichText)
-        enable_row = QHBoxLayout()
+        # The badge follows the checkbox and wraps under it when narrow.
+        enable_container = QWidget()
+        enable_row = FlowLayout(enable_container, spacing=12)
         enable_row.setContentsMargins(0, 0, 0, 0)
         enable_row.addWidget(self._epg_enabled_check)
-        enable_row.addStretch()
         enable_row.addWidget(self._epg_detect_badge)
-        enable_container = QWidget()
-        enable_container.setLayout(enable_row)
         form.addRow("Enable EPG:", enable_container)
 
         # 1b. Auto-detected URL (smaller, click-to-copy). Hidden when none detected.
-        self._epg_autodetected_lbl = _CopyableLabel()
+        self._epg_autodetected_lbl = _ClickToCopyLabel()
+        _theme.style_fn(self._epg_autodetected_lbl,
+                        lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_TEXT};")
         self._epg_autodetected_lbl.setVisible(False)
         form.addRow("", self._epg_autodetected_lbl)
 
@@ -607,6 +634,7 @@ class _ProviderEditorTabsMixin:
         # 3. Freshness label (read-only) — mirrors Account Info's "EPG guide:" line
         # (self._acct_epg_lbl); both are kept in sync by _set_epg_status_label.
         self._epg_freshness_lbl = QLabel("—")
+        self._epg_freshness_lbl.setWordWrap(True)
         self._epg_freshness_lbl.setToolTip(
             "Current state of the downloaded EPG guide data for this source."
         )

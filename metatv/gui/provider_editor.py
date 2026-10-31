@@ -25,9 +25,9 @@ import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget,
 )
 from loguru import logger
@@ -39,13 +39,13 @@ from metatv.gui.connection_diagnosis_text import _DIAGNOSIS_TEXT
 from metatv.core.provider_probe import ProbeResult, ProbeStatus, probe_all_urls
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import provider_url_to_raw
-from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.provider_editor_new import _NewSourceMixin
 from metatv.gui.provider_editor_tabs import _ProviderEditorTabsMixin
 from metatv.gui import deferred_config_save as _cfgsave
+from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.source_label import source_label
 
 def _format_probe_message(result: ProbeResult) -> str:
@@ -253,40 +253,6 @@ class ProviderIconPicker(QWidget):
         self._btn.setEnabled(enabled)
 
 
-class _CopyableLabel(QLabel):
-    """A small label whose full text copies to the clipboard on click.
-
-    Used for the auto-detected EPG URL: shown small/muted, copies the URL to the
-    clipboard when clicked and flashes brief "Copied!" feedback. The displayed
-    text may be elided; the untruncated value to copy is held in ``_full_text``.
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._full_text = ""
-        _theme.style_fn(self, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_TEXT};")
-        cursor_affordance.set_clickable(self)
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-
-    def set_url(self, url: str) -> None:
-        self._full_text = url or ""
-        self.setText(url or "")
-        self.setToolTip("Click to copy" if url else "")
-
-    def _copy(self) -> None:
-        """Copy the full URL to the clipboard and flash brief feedback."""
-        if not self._full_text:
-            return
-        QApplication.clipboard().setText(self._full_text)
-        shown = self.text()
-        self.setText(f"{_icon_utils.role_html('notification_success')}&nbsp;Copied!")
-        QTimer.singleShot(1200, lambda: self.setText(shown))
-
-    def mousePressEvent(self, event):
-        self._copy()
-        super().mousePressEvent(event)
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Main editor view (center panel)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -446,9 +412,11 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
 
     def _build_action_bar(self, layout: QVBoxLayout) -> None:
         """Right-aligned text+icon action buttons, directly beneath the
-        provider-name row: the four actions the left-column row used to own."""
-        row = QHBoxLayout()
-        row.addStretch()
+        provider-name row: the four actions the left-column row used to own.
+        They wrap rather than set the editor's minimum width (WIP-2)."""
+        bar = QWidget()
+        row = FlowLayout(bar, spacing=6, align_right=True)
+        row.setContentsMargins(0, 0, 0, 0)
 
         self._action_refresh_btn = QPushButton("Refresh")
         _icon_utils.set_button_icon(self._action_refresh_btn, "refresh")
@@ -483,7 +451,7 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
         self._action_toggle_btn.clicked.connect(self._on_action_toggle_clicked)
         row.addWidget(self._action_toggle_btn)
 
-        layout.addLayout(row)
+        layout.addWidget(bar)
 
     def _on_action_refresh_clicked(self) -> None:
         if self._provider_id:
@@ -549,7 +517,9 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
         """Delete / Test Connection / Discard / Save Changes — OUTSIDE the
         QTabWidget, always visible regardless of the selected tab. Delete sits
         far left with a visual divider separating it from the Test/Discard/Save
-        group (destructive action must never read as adjacent to Save)."""
+        group (destructive action must never read as adjacent to Save). That
+        group wraps, right-aligned, instead of setting the editor's minimum
+        width — no fixed button widths (WIP-2)."""
         self._footer = QWidget()
         _theme.style(self._footer, "PROVIDER_FOOTER")
         row = QHBoxLayout(self._footer)
@@ -570,25 +540,25 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
         _theme.style(self._footer_divider, "FOOTER_DIVIDER")
         row.addWidget(self._footer_divider)
 
-        row.addStretch()
+        actions = QWidget()
+        actions_flow = FlowLayout(actions, spacing=6, align_right=True)
+        actions_flow.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(actions, 1)
 
         self._test_btn = QPushButton("Test Connection")
-        self._test_btn.setFixedWidth(140)
         self._test_btn.setToolTip("Click to re-test connection")
         self._test_btn.clicked.connect(self._test_connection)
-        row.addWidget(self._test_btn)
+        actions_flow.addWidget(self._test_btn)
 
         self._discard_btn = QPushButton("Discard")
-        self._discard_btn.setFixedWidth(80)
         self._discard_btn.clicked.connect(self._discard)
-        row.addWidget(self._discard_btn)
+        actions_flow.addWidget(self._discard_btn)
 
         self._save_btn = QPushButton("Save Changes")
-        self._save_btn.setMinimumWidth(120)
         self._save_btn.setDefault(True)
         _theme.style(self._save_btn, "SAVE_BTN")
         self._save_btn.clicked.connect(self._save)
-        row.addWidget(self._save_btn)
+        actions_flow.addWidget(self._save_btn)
 
         # Why every address failed, and what to do about it. Hidden until a
         # test actually fails everywhere — a permanently-present empty panel
