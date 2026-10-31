@@ -204,6 +204,7 @@ ORIGINAL_COLUMNS: dict[str, frozenset[str]] = {
         "http_code", "time_to_picture_ms", "seconds_watched",
     }),
     "playback_weekly": frozenset({"provider_id", "week_start", "outcome", "count"}),
+    "connection_holds": frozenset({"id", "provider_id", "refused_at", "seconds"}),
     "tags": frozenset({
         "id", "type", "value",
     }),

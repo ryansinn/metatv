@@ -446,6 +446,16 @@ class ServerAddressDTO:
 
 
 @dataclass(frozen=True)
+class ConnectionsDTO:
+    """A source's connection limit and how long it holds them after a refusal (Q7)."""
+    limit: int | None                 # max_connections from the last account check
+    in_use: int | None                # active_cons at that check
+    waits: int                        # resolved connection waits recorded
+    median_seconds: int | None
+    longest_seconds: int | None
+
+
+@dataclass(frozen=True)
 class PlaybackSummaryDTO:
     """How plays from one source went, over the kept 90 days (Source Analytics Q6)."""
     since: datetime | None            # first kept play (UTC-naive), None when none recorded

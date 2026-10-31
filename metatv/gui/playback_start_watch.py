@@ -88,6 +88,7 @@ from metatv.core.stream_access import RECONNECT_DELAY_MAX_S
 from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS, last_http_error
 from metatv.core.stream_diagnostics import CONNECTION_LIMIT_STATUSES, connection_limit_detail
 from metatv.core.time_display import clock_text
+from metatv.gui import connection_wait
 
 #: How often the health probe runs. The two thresholds below are counted in
 #: these ticks, so they move together if this does.
@@ -198,6 +199,7 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
             that have no identity to hand (episode playback), which still get
             the counters reset — they simply report nothing if it fails.
     """
+    connection_wait.cancel(host)   # any new play supersedes a wait for a free connection
     # Q6: the previous play's outcome row gets how long it ran — before the
     # resets below erase what it played. This play's row is written at its verdict.
     _finish_recorded_play(host)
@@ -592,6 +594,8 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
         logger.warning(
             "playback never started for {!r} — mpv accepted the file and loaded "
             "nothing within {}s (refused={})", name, FAILED_AFTER_TICKS * 2, refused)
+    if refused in CONNECTION_LIMIT_STATUSES and connection_wait.begin(host, attempt):
+        return True   # Q7: a wait with Cancel replaces the failure toast and the retry entry
     try:
         status_text = (f"Nothing is playing: {name} — the source is at its connection limit"
                        if refused in CONNECTION_LIMIT_STATUSES else f"Nothing is playing: {name}")
