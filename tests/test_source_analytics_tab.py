@@ -156,9 +156,9 @@ def test_switching_tabs_away_drops_in_flight_results(qapp, file_db):
     _seed(file_db)
     ed = _analytics(qapp, file_db)
     try:
-        before = dict((k, v[0]) for k, v in ed._analytics_tab._tokens.items())
+        before = {k: v[0] for k, v in ed._analytics_tab._tokens.items()}
         ed._tabs.setCurrentIndex(0)
-        after = dict((k, v[0]) for k, v in ed._analytics_tab._tokens.items())
+        after = {k: v[0] for k, v in ed._analytics_tab._tokens.items()}
         assert all(after[k] > before[k] for k in before)
     finally:
         destroy_widget(ed)

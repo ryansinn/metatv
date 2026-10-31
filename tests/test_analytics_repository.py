@@ -177,8 +177,8 @@ class TestGuideCoverage:
 class TestServerAddresses:
     def test_recent_attempts_rank_best_first(self, session):
         prov = _make_provider(session, "a", "A")
-        attempt = lambda ok, ms=None: {"timestamp": "2026-10-30T10:00:00", "success": ok,
-                                       "response_time_ms": ms, "host_at_fault": True}
+        def attempt(ok, ms=None):
+            return {"timestamp": "2026-10-30T10:00:00", "success": ok, "response_time_ms": ms}
         prov.urls = [
             {"url": "http://slow.example:80", "success_count": 9, "failure_count": 1,
              "recent_attempts": [attempt(True, 3000), attempt(False)]},
