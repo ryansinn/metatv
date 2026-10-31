@@ -47,3 +47,19 @@ def subscription_color(exp_date: Optional[datetime], created_at: Optional[dateti
     else:
         return _theme.COLOR_ERR   # red — expiring very soon
 
+
+
+def source_status_dot(is_active: bool, is_expired: bool) -> tuple[str, str, str]:
+    """The one source-status dot: ``(icon role, colour token NAME, tooltip)``.
+
+    Expired is a red filled dot and wins over disabled; active is green; disabled
+    is a grey hollow dot — so the state reads by shape as well as colour. The
+    editor's name-row dot, the source rows and the Sources chip strip all draw
+    from this; it was hand-copied in two of them. The token is returned by NAME
+    so a caller that re-styles on a theme switch reads the live value.
+    """
+    if is_expired:
+        return "status_dot", "COLOR_ERR", "Subscription expired"
+    if is_active:
+        return "status_dot", "COLOR_OK", "Active"
+    return "inactive_dot", "COLOR_MUTED_2", "Disabled"
