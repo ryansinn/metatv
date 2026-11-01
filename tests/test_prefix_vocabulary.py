@@ -122,7 +122,7 @@ def test_the_tab_shows_a_heading_per_type_in_order(qapp, file_db):
     from tests.conftest import destroy_widget
     _seed(file_db)
     ed = ProviderEditorView(file_db)
-    ed.resize(700, 1600)
+    ed.resize(1300, 1600)
     ed.show()
     ed._tabs.setCurrentWidget(ed._analytics_scroll)
     ed.load_provider("trex")
@@ -135,9 +135,12 @@ def test_the_tab_shows_a_heading_per_type_in_order(qapp, file_db):
         assert "ENDED" not in texts and "BLURAY-DE" not in texts
         headings = [lbl for lbl in labels if " · " in lbl.text()]
         assert [h.text() for h in headings] == ["Live channels · 1", "Films · 1", "Series · 2"]
-        # Each group's rows paint below its own heading and above the next one.
-        y = {lbl.text(): lbl.mapTo(section, lbl.rect().topLeft()).y() for lbl in labels}
-        pj_rows = sorted(lbl.mapTo(section, lbl.rect().topLeft()).y() for lbl in labels if lbl.text() == "PJ")
-        assert y["Live channels · 1"] < y["IN-PREM"] < y["Films · 1"] < pj_rows[0] < y["Series · 2"] < pj_rows[1]
+        # The types sit side by side, live → films → series, each row under its heading.
+        pos = {lbl.text(): lbl.mapTo(section, lbl.rect().topLeft()) for lbl in labels}
+        pj = sorted((lbl.mapTo(section, lbl.rect().topLeft()) for lbl in labels if lbl.text() == "PJ"),
+                    key=lambda p: p.x())
+        assert pos["Live channels · 1"].x() < pos["Films · 1"].x() < pos["Series · 2"].x()
+        assert pos["IN-PREM"].x() == pos["Live channels · 1"].x() and pos["IN-PREM"].y() > pos["Live channels · 1"].y()
+        assert pj[0].x() == pos["Films · 1"].x() and pj[1].x() == pos["Series · 2"].x()
     finally:
         destroy_widget(ed)

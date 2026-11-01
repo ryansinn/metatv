@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
-from PyQt6.QtWidgets import QLabel, QPushButton
+from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
 
 from metatv.gui.progress_paint import ProgressBar
 from tests.conftest import destroy_widget
@@ -55,10 +55,10 @@ def _seed(db):
         ch("prosat", "prosat-only")
 
 
-def _analytics(qapp, db, provider_id="trex"):
+def _analytics(qapp, db, provider_id="trex", width=700):
     from metatv.gui.provider_editor import ProviderEditorView
     ed = ProviderEditorView(db)
-    ed.resize(700, 900)
+    ed.resize(width, 900)
     ed.show()
     ed._tabs.setCurrentWidget(ed._analytics_scroll)
     ed.load_provider(provider_id)
@@ -83,12 +83,11 @@ def test_only_here_counts_and_browse_hands_over_the_ids(qapp, file_db):
     ed = _analytics(qapp, file_db)
     try:
         tab = ed._analytics_tab
-        assert tab._only.title.text() == "Only on TREX"
-        line = next(t for t in _texts(tab._only) if "no other source has these" in t)
-        assert "<b>1</b> films" in line, line          # film1 is only on TREX
+        only = tab._tiles["only"]
+        assert (only.figure.text(), only.caption.text()) == ("1", "titles only on TREX")  # film1
         got = []
         ed.browse_ids_requested.connect(lambda label, ids: got.append((label, ids)))
-        browse = next(b for b in tab._only.findChildren(QPushButton) if b.text() == "Browse them")
+        browse = next(b for b in only.findChildren(QPushButton) if b.text() == "Browse them")
         browse.click()
         assert got and got[0][0] == "Only on TREX" and len(got[0][1]) == 1
     finally:
@@ -101,9 +100,12 @@ def test_shared_bars_paint_the_share_and_grey_an_expired_source(qapp, file_db):
     try:
         shared = ed._analytics_tab._shared
         texts = _texts(shared)
-        assert "Shark (expired) · films" in texts, "a greyed row must also SAY why"
-        assert "19 of 20" in texts and "5 of 20" in texts
+        assert "Shark (expired)" in texts, "a greyed row must also SAY why"
+        assert "95%" in texts and "25%" in texts
+        tips = [w.toolTip() for w in shared.findChildren(QWidget) if w.toolTip()]
+        assert any("19 of this source's 20 films" in t for t in tips)
         bars = shared.findChildren(ProgressBar)
+        assert all(b.width() <= 60 for b in bars), "short bars, not page-wide tracks"
         fractions = sorted(round(_painted_fraction(b), 2) for b in bars)
         assert fractions[0] == pytest.approx(0.25, abs=0.04)   # ProSat 5 of 20
         assert fractions[-1] == pytest.approx(0.95, abs=0.04)  # Shark 19 of 20
@@ -112,8 +114,8 @@ def test_shared_bars_paint_the_share_and_grey_an_expired_source(qapp, file_db):
         from metatv.gui.token_color import to_qcolor
         top = max(bars, key=_painted_fraction).grab().toImage()
         assert top.pixelColor(1, top.height() // 2).name() == to_qcolor(_theme.COLOR_ACCENT).name()
-        shark = next(lbl for lbl in shared.findChildren(QLabel) if lbl.text() == "Shark (expired) · films")
-        prosat = next(lbl for lbl in shared.findChildren(QLabel) if lbl.text() == "ProSat · films")
+        shark = next(lbl for lbl in shared.findChildren(QLabel) if lbl.text() == "Shark (expired)")
+        prosat = next(lbl for lbl in shared.findChildren(QLabel) if lbl.text() == "ProSat")
         assert shark.palette().color(shark.foregroundRole()) != prosat.palette().color(prosat.foregroundRole())
     finally:
         destroy_widget(ed)
@@ -129,13 +131,14 @@ def test_redundancy_hint_at_ninety_five_percent(qapp, file_db):
         destroy_widget(ed)
 
 
-def test_catalogue_line_and_days_left(qapp, file_db):
+def test_catalogue_tiles_and_days_left(qapp, file_db):
     _seed(file_db)
     ed = _analytics(qapp, file_db)
     try:
-        cat = ed._analytics_tab._catalogue
-        assert cat.subtitle.text() == "27 days left"
-        assert any("<b>20</b> films" in t for t in _texts(cat))
+        tiles = ed._analytics_tab._tiles
+        assert (tiles["days"].figure.text(), tiles["days"].caption.text()) == ("27", "days left")
+        assert (tiles["movie"].figure.text(), tiles["movie"].caption.text()) == ("20", "films")
+        assert not tiles["live"].figure.text() or tiles["live"].figure.text() == "0"
     finally:
         destroy_widget(ed)
 
@@ -147,7 +150,8 @@ def test_a_new_unsaved_source_says_so(qapp, file_db):
         ed._tabs.setCurrentWidget(ed._analytics_scroll)
         ed.start_new_source()
         assert ed._analytics_tab._empty.isVisibleTo(ed._analytics_tab)
-        assert not ed._analytics_tab._only.isVisibleTo(ed._analytics_tab)
+        assert not ed._analytics_tab._tiles_box.isVisibleTo(ed._analytics_tab)
+        assert not ed._analytics_tab._viewing.isVisibleTo(ed._analytics_tab)
     finally:
         destroy_widget(ed)
 
@@ -176,7 +180,8 @@ def test_playback_section_reports_recorded_outcomes(qapp, file_db):
     ed = _analytics(qapp, file_db)
     try:
         texts = _texts(ed._analytics_tab._playback)
-        assert "3 of 4 (75%)" in texts          # plays started (dropped counts as started)
+        started = ed._analytics_tab._tiles["started"]        # dropped counts as started
+        assert (started.figure.text(), started.caption.text()) == ("75%", "of plays started (3 of 4)")
         assert "1.8 s typical" in texts
         assert ed._analytics_tab._playback.subtitle.text().startswith("since ")
     finally:
@@ -192,17 +197,45 @@ def test_playback_section_with_nothing_recorded(qapp, file_db):
         destroy_widget(ed)
 
 
-def test_sections_follow_the_approved_order(qapp, file_db):
-    """Q2 order, with What you watch second: is the source worth keeping, answered first."""
+def _top_left(tab, widget):
+    point = widget.mapTo(tab, widget.rect().topLeft())
+    return point.x(), point.y()
+
+
+def test_wide_cards_sit_in_two_columns_under_the_tiles(qapp, file_db):
+    """Re-layout 2026-10-31 (Q13/Q14): tiles first; left column what the source
+    carries, right column how it behaves; regions and prefixes full width below."""
     _seed(file_db)
-    ed = _analytics(qapp, file_db)
+    ed = _analytics(qapp, file_db, width=1300)
     try:
         tab = ed._analytics_tab
-        order = sorted(tab._sections(), key=lambda sec: sec.mapTo(tab, sec.rect().topLeft()).y())
-        assert [sec.title.text() for sec in order] == [
-            "Only on TREX", "What you watch here", "Shared with your other sources", "Playback", "Connections",
-            "Server addresses",
-            "Catalogue & guide", "Unrecognized prefixes"]
+        left = [tab._viewing, tab._shared]
+        right = [tab._playback, tab._connections, tab._addresses]
+        tiles_bottom = tab._tiles_box.mapTo(tab, tab._tiles_box.rect().bottomLeft()).y()
+        xs = {sec: _top_left(tab, sec)[0] for sec in left + right}
+        assert len({xs[s] for s in left}) == 1 and len({xs[s] for s in right}) == 1
+        assert xs[left[0]] < xs[right[0]]
+        for column in (left, right):
+            ys = [_top_left(tab, s)[1] for s in column]
+            assert tiles_bottom < ys[0] and ys == sorted(ys)
+        cards_bottom = max(s.mapTo(tab, s.rect().bottomLeft()).y() for s in left + right)
+        assert cards_bottom < _top_left(tab, tab._catalogue)[1] < _top_left(tab, tab._prefixes)[1]
+        assert tab._catalogue.width() > 2 * tab._viewing.width() - 40     # full width
+    finally:
+        destroy_widget(ed)
+
+
+def test_narrow_cards_stack_and_regions_go_two_across(qapp, file_db):
+    _seed(file_db)
+    for i, code in enumerate(("FR", "DE", "IT", "ES", "PL")):
+        _play(file_db, "trex", f"r{i}", 0, region=code)
+    ed = _analytics(qapp, file_db, width=700)
+    try:
+        tab = ed._analytics_tab
+        assert _top_left(tab, tab._viewing)[0] == _top_left(tab, tab._playback)[0]
+        names = [w for w in tab._catalogue.findChildren(QLabel) if w.toolTip().startswith("Browse the")]
+        rows = sorted({_top_left(tab, w)[1] for w in names})
+        assert len(names) == 5 and len(rows) == 3                         # two across, not three
     finally:
         destroy_widget(ed)
 
@@ -238,10 +271,13 @@ def test_what_you_watch_names_titles_plays_and_the_most_played(qapp, file_db):
         assert "4 (2 films · 2 series)" in texts                 # titles, not rows
         assert "27" in texts                                     # plays, ProSat's excluded
         assert any(t.startswith("1.5 h since") for t in texts)
-        most = next(t for t in texts if t.startswith("Most played"))
-        assert most.index("Futurama (19)") < most.index("Altered Carbon &amp; Co (5)") \
-            < most.index("Innocent Blood (2)")
-        assert "Least" not in most                               # top three only
+        assert any("<b>4</b> of the 4 titles you've played are on no other source" in t for t in texts)
+        # Most played: one row per title, most first, each with its plays.
+        rows = {lbl.text(): _top_left(viewing, lbl)[1] for lbl in viewing.findChildren(QLabel)
+                if lbl.isVisible() and lbl.text() in ("Futurama", "Altered Carbon & Co", "Innocent Blood",
+                                                      "Least")}
+        assert rows["Futurama"] < rows["Altered Carbon & Co"] < rows["Innocent Blood"] < rows["Least"]
+        assert "19 plays" in texts and "1 play" in texts
         assert viewing.subtitle.text().startswith("last played ")
     finally:
         destroy_widget(ed)
@@ -273,5 +309,74 @@ def test_region_bars_paint_each_regions_share(qapp, file_db):
         assert len(bars) == 2
         assert _painted_fraction(bars[0]) == pytest.approx(0.50, abs=0.04)
         assert _painted_fraction(bars[1]) == pytest.approx(1 / 6, abs=0.04)
+    finally:
+        destroy_widget(ed)
+
+
+def test_clicking_a_region_browses_its_channels_on_this_source(qapp, file_db):
+    """Q18: a region name is a link; it hands that region's channels to Search."""
+    from PyQt6.QtCore import QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+    _seed(file_db)
+    for i in range(3):
+        _play(file_db, "trex", f"fr{i}", 0, region="FR")
+    _play(file_db, "prosat", "frx", 0, region="FR")                 # another source's: not handed over
+    ed = _analytics(qapp, file_db, width=1300)
+    try:
+        got = []
+        ed.browse_ids_requested.connect(lambda label, ids: got.append((label, ids)))
+        link = next(w for w in ed._analytics_tab._catalogue.findChildren(QLabel)
+                    if w.toolTip() == "Browse the 3 titles in France on this source")
+        for kind in (QMouseEvent.Type.MouseButtonPress, QMouseEvent.Type.MouseButtonRelease):
+            qapp.sendEvent(link, QMouseEvent(kind, QPointF(4, 4), QPointF(4, 4), Qt.MouseButton.LeftButton,
+                                             Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+        assert got and got[0][0] == "France on TREX" and len(got[0][1]) == 3
+    finally:
+        destroy_widget(ed)
+
+
+def test_show_all_opens_every_region_in_place_and_folds_back(qapp, file_db):
+    """The old "+ 203 more regions" could not be opened; Show all can."""
+    from metatv.gui.source_analytics_tab import REGION_ROWS, REGIONS_ACROSS_WIDE
+    codes = ["FR", "DE", "IT", "ES", "PL", "NL", "SE", "NO", "FI", "DK", "PT", "GR", "TR", "RO", "HU",
+             "CZ", "SK", "BG"]
+    _seed(file_db)
+    for i, code in enumerate(codes):
+        for j in range(len(codes) - i):                              # distinct counts, FR largest
+            _play(file_db, "trex", f"{code}{j}", 0, region=code)
+    ed = _analytics(qapp, file_db, width=1300)
+    try:
+        cat = ed._analytics_tab._catalogue
+
+        def shown():
+            return [w for w in cat.findChildren(QLabel) if w.toolTip().startswith("Browse the") and w.isVisible()]
+
+        assert len(shown()) == REGION_ROWS * REGIONS_ACROSS_WIDE
+        button = next(b for b in cat.findChildren(QPushButton) if "Show all (18)" in b.text())
+        button.click()
+        assert len(shown()) == len(codes) and button.text() == "Show fewer"
+        button.click()
+        assert len(shown()) == REGION_ROWS * REGIONS_ACROSS_WIDE
+    finally:
+        destroy_widget(ed)
+
+
+def test_what_you_watch_counts_recent_episodes_and_favourites(qapp, file_db):
+    from metatv.core.database import ChannelDB, EpisodeDB
+    _seed(file_db)
+    _play(file_db, "trex", "fut", 3, title="Futurama", media="series", last=datetime.utcnow())
+    with file_db.session_scope() as s:
+        fav = s.query(ChannelDB).filter_by(provider_id="trex", content_key="film3").first()
+        fav.is_favorite = True
+        for n in range(4):
+            s.add(EpisodeDB(id=f"e{n}", season_id="x", series_id="s1" if n < 3 else "s2",
+                            provider_id="trex", episode_id=f"e{n}", episode_num=n, season_num=1,
+                            title=f"Ep {n}", play_count=1))
+    ed = _analytics(qapp, file_db)
+    try:
+        texts = _texts(ed._analytics_tab._viewing)
+        assert "1 titles" in texts                      # played in the last 30 days
+        assert "4 across 2 series" in texts
+        assert "Favourites here" in texts
     finally:
         destroy_widget(ed)

@@ -6,12 +6,12 @@ collapse on (DR-0009/DR-0011) — for live channels, films and series alike.
 """
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
+from metatv.core.database import ChannelDB, EpgProgramDB, EpisodeDB, ProviderDB
 from metatv.core.playback_models import PlaybackEventDB
 from metatv.core.repositories.dtos import (
     AnalyticsSourceDTO,
@@ -29,7 +29,9 @@ _SAMPLE_NAMES = 5
 _PREFIX_MEDIA_ORDER = ("live", "movie", "series")
 
 #: Most-played titles a source's Viewing section names.
-TOP_TITLES = 3
+TOP_TITLES = 10
+#: "Played recently" window for What you watch here.
+RECENT_DAYS = 30
 
 #: One title per content_key; a row without one is its own title.
 _TITLE_KEY = func.coalesce(ChannelDB.content_key, func.concat("id:", ChannelDB.id))
@@ -162,17 +164,40 @@ class AnalyticsRepository:
         )
         title = func.coalesce(ChannelDB.detected_title, ChannelDB.name)
         top = tuple(
-            (name, int(n)) for name, n in self.session.query(title, func.sum(ChannelDB.play_count))
+            (name, media or "", int(n), when) for name, media, n, when in self.session.query(
+                title, ChannelDB.media_type, func.sum(ChannelDB.play_count), func.max(ChannelDB.last_played))
             .filter(*played).group_by(_TITLE_KEY)
             .order_by(func.sum(ChannelDB.play_count).desc(), title).limit(TOP_TITLES)
         )
         seconds, since = self.session.query(
             func.sum(PlaybackEventDB.seconds_watched), func.min(PlaybackEventDB.started_at),
         ).filter(PlaybackEventDB.provider_id == provider_id).one()
+        # Titles played here that no other source carries — what you'd lose.
+        elsewhere = select(ChannelDB.content_key).where(
+            ChannelDB.provider_id != provider_id, ChannelDB.content_key.isnot(None))
+        only_here = self.session.query(func.count(func.distinct(_TITLE_KEY))).filter(
+            *played, ChannelDB.content_key.is_(None) | ChannelDB.content_key.not_in(elsewhere)).scalar()
+        from metatv.core.epg_utils import now_utc
+        recent = self.session.query(func.count(func.distinct(_TITLE_KEY))).filter(
+            *played, ChannelDB.last_played >= now_utc() - timedelta(days=RECENT_DAYS)).scalar()
+        favourites = self.session.query(func.count(func.distinct(_TITLE_KEY))).filter(
+            ChannelDB.provider_id == provider_id, ChannelDB.is_favorite.is_(True)).scalar()
+        episodes, episode_series = self.session.query(
+            func.count(EpisodeDB.id), func.count(func.distinct(EpisodeDB.series_id)),
+        ).filter(EpisodeDB.provider_id == provider_id, EpisodeDB.play_count > 0).one()
         return ViewingDTO(
             titles=titles or 0, plays=int(plays or 0), last_played=last, by_media=by_media,
             top=top, seconds_watched=int(seconds or 0), watched_since=since,
+            only_here=only_here or 0, recent=recent or 0, favourites=favourites or 0,
+            episodes=episodes or 0, episode_series=episode_series or 0,
         )
+
+    def region_channel_ids(self, provider_id: str, region: str) -> frozenset[str]:
+        """Channel ids on *provider_id* whose detected region is *region* — the
+        rows a Titles-by-region click hands to Search (the same predicate
+        :meth:`catalogue_mix` counts by)."""
+        return frozenset(i for (i,) in self.session.query(ChannelDB.id).filter(
+            ChannelDB.provider_id == provider_id, ChannelDB.detected_region == region))
 
     def catalogue_mix(self, provider_id: str) -> CatalogueMixDTO:
         """Titles per detected region on *provider_id*, largest first.

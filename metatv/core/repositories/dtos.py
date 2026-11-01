@@ -485,9 +485,14 @@ class ViewingDTO:
     plays: int
     last_played: datetime | None                  # UTC-naive
     by_media: dict[str, int]                      # media_type -> titles played
-    top: tuple[tuple[str, int], ...]              # (title, plays), most played first
+    top: tuple[tuple[str, str, int, datetime | None], ...]  # (title, media, plays, last played), most first
     seconds_watched: int
     watched_since: datetime | None                # first recorded play, None when none
+    only_here: int = 0                            # played titles no other source carries
+    recent: int = 0                               # titles played in the last RECENT_DAYS
+    favourites: int = 0                           # titles favourited on this source
+    episodes: int = 0                             # episodes played
+    episode_series: int = 0                       # series those episodes belong to
 
 
 @dataclass(frozen=True)

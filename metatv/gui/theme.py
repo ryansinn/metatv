@@ -873,6 +873,9 @@ def _build_semantic_constants() -> dict[str, object]:
     SEPARATOR_H    = "border: none; border-top: 1px solid " + COLOR_LINE + "; margin: 8px 0;"
     SEP_DARK       = "color: " + COLOR_TEXT + "; margin-top: 4px; margin-bottom: 4px;"
     CARD_BG        = "QWidget { background: " + OVERLAY_03 + "; border-radius: " + RADIUS_MD + "; }"
+    ANALYTICS_CARD = "#analyticsCard { background: " + OVERLAY_03 + "; border-radius: " + RADIUS_MD + "; }"
+    STAT_FIGURE      = "font-size: " + FONT_2XL + "; font-weight: 600; color: " + COLOR_TEXT_HI + ";"
+    STAT_FIGURE_WARN = "font-size: " + FONT_2XL + "; font-weight: 600; color: " + COLOR_WARN + ";"
     HEADER_TINT    = "background-color: " + OVERLAY_05 + ";"
     # Scoped variant of HEADER_TINT for sidebar section headers: an *unscoped*
     # ``background-color`` cascades onto child widgets (the title label + the flat
