@@ -448,6 +448,10 @@ _ALIAS_MAP: dict[str, str] = {
     # are Punjabi. (KA is Georgian in ISO 639-1; no source here uses it so.)
     "KA": "KN", "PJ": "PB", "PU": "PB",
     "QC": "QFR",   # Quebec ("QC - Karl Tremblay - Hommage Centre Bell") — Quebec French
+    # Language codes providers append in parentheses (ledger F4, 2026-11-01):
+    # "[SPA]" Spanish commentary, "(PNJ)" Punjabi, "(VFQ)" version française
+    # québécoise, "AFR" Africa.
+    "SPA": "ES", "PNJ": "PB", "VFQ": "QFR", "AFR": "AF",
     "TK": "TJ",    # Tajikistan as TREX spells it ("TK| DUSHANBE HD", "TK| TV SUGD HD"); ISO TK is Tokelau
     "MALAYALAM": "ML",
     "GUJARATI": "GU",

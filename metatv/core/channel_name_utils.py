@@ -1220,11 +1220,11 @@ def _classify_bracket(content: str) -> _BracketClass:
         return _BracketClass("origin", code)
     if content in PLATFORM_CODES:
         return _BracketClass("origin", content)
-    # The generic fallback, and the reason [VIP] used to be a language: ANY two
-    # or three letters became a region code. Every class that is NOT a region
-    # has to be recognised above this line, or it is silently stored as one.
-    if len(content) in (2, 3) and content.isalpha() and content not in QUALITY_TOKENS:
-        return _BracketClass("origin", normalize_region_code(content))
+    # 2-3 letters are a region only if the table knows them: ANY such token used
+    # to be one — [VIP], "(BK)", "(DOC)", "[TOR]" (ledger F4: 113 codes, 1,446 rows).
+    code = normalize_region_code(content) if len(content) in (2, 3) and content.isalpha() else ""
+    if code in REGION_FULL_NAMES and content not in QUALITY_TOKENS:
+        return _BracketClass("origin", code)
     return _BracketClass("unknown", content)
 
 
@@ -1665,18 +1665,18 @@ def parse_channel_name(name: str) -> ParsedChannel:
     lm = _LANG_QUALIFIER_RE.search(bare)
     if lm:
         token = lm.group(1).strip().upper()
-        if token in QUALITY_TOKENS:
-            # Quality token in parenthetical form: "(SD)", "(UHD)", "(FHD)", "(HQ)".
-            # Guard exactly as the bracket path (_classify_bracket) does — a quality
-            # marker must never be misclassified as a lang/region qualifier and then
-            # stored as detected_region (which also silently dropped the quality).
-            quality.append(token)
+        # The square brackets' classifier: "(SUB)"/"(DUB)" were stored as regions (F4).
+        pc = _classify_bracket(token)
+        if pc.kind == "quality":
+            quality.append(pc.value)
             bare = bare[: lm.start()].strip()
-        else:
-            candidate = normalize_region_code(lm.group(1))
-            if candidate != region:
-                lang = candidate
+        elif pc.kind == "audio":
+            audio = audio or pc.value
             bare = bare[: lm.start()].strip()
+        elif pc.kind == "origin":
+            if pc.value != region:
+                lang = pc.value
+            bare = bare[: lm.start()].strip()   # an unknown code stays in the name
 
     # 5. Strip year from end
     year = ""

@@ -156,7 +156,11 @@ from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparse
 #       collection, "DUBBING"/"VOSTFR"/"ANIMACJA" are dub/sub/genre); a quality
 #       named after the year ("(2025) 4K") is recorded; "4K (2025) (MULTI SUB)"
 #       loses its "4K". 6,616 names change; 2,334 gain a quality.
-CURRENT_VERSION: int = 15
+#   16  Trailing "(SUB)"/"(DUB)"/unknown codes are no longer regions; "[SPA]",
+#       "(PNJ)", "(VFQ)" are language aliases (ledger F4). Runs after
+#       unknown_region_cleanup cleared the bad values, so the fill-empty region
+#       pass re-derives them.
+CURRENT_VERSION: int = 16
 
 
 class DetectedTitleReparseTask(DetectedFieldsReparseBase):
