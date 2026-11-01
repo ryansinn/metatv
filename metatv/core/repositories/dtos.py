@@ -464,6 +464,9 @@ class PlaybackSummaryDTO:
     refused: int                      # connection limit
     dropped: int                      # advanced, then cut mid-play
     median_time_to_picture_ms: int | None
+    #: (attempts, failures) for each LOCAL hour 0-23 (Q11); failures are plays
+    #: that never loaded, were refused, or dropped. Empty when nothing recorded.
+    by_hour: tuple[tuple[int, int], ...] = ()
 
     @property
     def attempts(self) -> int:
