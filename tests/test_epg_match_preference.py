@@ -5,7 +5,8 @@ Tests drive the real ``_build_match_map`` method against a file-backed Database
 asserts the concrete outcome that would break if the priority logic regressed.
 
 Priority order under test:
-  1. Exact epg_channel_id match (unchanged tier — provider-agnostic).
+  1. Exact epg_channel_id match — the feed's own source wins a shared id; a
+     hidden source never gets it (F63).
   2. Same-provider fuzzy name match wins over cross-provider.
   3. Cross-provider fuzzy match fills gaps when same-provider has nothing.
   Hidden-provider channels (inactive or expired) are excluded from both fuzzy
@@ -215,7 +216,7 @@ def test_hidden_provider_excluded_even_as_same_provider(db, manager):
 
 
 # ---------------------------------------------------------------------------
-# Test 6: exact epg_channel_id match — tier 1 unaffected, provider-agnostic
+# Test 6: exact epg_channel_id match beats a same-provider fuzzy match
 # ---------------------------------------------------------------------------
 
 def test_exact_epg_channel_id_match_wins(db, manager):
@@ -277,3 +278,44 @@ def test_hidden_provider_skipped_active_cross_provider_wins(db, manager):
     assert result["ch.rte1"] == ch_active, (
         f"Active provider channel must win; got {result.get('ch.rte1')}"
     )
+
+
+# ---------------------------------------------------------------------------
+# F63: a shared exact id goes to the feed's own source, never a hidden one
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("own_first", [True, False])
+def test_shared_exact_id_goes_to_the_feeds_own_source(db, manager, own_first):
+    """Two sources carry "cnn.us"; the feed is prov-own's. Whatever order the rows
+    come back in, prov-own's channel gets the link (it used to be the last row)."""
+    with db.session_scope() as session:
+        _add_provider(session, "prov-own")
+        _add_provider(session, "prov-other")
+        order = ["prov-own", "prov-other"] if own_first else ["prov-other", "prov-own"]
+        ids = {pid: _add_channel(session, provider_id=pid, name=f"CNN {pid}", epg_channel_id="cnn.us")
+               for pid in order}
+    session = db.get_session()
+    try:
+        result = manager._build_match_map(session, [XmltvChannel(epg_id="cnn.us", display_name="CNN")],
+                                          provider_id="prov-own")
+    finally:
+        session.close()
+    assert result["cnn.us"] == ids["prov-own"]
+
+
+def test_shared_exact_id_never_goes_to_an_expired_source(db, manager):
+    """The owner's case: TREX's feed linked 55 ids to ProSat, an expired source."""
+    with db.session_scope() as session:
+        _add_provider(session, "trex")
+        _add_provider(session, "shark")  # an active third source carries it too
+        shark = _add_channel(session, provider_id="shark", name="BBC One", epg_channel_id="bbc1.uk")
+        # Inserted last on purpose: the old tier 1 kept the last row it saw.
+        _add_provider(session, "prosat", exp=datetime.now() - timedelta(days=3))
+        _add_channel(session, provider_id="prosat", name="BBC One", epg_channel_id="bbc1.uk")
+    session = db.get_session()
+    try:
+        result = manager._build_match_map(session, [XmltvChannel(epg_id="bbc1.uk", display_name="BBC One")],
+                                          provider_id="trex")
+    finally:
+        session.close()
+    assert result["bbc1.uk"] == shark, "an active source, never the expired one"

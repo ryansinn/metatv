@@ -42,15 +42,15 @@ def build_match_map(
     """Build xmltv_epg_id → channel_db_id lookup.
 
     Resolution order (first match wins):
-    1. Exact ``epg_channel_id`` match — highest confidence, provider-agnostic.
+    1. Exact ``epg_channel_id`` match — highest confidence; the feed's own
+       source wins over another source carrying the same id.
     2. Same-provider fuzzy name match — normalized channel name from the feed's
        own provider wins over any cross-source match.
     3. Cross-provider fuzzy name match — fills gaps when the feed's own provider
        has no matching channel (e.g. a bare XMLTV feed covering multiple sources).
 
     Channels belonging to hidden (inactive or expired) providers are excluded from
-    the fuzzy candidate pool entirely, so guide data never attaches to a
-    disabled/expired source at fetch time.
+    every tier, so guide data never attaches to a disabled/expired source.
 
     Two persistent config-driven guards, both consulted here so they can never
     be bypassed by ``relink_all()`` (which re-runs this on every EPG view
@@ -75,19 +75,30 @@ def build_match_map(
     }
 
     # ── Tier 1: exact epg_channel_id match ──────────────────────────────
-    # Select only the two scalar columns needed — avoids loading raw_data
+    # Select only the scalar columns needed — avoids loading raw_data
     # (potentially large JSON) for every channel in a 1M+ library.
+    #
+    # The feed's own source wins over another source carrying the same id,
+    # and a hidden (disabled/expired) source never gets the link — the same
+    # two rules tiers 2/3 already apply. Before, the last row SQLite returned
+    # won: on the owner's library TREX's feed linked 55 ids to ProSat, an
+    # expired source, instead of TREX's own channels (ledger F63).
     db_channels_with_id = session.query(
-        ChannelDB.id, ChannelDB.epg_channel_id,
+        ChannelDB.id, ChannelDB.epg_channel_id, ChannelDB.provider_id,
     ).filter(
         ChannelDB.epg_channel_id.isnot(None),
         ChannelDB.is_hidden == False,
     ).all()
-    exact: dict[str, str] = {
-        epg_id: cid
-        for cid, epg_id in db_channels_with_id
-        if epg_id and cid not in blocked_ids
-    }
+    exact: dict[str, str] = {}
+    exact_is_own: set[str] = set()
+    for cid, epg_id, prov_id in db_channels_with_id:
+        if not epg_id or cid in blocked_ids or prov_id in hidden_ids:
+            continue
+        own = prov_id == provider_id
+        if epg_id not in exact or (own and epg_id not in exact_is_own):
+            exact[epg_id] = cid
+            if own:
+                exact_is_own.add(epg_id)
 
     # ── Tiers 2 & 3: fuzzy name candidates, excluding hidden providers ──
     # Build two separate dicts so same-provider always beats cross-provider.
