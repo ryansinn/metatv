@@ -84,9 +84,8 @@ def platform_shelf_values(
     # The same group key every collapse surface uses (CLAUDE.md content
     # identity): the stored content_key, with each un-keyed row its own
     # singleton group so a NULL key never merges the whole library into one.
-    group_key = _func.coalesce(
-        ChannelDB.content_key, _func.concat("id:", ChannelDB.id)
-    )
+    from metatv.core.content_identity import title_key_expr
+    group_key = title_key_expr(ChannelDB.content_key, ChannelDB.id)
     titles = _func.count(_func.distinct(group_key))
 
     query = (

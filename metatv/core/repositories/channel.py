@@ -574,9 +574,8 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
 
         inner = filtered_query.subquery(name="inner_ch")
 
-        group_key = _func.coalesce(
-            inner.c.content_key, _func.concat("id:", inner.c.id)
-        )
+        from metatv.core.content_identity import title_key_expr
+        group_key = title_key_expr(inner.c.content_key, inner.c.id)
 
         # Invert QUALITY_TIER_RANK (higher int = better quality) into an
         # ascending SQL rank (lower = better) for ROW_NUMBER()'s default

@@ -22,6 +22,7 @@ from metatv.core.repositories.dtos import (
     TitleOverlapDTO,
     ViewingDTO,
 )
+from metatv.core.content_identity import title_key_expr
 from metatv.core.prefix_vocabulary import is_known_prefix
 
 _SAMPLE_NAMES = 5
@@ -34,7 +35,7 @@ TOP_TITLES = 10
 RECENT_DAYS = 30
 
 #: One title per content_key; a row without one is its own title.
-_TITLE_KEY = func.coalesce(ChannelDB.content_key, func.concat("id:", ChannelDB.id))
+_TITLE_KEY = title_key_expr(ChannelDB.content_key, ChannelDB.id)
 
 
 class AnalyticsRepository:

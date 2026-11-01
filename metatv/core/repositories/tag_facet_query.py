@@ -296,10 +296,8 @@ class FacetQueryMixin:
             # The match query selects distinct channel_ids; we join ChannelDB to
             # read content_key, then count distinct group keys.
             matching = query.subquery()
-            _group_key = _func.coalesce(
-                ChannelDB.content_key,
-                _func.concat("id:", ChannelDB.id),
-            )
+            from metatv.core.content_identity import title_key_expr
+            _group_key = title_key_expr(ChannelDB.content_key, ChannelDB.id)
             return (
                 self.session.query(
                     _func.count(_func.distinct(_group_key))
@@ -424,10 +422,8 @@ class FacetQueryMixin:
         # ── MIDDLE ── window functions over the inner set.
         # GROUP KEY: COALESCE(content_key, 'id:' || id) — NULL-safe per the spec.
         # REP RANK:  quality CASE (lower = better), tiebreak by id.
-        _group_key = _func.coalesce(
-            inner.c.content_key,
-            _func.concat("id:", inner.c.id),
-        )
+        from metatv.core.content_identity import title_key_expr
+        _group_key = title_key_expr(inner.c.content_key, inner.c.id)
         # Built from QUALITY_TIER_RANK, not a local ladder. The hardcoded CASE
         # this replaced DISAGREED with the canonical table on ORDERING, not just
         # values: it ranked HDR above HD (HDR is a dynamic-range descriptor, not
