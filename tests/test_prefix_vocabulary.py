@@ -153,7 +153,7 @@ def test_provider_spellings_of_known_languages(code, canonical):
     assert normalize_region_code(code) == canonical
 
 
-@pytest.mark.parametrize("prefix", ["IN-KA", "IN-PU", "IN-PREM", "PB-PREM", "PAK-PREM", "QC", "DE-TOP"])
+@pytest.mark.parametrize("prefix", ["IN-KA", "IN-PU", "IN-PREM", "PB-PREM", "PAK-PREM", "QC", "DE-TOP", "AHL-TEAM"])
 def test_region_language_and_premium_compounds_are_known(prefix):
     assert is_known_prefix(prefix)
 

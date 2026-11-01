@@ -63,6 +63,7 @@ def _analytics(qapp, db, provider_id="trex", width=700):
     ed._tabs.setCurrentWidget(ed._analytics_scroll)
     ed.load_provider(provider_id)
     qapp.processEvents()
+    qapp.processEvents()   # the cards' layouts settle on the pass after they fill
     return ed
 
 

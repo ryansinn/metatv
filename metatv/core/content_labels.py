@@ -29,8 +29,9 @@ EVENT_STATUS_PREFIXES: frozenset[str] = frozenset({"LIVE", "NEXT"}) | ENDED_EVEN
 LIVE_TV_PREFIXES: frozenset[str] = frozenset({"TV"})
 
 #: Prefix words naming a provider's curated list rather than a locale or a
-#: quality: "DE-TOP - 01. Pulp Fiction (1994)" is a numbered German top list.
-CURATED_LIST_PREFIXES: frozenset[str] = frozenset({"TOP"})
+#: quality: "DE-TOP - 01. Pulp Fiction (1994)" is a numbered German top list;
+#: "AHL-TEAM| TORONTO MARLIES [TOR]" is the league's team channels.
+CURATED_LIST_PREFIXES: frozenset[str] = frozenset({"TOP", "TEAM"})
 
 
 

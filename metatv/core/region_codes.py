@@ -548,7 +548,8 @@ REGION_FULL_NAMES: dict[str, str] = {
     # Sports leagues / brands
     "EPL": "English Premier League", "EFL": "English Football League",
     "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
-    "NHL": "NHL Hockey", "UFC": "UFC / MMA", "WWE": "WWE Wrestling",
+    # AHL: "AHL-TEAM| TORONTO MARLIES [TOR]" (owner, 2026-10-31)
+    "NHL": "NHL Hockey", "AHL": "AHL Hockey", "UFC": "UFC / MMA", "WWE": "WWE Wrestling",
     "BEIN": "beIN Sports", "ESPN": "ESPN", "FOX": "Fox", "CNN": "CNN",
     "SKY": "Sky", "MBC": "MBC",
     # Streaming platforms (surfaced by Ninja, 2026-06)
