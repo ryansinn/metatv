@@ -813,6 +813,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnec
         # as the bus's tier-2 authoritative re-read.
         self.channel_state_bus = ChannelStateBus(reread=self._on_action_state_requested)
         self.channel_state_bus.subscribe(self._on_channel_state_echo)
+        self.channel_state_bus.subscribe(self.details_pane.on_channel_state)   # D60: Similar / versions rows
+        # Discover is built earlier, in setup_ui — before this bus exists.
+        self.channel_state_bus.subscribe(self.discover_view.on_channel_state)   # D60: card badges
 
         self.main_splitter.addWidget(self.details_pane)
 

@@ -100,6 +100,8 @@ def _make_host(tmp_path):
     host._register_cleanable = lambda name, fn: host._registered.append((name, fn))
     for name in _HANDLER_STUBS:
         setattr(host, name, lambda *a, **k: None)
+    from tests.conftest import attach_channel_state_bus
+    attach_channel_state_bus(host)   # D60: overlays subscribe on construction
 
     return host, db
 

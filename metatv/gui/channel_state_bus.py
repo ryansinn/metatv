@@ -54,6 +54,7 @@ desync, so there's nothing for this bus to fix there.
 
 from __future__ import annotations
 
+import dataclasses
 import weakref
 from typing import Callable
 
@@ -135,3 +136,38 @@ class ChannelStateBus:
                 )
 
         self._reread(channel_id)
+
+
+#: Bus delta key → the names row records use for it. One table, so a surface
+#: patching its rows never re-derives the mapping (D60).
+_ROW_FIELD_NAMES: dict[str, tuple[str, ...]] = {
+    "rating": ("user_rating",),
+    "is_suppressed": ("is_suppressed", "is_rec_suppressed"),
+    "watch_completed": ("watch_completed", "already_watched", "watched"),
+}
+
+
+def row_changes(delta: dict, row) -> dict:
+    """The fields of *row* — a dataclass, or a dict of row data — that a bus
+    *delta* changes, ready for ``dataclasses.replace(row, **changes)`` or
+    ``{**row, **changes}``.
+
+    Rows name these fields differently (``user_rating``, ``is_rec_suppressed``,
+    ``already_watched``, a derived ``is_liked``); a field the row lacks is left
+    out. Marking watched also clears resume progress, as every writer does.
+    """
+    names = set(row) if isinstance(row, dict) else {f.name for f in dataclasses.fields(row)}
+    out: dict = {}
+    for key, value in delta.items():
+        for name in _ROW_FIELD_NAMES.get(key, (key,)):
+            if name in names:
+                out[name] = value
+    if "rating" in delta and "is_liked" in names:
+        out["is_liked"] = delta["rating"] == 1
+    if "watch_completed" in delta:
+        done = bool(delta["watch_completed"])
+        for name, value in (("watch_percent", 100 if done else 0), ("watch_progress", 0),
+                            ("progress_fraction", 0.0)):
+            if name in names:
+                out[name] = value
+    return out
