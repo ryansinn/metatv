@@ -207,7 +207,7 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
     "Other Streaming": ["HBO", "HULU", "PEACOCK", "PARAMOUNT", "PARAMOUNT+",
                         "PLAY", "PLAY+"],  # PLAY/PLAY+ = Belgian streaming (PLAY ACTIE, PLAY CRIME etc.)
     # ── Broadcast / Pay TV ────────────────────────────────────────────────────
-    "Sports":     ["ESPN", "DAZN", "PPV", "NBA", "NFL", "MLB", "NHL", "UFC", "WWE", "BEIN", "SKY SPORTS",
+    "Sports":     ["ESPN", "DAZN", "PPV", "NBA", "NFL", "MLB", "NHL", "AHL", "UFC", "WWE", "BEIN", "SKY SPORTS",
                    "SPT", "SPORT", "SPORTS",         # generic sports prefixes
                    "SP",                              # SP confirmed: beIN Sports 1/2/3
                    "UEFA", "F1",                      # competitions

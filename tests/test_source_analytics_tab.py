@@ -63,6 +63,7 @@ def _analytics(qapp, db, provider_id="trex", width=700):
     ed._tabs.setCurrentWidget(ed._analytics_scroll)
     ed.load_provider(provider_id)
     qapp.processEvents()
+    qapp.processEvents()   # the cards' layouts settle on the pass after they fill
     return ed
 
 
@@ -378,5 +379,45 @@ def test_what_you_watch_counts_recent_episodes_and_favourites(qapp, file_db):
         assert "1 titles" in texts                      # played in the last 30 days
         assert "4 across 2 series" in texts
         assert "Favourites here" in texts
+    finally:
+        destroy_widget(ed)
+
+
+def test_clicking_a_most_played_title_opens_it_in_search(qapp, file_db):
+    """A Most played row is a link like a region: it hands that title's channels here to Search."""
+    from PyQt6.QtCore import QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+    _seed(file_db)
+    _play(file_db, "trex", "fut", 12, title="Futurama", media="series")
+    _play(file_db, "trex", "fut", 7, title="Futurama", media="series")   # a second row, same title
+    _play(file_db, "prosat", "fut", 3, title="Futurama", media="series")  # another source's copy
+    ed = _analytics(qapp, file_db)
+    try:
+        got = []
+        ed.browse_ids_requested.connect(lambda label, ids: got.append((label, ids)))
+        link = next(w for w in ed._analytics_tab._viewing.findChildren(QLabel)
+                    if w.toolTip() == "Show Futurama in Search")
+        for kind in (QMouseEvent.Type.MouseButtonPress, QMouseEvent.Type.MouseButtonRelease):
+            qapp.sendEvent(link, QMouseEvent(kind, QPointF(4, 4), QPointF(4, 4), Qt.MouseButton.LeftButton,
+                                             Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+        assert got and got[0][0] == "Futurama" and len(got[0][1]) == 2     # TREX's two rows only
+    finally:
+        destroy_widget(ed)
+
+
+def test_a_loaded_analytics_tab_still_lets_the_editor_fit_400px(qapp, file_db):
+    """WIP-2: the editor fits 400 px. The re-layout's two columns, four tiles and
+    side-by-side prefixes must all reflow, or a populated tab sets the floor."""
+    _seed(file_db)
+    for i, code in enumerate(("FR", "DE", "IT", "ES", "PL", "NL")):
+        _play(file_db, "trex", f"r{i}", 3, title=f"A Fairly Long Played Title Number {i}",
+              media="series", region=code, last=datetime(2026, 10, 30))
+    ed = _analytics(qapp, file_db, width=400)
+    try:
+        qapp.processEvents()
+        tab = ed._analytics_tab
+        assert ed.width() == 400, f"the editor refused 400px (min {ed.minimumSizeHint().width()})"
+        assert tab.minimumSizeHint().width() <= ed._analytics_scroll.viewport().width()
+        assert _top_left(tab, tab._viewing)[0] == _top_left(tab, tab._playback)[0]   # stacked
     finally:
         destroy_widget(ed)

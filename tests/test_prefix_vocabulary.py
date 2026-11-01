@@ -32,7 +32,7 @@ def test_a_compound_is_known_when_every_part_is(prefix):
     assert is_known_prefix(prefix)
 
 
-@pytest.mark.parametrize("prefix", ["XX", "A3", "DE-XQ", "-DE", "IN-PREM"])
+@pytest.mark.parametrize("prefix", ["XX", "A3", "DE-XQ", "-DE", "CAR-AMP"])
 def test_an_unknown_part_keeps_the_prefix_unknown(prefix):
     assert not is_known_prefix(prefix)
 
@@ -99,7 +99,7 @@ def _seed(db):
         s.add(ProviderDB(id="trex", name="TREX", type="xtream", url="http://t", username="u",
                          password="p", is_active=True))
         rows = [("ENDED", "live", 3), ("BLURAY-DE", "movie", 2), ("WESTERN-DE", "movie", 2),
-                ("IN-PREM", "live", 4), ("PJ", "movie", 5), ("MH", "series", 1), ("PJ", "series", 2)]
+                ("T2", "live", 4), ("FRQ", "movie", 5), ("MH", "series", 1), ("FRQ", "series", 2)]
         for prefix, media, n in rows:
             for i in range(n):
                 s.add(ChannelDB(id=str(uuid.uuid4()), source_id=str(uuid.uuid4()), provider_id="trex",
@@ -112,7 +112,7 @@ def test_the_repository_lists_only_unknowns_grouped_live_films_series(file_db):
     with file_db.session_scope() as s:
         stats = RepositoryFactory(s).analytics.unrecognized_prefixes("trex")
         got = [(p.prefix, p.media_type, p.count) for p in stats]
-    assert got == [("IN-PREM", "live", 4), ("PJ", "movie", 5), ("PJ", "series", 2), ("MH", "series", 1)]
+    assert got == [("T2", "live", 4), ("FRQ", "movie", 5), ("FRQ", "series", 2), ("MH", "series", 1)]
 
 
 def test_the_tab_shows_a_heading_per_type_in_order(qapp, file_db):
@@ -137,10 +137,38 @@ def test_the_tab_shows_a_heading_per_type_in_order(qapp, file_db):
         assert [h.text() for h in headings] == ["Live channels · 1", "Films · 1", "Series · 2"]
         # The types sit side by side, live → films → series, each row under its heading.
         pos = {lbl.text(): lbl.mapTo(section, lbl.rect().topLeft()) for lbl in labels}
-        pj = sorted((lbl.mapTo(section, lbl.rect().topLeft()) for lbl in labels if lbl.text() == "PJ"),
+        pj = sorted((lbl.mapTo(section, lbl.rect().topLeft()) for lbl in labels if lbl.text() == "FRQ"),
                     key=lambda p: p.x())
         assert pos["Live channels · 1"].x() < pos["Films · 1"].x() < pos["Series · 2"].x()
-        assert pos["IN-PREM"].x() == pos["Live channels · 1"].x() and pos["IN-PREM"].y() > pos["Live channels · 1"].y()
+        assert pos["T2"].x() == pos["Live channels · 1"].x() and pos["T2"].y() > pos["Live channels · 1"].y()
         assert pj[0].x() == pos["Films · 1"].x() and pj[1].x() == pos["Series · 2"].x()
     finally:
         destroy_widget(ed)
+
+
+@pytest.mark.parametrize("code, canonical", [("KA", "KN"), ("PJ", "PB"), ("PU", "PB"), ("QC", "QFR")])
+def test_provider_spellings_of_known_languages(code, canonical):
+    """TREX's KA/PJ/PU are Kannada/Punjabi and QC is Quebec (owner, 2026-10-31)."""
+    from metatv.core.region_codes import normalize_region_code
+    assert normalize_region_code(code) == canonical
+
+
+@pytest.mark.parametrize("prefix", ["IN-KA", "IN-PU", "IN-PREM", "PB-PREM", "PAK-PREM", "QC", "DE-TOP", "AHL-TEAM"])
+def test_region_language_and_premium_compounds_are_known(prefix):
+    assert is_known_prefix(prefix)
+
+
+def test_prem_is_a_prefix_word_only_never_a_title_tier():
+    """"Prem" is a common word in Hindi film titles; the parser must keep it."""
+    from metatv.core.quality_vocab import PREFIX_TIER_TOKENS, TIER_TOKENS
+    assert "PREM" in PREFIX_TIER_TOKENS and "PREM" not in TIER_TOKENS
+
+
+def test_a_camcorder_prefix_is_known_and_tags_cam(qapp):
+    """SD/CAM: SD quality AND a camcorder copy (owner: bootlegs, short-lived)."""
+    from metatv.core.config import Config
+    from metatv.core.tag_decomposer import decompose_name_parse
+    assert is_known_prefix("SD/CAM")
+    tags = decompose_name_parse(detected_prefix="SD/CAM", detected_quality="SD",
+                                detected_region=None, detected_year=None, config=Config())
+    assert ("quality", "CAM / Pre-release") in {(t, v) for t, v, _ in tags}

@@ -88,7 +88,7 @@ from metatv.core.content_labels import (
     detect_ai_provenance,
 )
 from metatv.core.quality_vocab import QUALITY_TOKENS
-from metatv.core.prefix_vocabulary import prefix_genres
+from metatv.core.prefix_vocabulary import prefix_genres, prefix_quality_tokens
 from metatv.core.region_codes import (
     CODE_FACETS,
     LANGUAGE_ONLY_CODES,
@@ -246,6 +246,9 @@ def decompose_name_parse(
         tags.extend(_classify_prefix_token(detected_prefix, config))
         # A genre the provider filed the title under ("WESTERN-DE - …").
         tags.extend(("genre", g, CONF_DENOTED) for g in prefix_genres(detected_prefix))
+        # Every quality a compound prefix names ("SD/CAM": a camcorder copy).
+        for token in prefix_quality_tokens(detected_prefix):
+            tags.extend(_classify_quality_token(token, config))
 
     if detected_quality:
         tags.extend(_classify_quality_token(detected_quality, config))

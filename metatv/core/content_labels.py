@@ -28,6 +28,11 @@ EVENT_STATUS_PREFIXES: frozenset[str] = frozenset({"LIVE", "NEXT"}) | ENDED_EVEN
 #: CBS" — 550 US local stations on TREX). A content type, not a locale.
 LIVE_TV_PREFIXES: frozenset[str] = frozenset({"TV"})
 
+#: Prefix words naming a provider's curated list rather than a locale or a
+#: quality: "DE-TOP - 01. Pulp Fiction (1994)" is a numbered German top list;
+#: "AHL-TEAM| TORONTO MARLIES [TOR]" is the league's team channels.
+CURATED_LIST_PREFIXES: frozenset[str] = frozenset({"TOP", "TEAM"})
+
 
 
 #: Spelled-out league names prefixing a dash-matchup fixture's team A — "MAJOR

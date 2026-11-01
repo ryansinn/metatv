@@ -443,6 +443,11 @@ _ALIAS_MAP: dict[str, str] = {
     "TAMIL": "TA",
     "TELUGU": "TE",  "TELEGU": "TE",       # TELEGU = common provider typo
     "KANNADA": "KN",
+    # Indian-language prefixes as TREX spells them (2026-10-31): "|KA| Chef
+    # Chidambara", "IN-KA - …" are Kannada; "|PJ| Ardaas", "IN-PU - Duja Rabb"
+    # are Punjabi. (KA is Georgian in ISO 639-1; no source here uses it so.)
+    "KA": "KN", "PJ": "PB", "PU": "PB",
+    "QC": "QFR",   # Quebec ("QC - Karl Tremblay - Hommage Centre Bell") — Quebec French
     "MALAYALAM": "ML",
     "GUJARATI": "GU",
     "PUNJABI": "PB",   # PB (not PA): PA is Panama (Spanish); Punjabi must not collapse onto it
@@ -543,7 +548,8 @@ REGION_FULL_NAMES: dict[str, str] = {
     # Sports leagues / brands
     "EPL": "English Premier League", "EFL": "English Football League",
     "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
-    "NHL": "NHL Hockey", "UFC": "UFC / MMA", "WWE": "WWE Wrestling",
+    # AHL: "AHL-TEAM| TORONTO MARLIES [TOR]" (owner, 2026-10-31)
+    "NHL": "NHL Hockey", "AHL": "AHL Hockey", "UFC": "UFC / MMA", "WWE": "WWE Wrestling",
     "BEIN": "beIN Sports", "ESPN": "ESPN", "FOX": "Fox", "CNN": "CNN",
     "SKY": "Sky", "MBC": "MBC",
     # Streaming platforms (surfaced by Ninja, 2026-06)

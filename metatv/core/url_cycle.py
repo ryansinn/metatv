@@ -120,6 +120,17 @@ class UrlCycler:
         base = base_url.rstrip('/')
         return any(u.rstrip('/') != base for u in self.provider.ordered_urls(policy))
 
+    def first_choice(self, policy: UrlRankingPolicy | None = None) -> str | None:
+        """The address the next attempt would try first — read-only.
+
+        For display (Source Analytics marks it "in use"). Like
+        :meth:`has_alternate`, this logs nothing and records nothing.
+        """
+        if policy is None:
+            policy = get_url_ranking_policy()
+        ordered = self.provider.ordered_urls(policy)
+        return ordered[0] if ordered else None
+
     def _find(self, base_url: str) -> ProviderURL | None:
         """Return the ``ProviderURL`` matching *base_url*, or ``None``.
 
