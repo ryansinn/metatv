@@ -108,7 +108,7 @@ def main() -> int:
         return 0
 
     print(f"{len(pending)} What's New entries have shipped since ROADMAP.md was last")
-    print(f"reconciled (watermark #{mark}). Tick or amend each one, then re-run with")
+    print(f"reconciled (watermark #{mark}). Remove (or narrow) each open item it finished, then re-run with")
     print("--accept in the same commit as the ROADMAP.md edit.\n")
     for e in pending:
         print(f"  #{e.id:<4} [{e.version:<7}] {e.title}")

@@ -21,9 +21,11 @@ following in order.
        venv/bin/python scripts/roadmap_audit.py
 
    It lists every What's New entry that shipped since ROADMAP.md was last reconciled and exits
-   non-zero while any remain. For each one, edit ROADMAP.md: tick the item `[x]` with
-   `SHIPPED vX.Y.Z (#PR)`, downgrade it to `[~]` with the specific remainder spelled out, or add the
-   line if the work wasn't on the roadmap at all. Then:
+   non-zero while any remain. **ROADMAP.md is future-only** (owner, 2026-11-01: "the roadmap should
+   just be future looking … that's the github history"): for each entry, DELETE the open item it
+   finished, or narrow it to `[~]` with the specific remainder spelled out. Never record shipped
+   work there — no `[x]`, no "SHIPPED" lines; git history and What's New are the record. Add new
+   open items the session uncovered. Then:
 
        venv/bin/python scripts/roadmap_audit.py --accept
 
