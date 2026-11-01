@@ -1,1014 +1,215 @@
 # MetaTV Roadmap
 
-What's left to build. Completed features live in git history.
+What is left to build. **Future only:** finished work is deleted from this file, never ticked —
+git history and the What's New entries are the record. At session wrap, remove what a session
+finished and narrow partial items to what remains (docs/SESSION_WRAP.md, step 3).
 
-> **Product vision & direction:** see [docs/PRODUCT_VISION.md](docs/PRODUCT_VISION.md) for the
-> enduring "why" — the thesis (lean native ambient-companion player; complexity → a mind-reading
-> Discover; comfort↔explore and chef↔grocery axes), design principles (function-over-form,
-> power-without-dumbing-down, good-on-raw-data), and clearly-subordinate stretch directions
-> (multi-source aggregation, URL-loaded plugin manifests, headless backend + mobile/TV clients).
-> The items below are concrete, tracked features.
+> **Product vision & direction:** [docs/PRODUCT_VISION.md](docs/PRODUCT_VISION.md) — the
+> lean native ambient-companion player; complexity → a mind-reading Discover; chef↔grocery and
+> comfort↔explore axes; good on raw data. Settled designs: [docs/DESIGN_INDEX.md](docs/DESIGN_INDEX.md).
+> Code-health findings and the duplication ledger live in [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md).
+
+## Owner decisions waiting
+
+- [ ] **Should the background pollers exist at all?** Series monitor, eager genre backfill and the
+  signal check are all **off by default**. One full source refresh (1 request, ~34 s) answers what
+  one series-monitor pass asks with 234 requests over 4-39 minutes, on one-connection sources.
+  First check for the series monitor: whether the Xtream series *list* carries enough to diff
+  episode counts without `get_series_info` — if so it survives as a rewrite. Guard:
+  `tests/test_background_polling_is_off.py`.
+- [ ] **Signal check (dead-air detection) — PARKED, not a task.** Disabled since the day it shipped
+  (#617): a probe holds a one-connection source's only slot, and ffmpeg's 145/146 "could not open"
+  exits were read as "no video". Revisit only as a design conversation. `hide_dead_events` is wired
+  and waits for a working probe.
+- [ ] **Version Preferences — rework (mockup before any build).** The quality half is unified;
+  still open: rename "preferred prefixes" to Preferred Language (+ Region) on the stored
+  `detected_region`; replace the substring quality test (`preference_engine.py:207`
+  `preferred_version_quality in channel.name` — "HD" boosts Baghdad and every FHD row); frame
+  language as the axis that matters (42% of multi-variant titles differ by language, 5% by
+  quality); rebuild the UI in the chip grammar.
+- [ ] **Preferred language / region as a POSITIVE preference** (after the UX overhaul). An ordered
+  (language, quality) preference consulted as a promotion tier at the collapse chokepoint, so every
+  surface puts the preferred copy forward. Quality stays optional. Never reuse
+  `metadata_tmdb_language` (fetch language, not variant choice).
+- [ ] **Reconnect content mangle — detach-on-recycle + a "lost its source" review list.** Renewing
+  a source with a new account reuses `stream_id`s, so favourites/queue land on different titles
+  (detection logs `STREAM-ID REUSE`). Design proposed as RECYCLE-1: a record per recycled engaged
+  row, flags cleared on the new occupant, a review list (Find again / Keep the new one / Forget).
+  Q1-Q4 await the owner. Never freeze the name; never silently rematch by `content_key`.
+- [ ] **Yearless movie key collapses unrelated films.** Without a year `content_key` falls back to
+  the bare title: 27,375 rows in 8,007 multi-row groups. Options: refuse to collapse without a
+  year; require a corroborating signal; fill the year first. Check `series`/`live` before changing
+  the rule.
+- [ ] **Tier / package detection** — reads the name; the signal is in the category (20×), and half
+  the vocabulary is not tier words. Owner: leave untouched for now (nothing reads the field).
+  Evidence: the "Where Tier Lives" artifact.
+- [ ] **TMDb/OMDb have never made a real network call** (owner-owed): paste a key in Settings ▸
+  Metadata, click Test, enrich one title.
 
 ## Metadata & Enrichment
 
-- [~] **Genre normalization to canonical English** — `_GENRE_NORM` dict in `metatv/core/repositories/channel.py` normalizes French, German, Spanish, Italian, Dutch, and Arabic genres at query time (applied in `get_prefix_stats` and `normalize_genre()`). Arabic variants added 2026-06-05. **Details-pane genres normalized v0.26.0 (#294)** — the pane rendered whatever language the provider sent ("Dramma", "Drame / Mystère"), so the same genre read differently per source; it now goes through the same canonicalizer as everywhere else, and filtered variants became clickable. **Case/whitespace duplicates merged v0.54.0 (#555, entry 428)** — a genre in a second capitalisation became a second tag, so an empty DRAMA shelf sat beside a full Drama one; existing duplicates merge on next launch and 288 empty tags were cleared. **Recommendations put on the canonicalizer v0.54.0 (#561, entry 433)** — taste was keyed on the exact spelling, so a French Drame, a Polish Dramat and an Arabic دراما each scored as a different genre; 66,206 of 231,814 genre mentions (28.6%) sat on a spelling the recommender could not match, and genre muting had the same blind spot. Remaining gaps: Chinese, Japanese, Persian, Hindi script genres; a live-DB sanity scan to surface high-volume unrecognized genres should be added as a developer tool or CI check. Display text remains the raw provider value; the i18n layer (future) translates canonical English → user locale in the other direction.
-- [~] **Xtream VOD API enhancement** — `get_vod_info()` is already called lazily by `tmdb_enrichment_manager.py` to harvest the provider's own TMDb id. Remaining: `get_live_info()`, and using the full VOD payload for metadata beyond the id.
-- [~] **Plugin config UI** — SHIPPED v0.23.0 (#395/#246): the "Metadata & API Keys" settings section carries masked TMDb/OMDb key fields, enable/disable, priority order, and per-key **Test** buttons (`settings_dialog_tabs.py:486`). Remaining: cache management controls.
-- [~] **Channel name parser** — SHIPPED: title/year/quality/region/prefix are extracted at ingestion into the stored `detected_*` fields (`update_detected_prefixes()`). **Trailing-actor names kept v0.26.0 (#285)** — sources that append a performer ("Adaptation. 4K (2002) NICOLAS CAGE") had that trimmed off the display *and* discarded entirely, losing a real cast signal; it is now captured rather than thrown away. **Scene-release debt CLEARED v0.58.0 (#590, entry 454):** the parser read names backwards and gave up at the first unrecognised token, and these names all END in a release-group tag — so the whole filename stayed as the title. It now reads forwards and finds where the title stops, and `HDTV`-suffixed channel names drop the tag for an HD chip like everything else. **Superscript decoration read v0.57.0 (#586, entry 455):** providers' tiny raised letters were untouchable decoration — 14,597 channels gained the quality chip their name always carried, 17,883 titles got shorter, pixel sizes (`3840P`) now resolve to the quality they mean, `[VIP]` stopped being stored as a language, and video encodings moved out of the quality chip. Remaining debt still matters more than it looks — `content_key`, dedup, search and tag decomposition all read `detected_title`, so parser debt degrades dedup/search/recs even while TMDb-enriched *displays* look clean.
+- [ ] **Genre canonicalization gaps** — Chinese, Japanese, Persian and Hindi-script genres; duplicate
+  spellings (`Sci-Fi_Fantasy` / Science Fiction / Fantasy, `Action` / `Action_Adventure`); a
+  developer scan for high-volume unrecognized genres.
+- [ ] **Xtream VOD/live info** — `get_live_info()` is never called, and the full `get_vod_info()`
+  payload is used only for its TMDb id.
+- [ ] **Canonical IDs beyond the provider's TMDb id** — IMDb ids, and external-API ids for rows
+  whose provider sends none.
+- [ ] **Name-parser gaps (owner-approved backlog)** — colon-platform grammar, superscript quality
+  variants, zero-width characters, four-hash markers, exclusion residue; measured numbers per row in
+  memory `project_parsing_gaps_backlog`. Parser debt degrades dedup, search and tags, not just display.
+- [ ] **Metadata cache management** in Settings (the key fields and Test buttons exist).
 
-## EPG
+## EPG & Watch Alerts
 
-- [~] **EPG settings UI** — per-provider EPG enable/disable, XMLTV URL override, refresh-interval throttle dropdown, and guide-freshness display are now in the source editor (#14). Global default refresh interval dropdown added to Settings dialog. **Notification minutes-before and the global auto-refresh toggle SHIPPED v0.18.0 (#207).** Remaining config-file-only: filler-match patterns.
-- [~] **Watchlist persistence** — watchlist entries are **config-persisted** and already survive restarts (this line's "memory-only" premise was stale). Remaining: move them to the database proper, which is what multi-device sync (future) would need.
-
-  **DONE — SHIPPED v0.63.0 (#610, entry 474).** The list lives in `alert_patterns`
-  behind one seam, `metatv/core/watchlist.py`; existing keywords migrate on the next
-  launch, the config key stays as a plain-text backup and nothing reads it. Adding a
-  keyword is now case-insensitive so "NRL" and "nrl" are one rule, blanks and
-  duplicates are dropped, and a briefly-unavailable database shows an empty list
-  instead of taking the EPG view down.
-
-  **What the move did NOT settle: the rule SCHEMA.** `AlertPatternDB` holds a
-  term (`pattern_value`), a scope (`applies_to`) and an on/off — it has no
-  columns for **whole-word**, an **exclude list**, or **search-description**,
-  which the settled Catch/Keep/Record rule needs. That gap is additive, so
-  adopting the table was still right, but the rule slice owes a column
-  migration; it is not free.
-
-  **The column migration SHIPPED v0.67.0 (#653, entries 514/515).** Rules match
-  whole words by default with a "contains, anywhere" escape hatch and every
-  existing rule stamped so none silently changed what it matches; they carry
-  exclude terms; and every rule has a Rule panel with several comma-separated
-  terms combined as Phrase / All words / Any word, plus the description toggle.
-  The schema gap this note names is closed.
-
-  Also still owed: `epg_watchlist_channels` (2 pinned channel ids) is a
-  separate list and was deliberately not moved with the patterns.
-
-  **APPROVED 2026-08-31 (owner): do the move.** Filter presets follow the same track, and a
-  plain-text export comes with it (both below). Owner's reasoning: *"much better to keep it
-  in the db than lose it in the text config."*
-
-  **Scoped 2026-08-31 — the destination table already exists and has never been used.** `AlertPatternDB` (`alert_patterns`) and `AlertMatchDB` (`alert_matches`) are built, indexed, and carry a RICHER schema than the config list (`pattern_type`, `applies_to`, `is_enabled`, `last_checked`). Measured on the owner's database: **0 rows in each**, while the real watchlist is **6 plain strings** in `config.epg_watchlist_patterns` plus 2 pinned ids in `epg_watchlist_channels`.
-
-  `core/alerts.py` (`AlertPattern`, `AlertScanner`) has **zero importers**, and `RepositoryFactory.alerts` is registered but **never called** — the whole DB alert stack is orphaned scaffolding. The live Watch Alerts UI is `gui/sidebar/alerts*.py`, which reads config. So this is not "converge two stores": it is *populate the store nobody ever wired*.
-
-  **The same shape as the Sports-view freeze** — a working capability that was never packaged, sitting beside the one actually in use. Check whether the orphaned stack is the right destination before adopting it; a schema with no users has never been pressure-tested.
-
-  Work: a migration defaulting the 6 strings to `pattern_type="keyword"`, `applies_to="all"`, `is_enabled=True` (**user data is sacrosanct** — these are the owner's real alerts), then repoint the **10 GUI modules** that read `epg_watchlist_patterns` at a repository. The read fan-out, not the migration, is the size of this slice.
-
-- [ ] **Filter presets — saved, named filter sets, stored in the database** — *(owner, 2026-08-31)*.
-  Save the current lane + every active facet chip + sort under a name; copy-then-rename is the
-  primary authoring path, not "New". Presets sit as a chip row above the facet strip; selecting one
-  updates the strip below so a preset is never a black box. Q8's "restore filter state" becomes
-  "restore the active preset, else the unsaved working set".
-
-  **The table already exists and has never been used.** `FilterDB` (`filters`) carries `name`,
-  `rules` (JSON), `order`, `is_enabled`, `provider_id`, `description` — exactly a preset — and
-  `FilterRepository` is complete CRUD (`get_all(provider_id, enabled_only)`, `create`, `update`,
-  `delete`). Measured: **0 rows, 0 callers**; `RepositoryFactory.filters` is registered and nothing
-  reaches for it, while live filter state sits in ~15 scattered `config.yaml` fields.
-
-  **Caveat:** a schema with no users has never been pressure-tested. Adopt it deliberately — check
-  `rules` JSON can express the whole resolved query before committing to it — don't inherit it.
-
-  **Known limit:** a preset that pins a *team* cannot work until team names parse. Until then a
-  preset holds sport, league, country, platform, quality and time. Ship anyway; it gets better free.
-
-- [ ] **Export user state and config to plain text, for diagnostics and analysis** —
-  *(owner, 2026-08-31)*. Moving the watchlist and presets into the database costs the one thing the
-  YAML file was genuinely good at: you could open it, read it, and diff it. This buys that back
-  deliberately instead of losing it silently.
-
-  Scope: a single command/menu action writing every user-owned row — watchlist patterns, presets,
-  favourites, ratings, queue, hidden, provider list minus credentials — to readable text. It is
-  also the honest answer to *"what if the database is the thing that breaks"*: the export is the
-  backup that a YAML file was serving as by accident. **Never include credentials** (the log
-  scrubber already exists for that reason — #496).
-
-- [ ] **Live event status and scores from a sports data API** — *(owner, 2026-08-31)*. Replace the
-  estimated progress bar with real state — "3rd Quarter · 4:12" — and expose scores on demand.
-
-  **It buys three things at once:** real status; a trustworthy replacement for the provider's
-  `LIVE |` token (wrong on 99% of rows — see below); and **team badges**, the only route to the
-  logos the IPTV feed does not carry (all 510 PPV rows share one image; the 22 live-event logos are
-  broadcasters, not teams).
-
-  **Scores are spoilers — hidden by default**, revealed per row on demand, never in a notification.
-  Someone recording tonight's game must not learn the result from their own guide.
-
-  **Blocked on the parser** (nothing to look up until titles resolve to an event) and it must stay
-  *enrichment, never a dependency* — the app's thesis is that it is good on raw data.
-- [x] **Watchlist match prioritization** — **SHIPPED, and this line claimed otherwise for weeks.** `_watchlist_rank_key` (`gui/epg_watchlist_mixin.py:507`) sorts by quality → previously-watched → name at both call sites; "Show all in Search" is built (`epg_watchlist_mixin.py:567`, wired through `main_window.py:2093`); hide/demote is built. Covered by `tests/test_epg_watchlist_ranking.py`. Verified 2026-08-31 — the inverse of the usual roadmap drift, and just as misleading: it sends the next session to rebuild something that exists.
-- [ ] **EPG → Watchlist tab needs a pass — play buttons first** — *(owner, 2026-08-26; deferred, "maybe later")*. The Watchlist tab predates the V3 row grammar and still uses the old static play affordance, but it turns out to be doing real work by accident and **that behaviour must survive whatever replaces it**.
-
-  **What is actually there** (`metatv/gui/epg_watchlist_mixin.py`):
-  - `_ch_row` (~:611) draws a 22×20 flat `PLAY_BTN` on every **live** row.
-  - `_up_row` (~:730) draws **no play button at all** — there is nothing to play yet.
-  - A *third* play button (~:911) sits on the card HEADER beside "+ Channel" and "skip", at a different size and under a different role (`DISCOVER_REC_PILL_BTN`).
-
-  **The accident worth keeping.** Because upcoming rows never get a button, the button's PRESENCE is the on-now/upcoming signal — you can read "playable right now" off the column without reading a single timestamp. Owner: *"it does actually kind of help tbh, because you can see what's playing now vs. what's coming up in the future ... so maybe it's not a bad idea."* Any rework must keep that distinction legible; a uniform play column on every row would delete information, not tidy it.
-
-  **What is wrong with it as it stands.** The button is drawn where it happens to land rather than in a reserved column, so rows with and without one have different right edges (visible in the owner's capture: the `▶` sits at three different x positions down one card). The sidebar solved exactly this with a fixed-width slot that reserves its space whether or not it holds a marker (`alerts_rows.SLOT_W` / `TITLE_INDENT`) — a column that cannot reflow. Two play roles in one view is the other half: one row-level, one card-level, neither aware of the other.
-
-  Related: the tab's "OFF AIR" fold (`_make_quiet_section`, ~:794) is a **fourth** sub-group heading mechanism — a flat `QPushButton` whose label carries a caret glyph, which is the affordance `GroupHeading` dropped in #329. Logged as **F14** in docs/REFACTOR_PLAN.md. Flagged rather than fixed: it is a different surface with a different concept ("no matches at all" vs "airing later"), and unifying it is a look change to a view that has not had a design pass.
-
-- [ ] **Rule query syntax — the power-user view of a watch rule** *(design settled 2026-08-30; roadmap, not scheduled)*. Watch rules are being built as **structured fields** (terms, match mode, whole-word, exclude list, live-only, search-description) rendered by one expanded row — "Option B" in the Catch/Keep/Record plan. This line is Option C: a typed query (`"nrl" AND NOT "highlights"`) that **parses onto those same fields** rather than introducing a second matcher. **Option B SHIPPED v0.67.0 (#653, entries 514/515) and the constraint held** — the rule is stored as FIELDS (terms, combinator, whole-word, exclude list, description toggle), not as a matcher, so Option C remains a parser plus a view rather than a rewrite of matching. Option C itself is still not built and nothing is owed if it never is.
-
-  Owner: *"plan for Option C but most likely won't be a thing for a while … let's go with option B for now."* Recorded here so the constraint it places on Option B is not forgotten: **store the rule as fields, not as a matcher**. That costs nothing today and is the whole difference between Option C later being a parser plus a view, and Option C later being a rewrite of matching. If it is never built, nothing is owed.
-
-  Settled alongside it: **whole-word matching is the default** (with "contains, anywhere" as the escape hatch, and a migration stamping `whole_word=true` onto existing rules so none silently changes what it matches), **description search is off by default everywhere**, and a rule is **one stored list rendered on two surfaces** — Watch Alerts and the EPG watchlist — never two lists. Full plan and mockups: the Catch/Keep/Record artifact.
-
-- [ ] **Preferred playback source for a watched show** — a programme in Watch Alerts often airs on several channels at once. The row now plays the FIRST live airing as the group happens to be ordered, which is a placeholder for a real preference: remember which source the user actually picked for this title (or rank by quality / previously-watched / provider reliability, reusing the ranking `UrlCycler` already keeps per host) and play that. Owner: "user doesn't typically care about row" — the expand-then-pick-then-play sequence is the thing to remove, and picking the wrong source silently is the thing to avoid while removing it. Sibling of **Watchlist match prioritization** above; the same ranking should serve both.
-- [ ] **Guide channel preview** — autoplay-on-browse preview while scrubbing the guide (debounced). Plays into the **external** companion mpv window (NOT embedded in the EPG view) — playback stays separate from the management UI per the product's management/playback-separation principle.
-- [ ] **EPG accuracy flagging** — per-channel "unreliable EPG" flag; stores mismatch reports; shown in Hidden view and details pane
-- [ ] **AI-assisted mismatch analysis** — export accumulated flags to Claude API with context; model identifies failure pattern and suggests corrected `epg_channel_id` mapping
+- [ ] **Preferred playback source for a watched show** — a programme airing on several channels
+  plays the first airing; remember the source the user picked (or rank by quality / previously
+  watched / host reliability, reusing `UrlCycler`'s ranking).
+- [ ] **EPG → Watchlist tab pass** — play buttons drawn where they land (three positions in one
+  card) and a card-level play role beside the row-level one. Keep the accident that works: upcoming
+  rows have no button, so presence means "on now". "OFF AIR" fold is ledger F14.
+- [ ] **Pinned watchlist channels** — `epg_watchlist_channels` is still a config list; move it with
+  the patterns.
+- [ ] **Rule query syntax (Option C)** — a typed query (`"nrl" AND NOT "highlights"`) that parses onto
+  the stored rule fields. Optional; nothing owed if never built.
+- [ ] **Filler-match patterns in the UI** (config-file only today).
+- [ ] **Guide channel preview** — debounced autoplay into the external mpv window while browsing.
+- [ ] **EPG accuracy flagging** — per-channel "unreliable EPG" flag with mismatch reports; later,
+  AI-assisted analysis of accumulated flags to suggest `epg_channel_id` mappings.
+- [ ] **A LIVE platform surface** — "what is on now on this platform", its own design (not the VOD
+  platform shelf with a filter).
+- [ ] **Live event status and scores from a sports API** — real state ("3rd Quarter · 4:12"), team
+  badges; scores hidden by default, never in a notification. Enrichment, never a dependency.
 
 ## Playback & Queue
 
-- [x] **When a stream will not play, offer to refresh a stale source** — SHIPPED 0.103.0 (#PR-STALE-1, entry 627): the failure toast names the source, says when it was last refreshed, and offers "Refresh <source>" when that source is more than a day stale (scoped to the failing channel's provider; never auto-fired). The sidebar "may be stale" mark stays an open question. *(owner, 2026-08-31, from live UX testing)*. The owner hit "nothing plays", refreshed the sources, and everything played again: *"content I just played yesterday no longer plays… they sometimes go stale in a day or two."* Stream URLs carry provider-side tokens that expire; the app has the fix already and never suggests it.
-  - **The signal is already recorded.** `providers.updated_at` (and the account-info poll) says when each source was last refreshed. A playback failure plus a source last refreshed >24-48h ago is a strong, cheap heuristic — no new data needed.
-  - **The surface exists too.** #600 gave error toasts a condensed cause and a FlowLayout action row. This is one more action button on the existing playback-failure toast — "Refresh <source>" — not a new dialog.
-  - **Scope it to the failing channel's provider**, not all sources: `channel.provider_id` is already threaded to every play path for the Split Streams instance key, so the toast knows exactly which source to name.
-  - **Do not auto-refresh.** A refresh is minutes of work and a connection; it is the user's call. Offer, do not act. And consult the connection accountant — a refresh during playback competes with the stream it is trying to fix.
-  - **Open question for the owner:** should a source that has failed playback N times in a row surface a persistent "may be stale" mark in the Sources sidebar, or is the toast action enough? The mark is more discoverable; it is also another always-on thing to be wrong about.
-
-- [ ] **A queue that actually plays through it** — *(owner, 2026-08-26; scope-crept out of the Watch Alerts rework and parked here deliberately)*. Today the Watch Queue is a **list you pick from**; the ask is a queue that **plays each item in turn, unattended** — finish one, start the next. Three requests converge on it:
-  - **Sequential airings.** When a live programme ends, mpv exits and nothing advances. The owner hit this on consecutive ORF 2 airings and had to start the next by hand.
-  - **Play-when-it-airs.** An upcoming Watch Alerts row cannot offer ▶ (no time machine — the play affordance is now correctly absent there), but it *could* offer "start this when it airs", which turns Upcoming into a **queued-to-play** list.
-  - **Announce vs interrupt.** When a queued item starts, is that a passive notice, a **pop-up**, or silent auto-play? The owner floated all three; it is a real setting, not a default to guess at. Bears on the ambient-companion thesis (PRODUCT_VISION) — a corner companion that grabs focus is a different product from one that does not.
-
-  **The mechanism already exists — do not build a second one.** #462 added a *single-shot timer at the next programme boundary* to `sidebar/alerts.py` (`_schedule_boundary`), which fires at exactly the instant a programme starts or ends, computed from EPG data already in memory. That is the same instant a queue would need to advance on. Wire the action to that signal rather than adding a poll or a second scheduler.
-
-  **Constraint:** auto-starting playback consumes a **source connection**, so this is a fourth consumer of the one `provider_max_connections` accountant alongside playback, downloads and DVR — consult it, never add a parallel counter. And auto-play must never start playback the user did not ask for: the boundary handler in #462 already advances **only if the finishing row was the one playing**, which is the conservative default to keep.
-
-
-- [ ] **Ambient mini-player mode** — **NOT BUILT** (verified 2026-08-02: no `mini_player`/PIP/always-on-top playback code exists). Named in the Wave 5 plan; never written. Low-chrome, always-on-top / PIP corner window that expands to fullscreen; the "media in the corner while working ↔ relax fullscreen" continuum (see PRODUCT_VISION.md ambient-companion thesis)
-- [ ] **Global playback hotkeys** — **NOT BUILT** (verified 2026-08-02: no global/media-key handler anywhere). Named in the Wave 5 plan; never written. Control play/pause/next/seek without focusing the player window (essential for the corner-companion loop)
-- [ ] **Music as a first-class media type** — treat audio/music alongside video in management, queue, and playback (MetaTV is a media *and* music player)
-- [ ] **(Stretch) Desktop-embedded video-widget playback** — Linux/KDE: render playback into a desktop-embedded widget that normal windows cover when on top (wallpaper/widget-style ambient playback); platform-specific, experimental
-- [x] **Download / save VOD to disk (persistent — sibling of the deep cache above)** — **SHIPPED v0.64.0-v0.98.0**, and this line's NOT BUILT annotation (2026-08-02) is retired rather than left standing beside it. Right-click Download on a movie or episode saves it and keeps it (#612, entry 475); it yields the connection the moment you press Play and resumes from the byte it reached, live channels are not offered. The action reached every surface, not just search results (#620, entry 483). Downloads and Recordings got sidebar sections that say what each row is doing and why (#638, entry 499; the Recordings query named a field that did not exist and was repaired in #644, entry 506). Files land in a Plex/Jellyfin-readable Movies/ and Series/Show/Season NN/ tree with a free-space floor (#656, entry 516; #732, entry 586, which also made "Downloaded" mean the file is on disk and put the folder, layout and floor in Settings ▸ Downloads). A **Downloaded** scope joined the channel list, showing saved titles even when their source is disabled or excluded (#697, entry 548). The section grew a queue, a grouped history with Undo, double-click playback and Pause/Resume all (#747, entry 599), and a queued download now starts on its own once the player closes (#749, entry 600). The build honoured the constraint: one accountant, `provider_max_connections`, no parallel counter. Original spec kept below. The Wave 5 plan read "deep cache → download → DVR on ONE connection accountant"; only the deep cache (#226) and the connection accountant (#221) shipped. The per-source connection accountant this depends on DOES now exist and is enforced — build on it, don't add a second counter. No download option exists yet. Add **persistently saving a VOD to a local library** (vs. the ephemeral deep-cache above — *same "pull the whole stream" core, the file just stays*). The two are one continuum: buffer-profiles (a little, ephemeral) → deep cache (whole file, ephemeral) → download (whole file, persistent); axes = *amount* + *persistence*. **VOD-only** (downloading live is a separate DVR/record concern). Mechanism options: a direct HTTP GET of the VOD stream URL (Xtream VOD URLs are static files) **reusing the canonical headers/User-Agent** (the player-reliability header work — same UA-gating bug class, *don't drop headers*) with a download queue + progress notifications + resume-partial; or mpv `--stream-record=<file>`. Configurable downloads/library dir; surface downloaded items with an offline-available badge. Neutral framing — standard media-manager offline feature; app is BYO-sources, downloading is the user's choice. **Download queue + connection-aware scheduling (the core constraint):** respects the **per-source connection limit** (`provider_max_connections` — the same one-connection-per-account limit Split Streams is built around). A queued download for source X runs **only when X has a free connection slot** (no active playback on it); **playback preempts downloads** — starting playback on X pauses/stops X's downloads to stay within the limit, and they resume when playback ends. **Per-source, not global** — downloads on source B continue while you watch source A. Plus a global pause toggle (no downloads at all). **Reuse-before-reinvent:** there must be **one per-source connection accountant** that *both* the player (`PlayerManager` instance registry) and the download scheduler consult — do **not** build a parallel connection counter that can disagree with the player; extend the existing Split-Streams connection accounting. Downloads must be **resumable** (HTTP Range) so a preempted download continues rather than restarting — which favors the direct-HTTP-GET mechanism over `--stream-record`.
-- [x] **Live stream recording / DVR (the live sibling of download) — EPG-scheduled, connection-aware** — **SHIPPED v0.64.0-v0.101.0**, and this line's NOT BUILT annotation (2026-08-02) is retired rather than left standing beside it. "Record what's on" records the programme the guide names with two minutes' pre-roll and fifteen over, because sport overruns (#612, entry 476); it takes the source's connection but never by surprise — a countdown at ten minutes, five, one and thirty seconds, every one of them a chance to cancel — a running recording's finish time can be pushed out while it runs, padding works in both directions, and a clash with another recording is reported when you schedule it rather than when one silently fails. Recordings save to their own folder beside Downloads. Any guide row can now schedule one — Watch Alerts, On Now or Browse — with a Settings ▸ Recording page for default padding, immediate clash detection, and the recording window following a programme the guide moves (#741, entry 588); a Record control with live/scheduled state sits on the row itself and one persistent notice reports progress, disk and end time with Watch and Stop (#748, entry 597). Manual time-window recording works with no guide at all (#746, entry 598), and Watch / Stop / Extend reached the Recordings section's menu (#779, entry 616). The reserve-and-warn priority the line specified is what shipped. Original spec kept below. Record a **live** channel for a time window (you'll miss the game → leave the app up, it records the chosen channel for the chosen window). **EPG-integrated:** schedule a recording straight from an EPG programme — reuse `EpgProgramDB` start/stop times + the watchlist/notification timer infra in `EpgManager` (a "Record" action alongside the watchlist "+"), with **pre/post padding** (start early / end late — live events run over). Manual time-window recording too. Mechanism: mpv `--stream-record=<file>` or a headless ffmpeg capture of the live TS for the window; same downloads/library dir + offline badge. **Connection-aware — third consumer of the one per-source arbiter:** a recording holds a source connection for its whole window, competing with playback + downloads via the **same** `provider_max_connections` accountant (don't build a third counter). **New priority insight — the axis is content *ephemerality/recoverability*, not foreground-vs-background:** a *download* yields freely (VOD is recoverable later), but a *live recording is time-critical — the moment is gone forever* — so a scheduled recording should **reserve** its slot and **warn/block** a conflicting play (*"playing source X now exceeds its connection limit and will kill the scheduled recording"*) rather than silently yielding. So: playback > download (download yields), but a scheduled live recording is **protected** even against playback (or makes the user choose with eyes open). **Limitation:** "leave the app up" needs the GUI process running — a true unattended PVR is the **headless-backend** stretch (PRODUCT_VISION), the eventual upgrade that records without the head up.
-### Source reliability & stream diagnostics
-
-> **DECIDE: should the three background pollers exist at all?**
->
-> All three are now **off by default**. This is the open question, recorded
-> because the owner spent more than a day diagnosing behaviour that was never
-> requested: *"I don't know why any of this was built, I didn't ask for it
-> ever ... everything they solve was already solved with a single click refresh
-> (or the automated schedule for source refresh, which arguably is WAY more
-> efficient)."*
->
-> **The measurement that frames it.** Both hit the same source for the same data:
->
-> | | requests | time on the source | returns |
-> |---|---|---|---|
-> | one full source refresh | **1** | **~34 s** (measured, 4 runs) | the entire catalog, 195k-294k items |
-> | one series-monitor pass | **234** | **3.9-39 min** | an episode count per mirror, all "unchanged" |
->
-> Polling costs **7x to 69x** the provider connection-time of the refresh that
-> answers the same question — on sources reporting `max_connections=1`. The 234
-> is mirror fan-out: 11 watched shows expand to 234 mirror entries (Fallout
-> alone is 72). Owner: *"the entire source refresh is FASTER ... and it only
-> hits once."*
->
-> **The three, and what each would actually need:**
->
-> 1. **Series monitor** (`series_monitor_interval_minutes = 0`). The strongest
->    case for removal: a refresh already downloads the catalog. **Unverified and
->    the first thing to check** — whether the Xtream SERIES list endpoint carries
->    enough to diff episode counts without `get_series_info`. If it does, the
->    feature survives with zero extra requests and this becomes a rewrite, not a
->    deletion.
-> 2. **Eager genre backfill** (`tmdb_enrichment_session_cap = 0`). 501,030
->    movies at 500/launch ≈ 1,002 launches. NOT redundant with refresh — the
->    VOD *list* payload genuinely omits genre/plot/cast (verified: 400 sampled
->    rows, 0 mention any). But the lazy on-open path already covers everything
->    the user actually views, which is #348's real requirement.
-> 3. **Signal check** (`signal_check_enabled = False`, #651). Separately parked;
->    its verdicts were also wrong. See its own note.
->
-> **That defect is FIXED — SHIPPED v0.67.0 (#652, entry 513).** Setting the series
-> check to Never stopped the repeating timer but a full pass still ran at every
-> launch; the setting now covers both. The same release stopped the eager genre
-> backfill from querying the source unasked — genres are still filled in for what
-> you actually open. The DECIDE question above is unchanged: both jobs are off,
-> and whether they should exist at all is still the owner's call.
->
-> Guard: `tests/test_background_polling_is_off.py` pins all three defaults and
-> that the interval governs the STARTUP pass, not just the recurring timer.
-
-> **PARKED — NOT A TASK. Do not pick this up.**
->
-> This is deliberately not a checklist item and is deliberately absent from the
-> worklog, because it is not ready to be worked on and a queued-looking line
-> would invite someone to try. Owner: *"it needs a lot more thought."*
->
-> The signal check (dead-air detection, #617) is **disabled**
-> (`Config.signal_check_enabled = False`) and was switched off the same day it
-> shipped. Recorded here only so the evidence is not lost and the same design is
-> not re-attempted from scratch:
->
-> * **It jams the only connection.** A probe holds the source's connection for
->   the length of its sample; both of the owner's sources report
->   `max_connections=1`. The worker started unconditionally and probed
->   continuously — :04, :11, :18, :25, :35, :44, :54 in their log — so playback
->   competed with it and probes competed with each other.
-> * **The verdicts are wrong in the common case.** Channels the owner was
->   actively watching came back `dead (no video — ffmpeg exited 146)`. ffmpeg
->   exits 145/146 when it cannot OPEN the input — measured: a refused connection
->   gives 145 — which on a one-connection account usually means the slot was
->   busy. That stderr matched no recognized pattern and fell through to "no
->   video". `interpret()` already treats REFUSED as inconclusive; it never saw
->   those.
->
-> Verdicts written by the first version are cleared once at startup
-> (`PRAGMA user_version = 6`) so nothing inherits known-wrong data. The code,
-> settings tab and #617's tests all remain.
->
-> Whenever this is revisited, it starts with a design conversation, not with
-> this text as a spec.
-
-- [x] **EPG freshness must distinguish "our fetch failed" from "the source is out of date".** —
-  SHIPPED 0.103.0 (#797, entry 629). The source editor's freshness line read *"⚠ Stale — guide
-  ends 4 Aug 2026 (source out of date)"* — it blamed the provider, and in the owner's 2026-08-16
-  case that was flatly wrong: the guide was dead because the app's own cached `epg_url` carried a
-  **previous subscription's credentials** (fixed in #316 by deriving the URL instead of caching
-  it). The label had no way to say "we could not fetch", so a broken **user override** — which
-  #316 deliberately does not cycle, because it is an explicit instruction — failed silently
-  forever. `ProviderDB.epg_last_fetch_error`/`_at` are now written at the end of every fetch
-  attempt (`core/epg_fetch.py`, one writer, cause condensed through `condense_error`) and cleared
-  on the next success, and `epg_utils.guide_freshness()` is the one computation both status lines
-  render, so the three states read differently: fetched fine but the source lags · fetch failed on
-  every host · your override is broken. Owner asked for this while the EPG-URL bug was being
-  diagnosed; it is the honest-empty-state half that #316 did not cover.
-
-- [~] **Stream diagnostics probes ONE arbitrary host and reports it as a verdict about the
-  content.** SHIPPED partially v0.56.0 (#580, entry 448): the *verdict wording* is fixed — a server that answers and refuses no longer reads as unreachable, a 403 names the account connection limit and a 404 names a removed title, and only a genuine no-answer still says unreachable. The **cycling half remains open**: `core/stream_diagnostics.py` still carries zero references to `UrlCycler`, `ordered_urls` or `provider_id` (re-verified 2026-09-07), so it cannot say "reached 0 of 20 hosts" or "18 hosts fine, this one is slow". `run_stream_diagnostic()` (`core/stream_diagnostics.py:367`) takes a bare URL string
-  and has **zero** references to `UrlCycler`, `ordered_urls`, or even `provider_id` — it cannot
-  cycle, because it does not know the provider has other hosts. Owner hit this 2026-08-16: the
-  dialog tested `vpn.trxdnscloud.ru` (a host the ranker had already demoted to 8th on
-  `health=0.40`), failed, and said **"Couldn't reach the stream"** — while the player was
-  concurrently probing all 19 hosts. Two independent probing systems, sharing nothing, and the one
-  showing the user a verdict was the less informed. The wording is the harm: *"reached 0 of 20
-  hosts"* and *"18 hosts fine, this one is slow"* are completely different answers and the dialog
-  can express neither. **Note the drift-guard gap this exposes:** the AST test fails the suite on a
-  hand-rolled `for base in provider.ordered_urls()`, but diagnostics doesn't cycle *wrongly* — it
-  doesn't cycle *at all*, and an enumeration cannot detect an absence (same shape as the
-  `refresh_theme()` sweep and the dropped `is_favorite` field). Fix: thread provider context, run
-  through `UrlCycler`, report per-host.
-
-- [ ] **`_is_advisory_error` now has exactly one real consumer — tidy the residue.** After #315 it
-  decides whether the failover sweep keeps going, which is the right home for it. But
-  `main_window_streaming.py:569` still assigns an `is_advisory` local in `_on_stream_ready` that
-  nothing reads (dead since #227 made Play Anyway and `add_failure` unconditional), and the
-  helper's docstring still advertises the "advisory failures are NOT fed to stream_retry_manager"
-  contract that #227 deleted. That stale docstring is what misled a brief into re-introducing the
-  gate on the episode path; it was caught in review, but fix the docstring so it can't mislead
-  again.
-
-Host selection is no longer a lifetime batting average — it reacts to what is happening now
-(recency-weighted health, a cooldown on the freshly-failed, and real measured latency), and both
-channels and episodes fail over to an alternate host and remember the one that worked. Delivered
-across v0.27.1 and 0.28.0; see git history for the per-item detail.
-
-- [x] **Validate the ranking constants against real traffic — DONE 2026-08-16, no change needed.**
-  Re-read against post-#307 logs (the first with real latency). The ranker behaves as designed:
-  among health=1.00 peers on a multi-host provider the order was strictly latency-ascending
-  (808 → 1381 → 1426 → 1641 → 1683 → 2506 ms), health still dominates latency
-  (`(cooldown_tier, -health, median_latency_ms, priority)`, `core/models.py:274`), and decay/cooldown
-  spread cleanly 1.00 → 0.54 → 0.40 → 0.20 → 0.00. Unmeasured hosts reporting `latency=0ms` sort
-  cheapest **by design** (`models.py:286` — so an untried URL still gets a turn); in this data every
-  such host also had health < 1.00, so none floated above a measured one. No evidence
-  `url_health_decay` 0.85 / `url_cooldown_minutes` 10 / `url_recent_attempts_kept` 20 need moving.
-
-- [ ] **The 10-12s host is a single-URL provider — ranking was never going to fix it.** The finding
-  that came out of the validation above, and the third time this thread's premise has turned out to
-  be something other than what was filed. `line.ottcst.com` — now measured at ~10.7s — appears in
-  **335 `candidates —` lines and never once alongside a peer.** There is no alternate host to
-  demote it in favour of, so #305→#307's ranker (which works) cannot improve that source by
-  construction. Open question for the owner: does that provider actually publish alternate hosts
-  that simply aren't configured in MetaTV? If it genuinely has one line, record the latency as
-  inherent to the source and stop filing it as a ranking defect.
+- [ ] **A queue that plays through** — sequential airings, "start this when it airs", and a setting
+  for announce / pop-up / silent. Wire it to the existing programme-boundary timer
+  (`sidebar/alerts.py` `_schedule_boundary`); consult `ConnectionAccountant`, never a second counter;
+  never start playback the user did not ask for.
+- [ ] **Ambient mini-player** — low-chrome always-on-top corner window that expands to fullscreen.
+- [ ] **Global playback hotkeys** — media keys without focusing the player.
+- [ ] **Music as a first-class media type.**
+- [ ] **(Stretch) Desktop-embedded playback widget** (Linux/KDE).
+- [ ] **Stream diagnostics cycle hosts** — `core/stream_diagnostics.py` still tests one bare URL; thread
+  the provider through `UrlCycler` and report per host ("reached 0 of 20" vs "18 fine, this one slow").
+- [ ] **A persistent "may be stale" mark** on a source that keeps failing playback — or is the
+  failure toast's Refresh action enough? (owner question)
 
 ## Series & Episodes
 
-- [ ] **Episode title deduplication** — strip redundant series-name prefix from tree view (configurable via `show_full_episode_titles`)
-- [ ] **Cross-source episode completeness tool** — compare season/episode counts across providers per title; extend `scripts/inspect_series.py` with `--live` flag
-- [ ] **Loose VOD episodes → Series (SHELVED 2026-11-01)** — 5,115 episode rows filed as movies (Turkish "N. Bölüm" + SxxExx), 346 shows, already collapsed to one card per show (F32). Promoting them into Series needs synthesized series/season/episode rows and a `drill_into_series` branch for them (episodes play from stored `stream_url`; `populate_series_tree` already reads SeasonDB/EpisodeDB). Shelved because 5,108 of the rows are Turkish and the owner's exclusions hide Turkey. Findings: memory `project_loose_vod_episodes`.
-- [ ] **"Most current source" signal for a series** — the *same* series often appears on multiple providers (already grouped by the cross-source dedup fingerprint and surfaced as version chips in the details pane), but one provider's catalog is often more up to date than another's (more seasons, newer episodes). Today the user has to drill into each source manually to tell which is current. Idea: surface a lightweight "most current" hint on the **series** details-pane version chips (movies have no episode-completeness axis — series-only). Assessment of cost: the raw signal is cheap **once each source has been drilled into** — compare the already-stored per-`(provider, series)` `SeasonDB`/`EpisodeDB` rows by max `season_number`, total `episode_count`, and newest episode `raw_data.info` `added`/air date; no extra network. The *expensive* part is comparing sources the user **hasn't** drilled into yet — that needs an on-demand `get_series_info` call per provider-version (N API calls), so the cheap MVP only compares sources already loaded. **Prerequisite:** provider-scoped season keys (the season-key collision fix) — without it two sources' seasons clobber each other in `SeasonDB`, so there's nothing to compare. **Likely superseded by TMDb:** once TMDb is the canonical episode list (source of truth), "most current" becomes "which provider's episode set best matches the canonical TMDb list," a cleaner definition than the interim max-count/recency heuristic. Keep this low-complexity until then. **Refined by real data (2026-06-19):** the comparison is **not only cross-provider — it's cross-version within a single provider**. One provider commonly lists the same show several times in different language/quality categories (the version chips), each a separate series entry with a *different* season set. Real example, all on one source: `EN - South Park` = 28 seasons (1–28), `EN - South Park 4K` = 25 (1–25), `ES - South Park` = 20 **with a gap (5–9 missing)**. So "most complete" must weigh **contiguity/gaps**, not just max-season-count — the ES version reaches season 25 but is missing the middle, arguably worse than a complete 25.
-- [ ] **Series data-anomaly transparency (don't let data-accurate gaps confuse users)** — when a provider's catalog for a series is sparse, the UI today renders it faithfully but confusingly. Two distinct anomalies, both *data-accurate*, both confusing:
-  1. **Non-contiguous season numbers.** For providers that return `seasons: []` + episodes keyed by season number, we synthesize one season per numeric key present and preserve the provider's real numbering. If the provider's data skips seasons (ES South Park has no 5–9), the tree jumps "Season 4 → Season 10" and the toast reads "Loaded 20 seasons" while the list shows *Season 25*. Count (20) and numbers (max 25) are both correct; the gap is real provider data (confirmed: the **episodes** table also has nothing for 5–9, and both seasons and episodes derive from the same response dict). **De-confuse (shipped):** the tree now renders a muted inline note when seasons are non-contiguous — `Seasons N–M not provided by this source` (`main_window_series.py`, `tests/test_series_anomaly_transparency.py`) — so the jump is explained, not mysterious. *(Remaining sub-items below are still open.)*
-  2. **Same show, different versions, different completeness** — see "Most current source" above; surface per-version season counts + a "most complete" marker on the version chips.
-  - **Definitive diagnosis tool (the pin-down):** stored data can't distinguish "provider genuinely lacks 5–9" from a parser edge case (e.g. the provider sent seasons 5–9 under *non-numeric* keys like "Temporada 5", which `s.isdigit()` would silently drop — no synthetic season → those episodes never stored, invisible in the DB). The decisive check is the **raw `get_series_info` response keys**. Add the already-planned `--live` flag to `scripts/inspect_series.py` to re-fetch and dump the raw season/episode key structure for a `series_id`.
-  - **Parser robustness (make anomalies self-diagnosing):** the synthetic-season path should **log a clear warning listing any episode-group keys it can't map to a numeric season** (and when seasons metadata is empty), so silent drops become visible/diagnosable instead of mysterious later. Small, defensive; turns "why is this series weird" into a grep.
+- [ ] **"Most current source" for a series** — per-version season counts and a "most complete" mark
+  on the version chips, weighing gaps (ES South Park reaches 25 but lacks 5-9). Compare sources
+  already drilled into; TMDb would make "most current" exact.
+- [ ] **`inspect_series.py --live`** — dump the raw `get_series_info` season/episode keys; also the
+  cross-source completeness comparison.
+- [ ] **Loose VOD episodes → Series (SHELVED)** — 5,115 episode rows filed as movies, 346 shows,
+  already one card per show. Needs synthesized series/season/episode rows and a `drill_into_series`
+  branch; 5,108 rows are Turkish, which the owner's exclusions hide. Memory: `project_loose_vod_episodes`.
 
 ## Discovery & Recommendations
 
-- [~] **Version Preferences — rename to Language/Region, fix the quality match, and rework the UI**
-  — SHIPPED partially v0.54.0 (#552, entry 425): point 4's divergence is closed on the quality axis — Discover kept its own ranking (HDR above HD, 8K equal to 4K) and both paths now read the app's single quality ladder, so the elected copy is the same wherever you look. Points 1, 2, 3 and 5 (the language/region rename, the over-matching substring quality test, the axis framing and the UI) are untouched. *(owner, 2026-08-31, spotted in the Recommendations view)*. The feature is **built and wired**:
-  `version_score()` (`core/preference_engine.py:242`) feeds `collapse_best_variant`
-  (`repositories/channel_lens.py`), Discover, and three call sites in `main_window_metadata.py`, so
-  it already elects which variant of a bundled title you see. Its two INPUTS are wrong.
+- [ ] **Similar Content — a metadata sibling to Similar Titles** in the details pane (DR-0003):
+  Similar Titles stays crude title-token linkage; Similar Content uses genre/cast/director.
+- [ ] **"Why similar" per title** in the lightbox, tied to a "why was this recommended?" explainer.
+- [ ] **Explore columns blend in preference-scored matches** — `explore_view.py` still uses only
+  title-token adjacency.
+- [ ] **In-lightbox breadcrumb** — the one-line inline trail (the trail map covers the full view).
+- [ ] **Discover pre-warm setting** — opt-in background fetch of collapsed shelves after paint.
+- [ ] **History as a context engine** — watch counts, time patterns and self-reflection beyond the
+  grouped archive.
+- [ ] **Watch Queue aging / organization** — date-added grouping, reorder, age-out; live channels
+  should not sink to the bottom of a positional list.
+- [ ] **Dedup transparency toggle** — see raw scored candidates, with a "why recommended" explainer.
+- [ ] **User categories in recommendations** — infer a category's genre and let the user confirm;
+  "More like this category" shelves; a bulk mood editor.
+- [ ] **AI taste profiles** from category names, moods and history once an LLM provider is wired.
+- [ ] **Launch-time feedback prompts** — "You watched X — what did you think?", opt-in, rate-limited.
+- [ ] **Trending content** — needs an external feed.
 
-  **1. "Preferred prefixes" should be Preferred Language (+ Region).** It matches
-  `channel.detected_prefix`, the raw conflated token. Measured: `detected_prefix` is **100%
-  populated** on 656,089 VOD rows across 147 values, and the top ones are overwhelmingly languages
-  — EN 91,082 · AR 62,348 · FR 59,132 · DE 46,840 · PL 41,006. `detected_region` is a separate
-  stored field at 76.3%. The parsing that makes the split possible now exists; the setting predates
-  it.
-
-  **2. "Preferred quality" is an over-matching substring bug.** It tests
-  `config.preferred_version_quality.upper() in channel.name.upper()` — a substring of the NAME,
-  which (a) re-parses at runtime against the project's compute-at-ingestion rule when
-  `detected_quality` is stored, and (b) over-matches badly. Setting **HD** boosts **3,084** VOD rows
-  when only **303** are HD: it matches "Ba**ghd**ad", "Savage Ra**ghd**a", "Touc**hd**own", and every
-  **F**HD/**U**HD row. **2,781 rows get a boost they should not.**
-
-  **3. The axis that matters is language, and the mockup should say so.** Of 109,398 bundled titles
-  with 2+ variants: **42% differ by language/prefix** (the preference genuinely decides), only **5%
-  differ by quality**. And quality is a LIVE convention — `detected_quality` is set on 35.6% of live
-  rows but just **3.4%** of VOD — so a VOD quality preference is near-inert *even done correctly*.
-  Scope and explain it rather than promoting it beside language.
-
-  **4. Two collapse paths, and only one honours the preference.**
-  `channel_lens.collapse_best_variant` elects by `version_score`; the main channel list/search uses
-  a separate `collapse_variants` (`config.collapse_variants_in_list`). Confirm both elect the same
-  way — the owner's ask is that *search results* show the preferred version, which is where a
-  divergence would be most visible.
-
-  **5. UI.** Buried in a section collapsed by default (`preferences_version_prefs_expanded=False`),
-  with a bare `QListWidget`, a 48px "Add" and three 28px icon buttons. Wants the settled chip
-  grammar. **Owner asked for a full mockup artifact before any build.**
-
-
-- [ ] **Related content suggestions** — in details pane, beyond current Similar Titles lightbox
-- [ ] **Finish the Similar Titles lightbox — surface "why similar" per title.** The #327 redesign delivered the see-and-pick core: the lightbox now shows a **scrollable contextual strip of the similar set** (poster + rating/runtime/type + source) with a ⤢ dive-in on every row, so you no longer cycle blindly through prev/next arrows (`similar_lightbox.py`, `similar_lightbox_card.py`). **Remaining:** surface **why each is similar** — the link reason (a shared *title token* for Similar Titles, or shared genre/cast/director for the metadata "Similar Content" sibling), tying to the "why was this recommended?" explainer. Broader vector: surface "more like this" in more places (inline details, **post-playback "similar next"**, History/Recent, "because you watched X"). It renders the same `discover_card` + adjacency plumbing as Discover (DR-0002). **Cleanup when touched:** audit the redesigned `similar_lightbox.py` for any remaining inline color literals (tokenize to `theme.COLOR_*`, CLAUDE.md no-inline-color rule).
-- [ ] **Adjacency navigation breadcrumb — the deep-rabbit-hole trail.** *(LARGELY SHIPPED v0.14.1: the **Explore trail-map** (#336) — a cascading-columns adjacency browser opened from the lightbox, seeded with the walked trail — realizes "see the whole trail", with path-aware **breadcrumb highlighting** (#338, part E); an in-lightbox one-line breadcrumb remains the lighter inline variant.)* Non-destructive adjacency is now complete: the #327 redesign made *in-lightbox* exploration non-destructive (**Back** with Backspace, **Esc** returns to your anchor), and a details-pane Similar-title click now **opens the lightbox by default** instead of replacing the pane — the per-row ⤢ button was removed (the row itself is the trigger; right-click still commits to the full details pane). **Remaining:** a *deep* rabbit hole (A→B→C→D inside the overlay) still benefits from seeing the whole trail — add a **subtle in-lightbox breadcrumb** (*Origin › A › B*), **not a button**, which makes the thread legible (see "Two contextual discovery sections" below and DR-0003 — a weak "just a shared word" hop is the feature working, not a defect). Keep on the canonical details/lightbox surface (DR-0002).
-- [ ] **Explore trail-map columns: blend in preference-scored "more like this", not just title matching** — **NOT BUILT** (verified 2026-08-02: `explore_view.py` populates purely through the `get_similar_channels` title-token adjacency chokepoint and has ZERO `preference_engine` references). This was recorded as part of the "spec-locked" Wave 7 build list and never written — a claim, not a delivery. The cascading Explore columns (#336, opened from the History "Explore →" link + the lightbox) currently populate each column via raw **title-token** similarity only. Extend each column to *also* surface **preference-engine-scored** matches for the focused item — genre/director/cast/keyword TF-IDF, the same scoring **Recommendations** uses (`preference_engine`) — so a column blends the crude cross-genre title-hops with essence-based neighbors. Turns Explore into a per-item recommendation lens, not just a same-title-variant browser. Ties to the crude-vs-essence split below (DR-0003) and reuses the existing scorer. *(owner steer 2026-07-31)*
-- [ ] **Two contextual discovery sections in the details pane: keep Similar Titles *crude*, add a *Similar Content* (metadata) sibling** — **NOT BUILT** (verified 2026-08-02: no `similar_content`/metadata-adjacency code exists). Recorded as part of the "spec-locked" Wave 7 build list and never written. *(see DESIGN_RATIONALE DR-0003; user steer 2026-06-20.)* The details pane should carry **two distinct, parallel adjacency lenses anchored to the current item**, which return *completely different* result sets: **Similar Titles** = raw **title-string** linkage (lateral / explore / **anti-filter-bubble** — its crudeness jumps *across* genres to surface totally different things sharing a thread; real use: it has surfaced content the user would *never* have browsed to find; do **not** homogenize it) and a new **Similar Content** = **metadata** linkage (genre/cast/director/keywords + `preference_engine` TF-IDF — "things like THIS in essence"). Both are *contextual/micro* (anchored to the item), distinct from **Recommendations** (global + personalized to *your* taste profile). The value is partly the **contrast** (same anchor, crude-vs-essence neighbors). Canonical `tmdb_id`/`imdb_id` work serves Similar Content + Recommendations + dedup (don't false-merge productions → the South-Park bug) — **not** Similar Titles, which stays raw. **First real step SHIPPED v0.32.0 (#317):** cast/crew names and genre chips in the preview lightbox are clickable and open a metadata *lens* — that person's or genre's titles, paged in place — which is the Similar Content query in miniature, on the lightbox rather than the details pane. It reuses `channel_lens.py`'s `person_predicate`/`genre_predicate`, the SAME predicates the channel-list context chip uses, so the pane-level sibling can be built on them rather than a third path. Still open: the pane-level section itself, and the crude-vs-essence CONTRAST that is the point of having two.
-- [ ] **Trending content** — requires external data feed
-- [~] **Canonical content IDs (TMDb/IMDb)** — PARTLY SHIPPED, and this line was stale: the canonical key does **not** depend on an external TMDb provider. `content_key` has been tmdb-first since #317 (`tmdb:{id}|{media_type}`) using the id the provider's own payload carries, so cross-source dedup already keys on TMDb ids with no API key. What remains is IMDb ids and using external-API ids for rows whose provider supplies none. Note the stopgap below applies only to the Phase-2 runtime fingerprint (recommendations/Similar), not to stored `content_key`: current `(norm_title, media_type, year, director)` fingerprint is a stopgap with known false-split risks (see CLAUDE.md § Content dedup)
-- [ ] **Dedup transparency toggle** — advanced/debug setting to bypass recommendation dedup and see raw scored candidates; paired with a "why was this recommended?" explainer; useful for diagnosing cases where the heuristics make bad assumptions
-- [ ] **AI-powered personalization from user categories** — once an LLM provider is wired (Claude API / local), use user category names + mood signals + watch history to generate natural-language taste profiles ("you prefer slow-burn character dramas, avoid reality TV") that feed the recommendation engine; category mood weights become the training signal
-- [ ] **User category genre/type contextualization** — after creation, the recommendation dashboard can surface "Your 'Quranic Recitations' category is tagged Religious/Music — adjust how it influences recommendations?"; the engine infers genre from existing channel metadata, user just confirms or overrides; intentionally deferred from creation dialog to reduce friction
-- [ ] **Discovery shelves from user categories** — extend user-category shelves with "More like this category" auto-generated sub-shelves; if user created "Korean Drama" with Like mood, auto-generate a "More Korean Drama" shelf from unassigned Korean channels matching genre overlap
-- [ ] **App-behaviors setting: background pre-warm of collapsed Discover shelves** — **NOT BUILT** (verified 2026-08-02: no pre-warm/preload code). Recorded as part of the "spec-locked" Wave 7 build list and never written. Discover now loads **pure lazy** (collapsed shelves are header-only strips; cards fetched on expand). Add an opt-in setting — on a new **"App Behaviors"** settings tab (app-wide behavior toggles) — that, when enabled, quietly background-fetches the collapsed shelves' cards after the visible ones paint, so expanding a strip is instant. Off by default (keeps cold start snappy); the engine already supports per-shelf fetch, so this is just a low-priority background sweep + the toggle.
-- [~] **History as a context engine + self-reflection surface (the twin of Recommendations)** — SHIPPED partially v0.56.0 (#584, entry 450): the archive gained temporal *grouping* — Last hour / Today / Yesterday / Earlier this week / Earlier this month / Older, empty groups omitted — with a per-group delete so clearing last month no longer clears everything, and the freed row space went to quality and language beside the title so two copies of one film are finally distinguishable. The per-group clear then dropped its confirmation for an 8-second Undo toast that only restores rows nobody has touched since (#689, entry 543, v0.81.0), while the two big clears kept their dialog. Watch counts, time-of-day / day-of-week affinity, the inline rating, filtering and the taste-mirror framing remain. — **split History by register** (see UI/UX "Sidebar register split" and DESIGN_RATIONALE DR-0001): keep a lightweight **Recent / resume strip in the rail** (forward instrument — last N played, recency-ordered, one-click to jump back in: resume-after-crash, re-find a browsed-past item, **re-join an ongoing live event** like the World Cup; resume semantics differ — VOD resumes at position, live re-tunes to latest) **and graduate the deep History archive to a first-class main-area view.** *(SHIPPED v0.14.1: the **Full Watch-History view** (#337) graduates History to a main-area view, reusing the Explore trail-map component (seed = watch history, with watch-count / last-watched); watch-count/temporal-affinity stats + the taste-mirror framing remain. NEXT-RELEASE fix: it's embedded in the cramped middle panel → make it auto-collapse the sidebar+details for full room. See project_next_release_shakeout.)* History is the *evidence* end of the recommendation loop while Recommended is the *inference* end; today the evidence is a flat list. Flesh the archive out: watch counts (how many times, and crucially *when* — time-of-day / day-of-week affinity), the rating shown inline (liked / not interested), filterable, with stats and **temporal-context modeling** ("Friday-night sci-fi"; comfort late / explore early) that feeds the engine's comfort↔explore phase detection. **Dual purpose:** feeds the engine *and* hands the user a **taste mirror** for self-reflection (navigate your own likes outside the app, not a black box). **Guardrail (design tenet — PRODUCT_VISION #8):** *surface* patterns to the user (mirror), never silently *pre-filter* their choices into a self-fulfilling prophecy (cage). Excluding specific categories/tags from history context is future tag-system work.
-- [ ] **Watch Queue aging / organization** — the queue gets unruly: items added on different days get "lost in the middle," so users fall back on History as a loose-capture net (see History split, above). Needs recency/date-added grouping, reordering, and an age-out/archive affordance for stale entries — and consider whether a lighter "interesting, maybe later" capture is missing between the *committed* queue and the *ephemeral* History recency strip (don't add a third bucket reflexively — the Recent strip may already cover the "I saw it, let me get back to it" case). **Live ≠ VOD in the queue:** adding a live channel sends it to the *bottom* of a positional list (scroll all the way down) — wrong affordance, because live is *now/recency*-oriented, not a planned position. The queue reads as a movies/series construct; live "get back to it" belongs in the **Recent strip** and/or a dedicated **live-follow pin** ("channels I keep returning to"), not the VOD queue. (Connects to the media-type split surfacing across History/Queue/Recent — see DESIGN_RATIONALE DR-0001 Refined note.)
 ## UI / UX
 
-- [ ] **Search: typo tolerance ("did you mean Michelle?")** — *(owner, 2026-09-02: "put it on the
-  roadmap, we're not doing it now")*. Deferred deliberately, recorded with the measurement so it is
-  not re-derived.
-
-  **Neither search setting gives you this, and that is the point of the entry.** `LIKE '%term%'`
-  requires a CONTIGUOUS run of characters, so:
-
-  | | |
-  |---|---|
-  | `Michele` → `Michelle` | **no match** — after `michel` comes another `l`; the run breaks |
-  | `Sing` → `Sang` | **no match** — nothing consecutive |
-  | `Cage` → `Cagney` | **no match** — `cag` matches, `e` does not follow |
-  | `Cage` → `Beaucage` | match — contiguous, at the end of a real person's name |
-
-  So the `Whole | Part` toggle cannot deliver it under any label: **Part** widens the *position* of
-  a match inside a word, never its *spelling*. Real fuzziness is edit distance, and this SQLite has
-  none natively — `spellfix1` is an extension the build does not load. It needs a trigram or
-  edit-distance index, which is its own slice.
-
-  **Do not smuggle it under a toggle**: a control labelled "fuzzy" that does not do edit distance is
-  worse than no control, because the user stops suspecting their own spelling.
-
-  Design context, the measured numbers and the settled decisions: the **Finding Tron** artifact.
-
-- [~] **Replace the chevrons with something more elegant** — SHIPPED partially v0.41.0 (#459, entry 353): the sidebar section headers dropped their caret outright rather than replacing it — the whole header has been the click target since #329 and carries the pointing-hand cursor, so the glyph was a second affordance for one action. The details-pane, dialog, shelf and watchlist treatments below are untouched. *(owner, 2026-08-31: "getting
-  rid of the tacky chevrons or replacing them with a more elegant solution")*. Deferred
-  deliberately; recorded so it is not lost.
-
-  **Where they are, so the sweep is one pass:** `icons.expand_icon`/`collapse_icon` is the one
-  source (never a literal glyph in widget code), so changing the glyph is a single edit — but the
-  *treatment* is not uniform, which is the real work. `CollapsibleHeader`
-  (`details_section_header.py`) draws it as a flat `QPushButton`; `discover_shelf`,
-  `details_versions`, `filter_group_row` and `qa_checklist_window` set it as button text; and
-  `global_filter_dialog`, `trail_map_view` and `epg_watchlist_mixin` render it as a decorative
-  `QLabel` beside a row that is itself the click target. A glyph swap alone would leave three
-  different sizes and alignments.
-
-  **Alternatives worth rendering before choosing:** rotation-animated caret (one glyph, direction
-  by transform — no second icon, and the motion carries the state change); a disclosure triangle
-  in the platform idiom; weight/opacity shift on the title with no glyph at all; or an indent-only
-  treatment where nesting is the affordance. The last two are the ones that stop looking like a
-  1990s tree control, and both need the row to keep its hover and focus states doing the work —
-  which they now do (#471).
-
-  Mockup first, per the design rule: inventory the current treatments with `file:line` anchors,
-  then propose side-by-side with each delta as a numbered question.
-
-
-- [ ] **Cross-view state sync phase 3 — the bulk grain, and the list-membership sibling seam.**
-  Phases 1 (#311) and 2 (#312) are done: every **single-channel** user-state mutation now ends in
-  `channel_state_bus.publish(...)` across all five axes (rating, favorite, suppressed, hidden,
-  queued), and `_ActionBar.load()` applies each one. #312 also had to repair a #311 claim that never
-  worked — the authoritative re-read was fetching `is_favorite` and the action bar was dropping it
-  on the floor, so the star never repainted. **Remaining, two different grains:**
-  - **Bulk.** `_bulk_add_to_favorites` / `_bulk_add_to_queue` / `_bulk_hide_channels` /
-    `_bulk_mark_watched` deliberately do NOT publish: `publish()` costs one off-thread
-    authoritative re-read per call, so a 500-item bulk action would submit 500 executor jobs to
-    repaint a details pane showing one channel. Needs a bulk-aware seam (publish once for the set,
-    or let the pane ask whether its channel is in it) — not N calls to the per-channel one.
-  - **List-membership.** `preferences_view.refresh()`, `_refresh_recommended_section()`,
-    `load_favorites()` / `_remove_sidebar_row(...)` are still hand-listed in mutation handlers.
-    These answer "does this row belong in this list at all", not "what is this channel's state", so
-    forcing them through `publish(channel_id)` would be the wrong grain — they need their own seam.
-    Do not "finish" this by hand-listing views in a mutation handler; that is the enumeration the
-    bus exists to replace.
-
-- [ ] **Sidebar register split + History/Recent + Sources status strip** — the left rail is over-saturated because it stacks three *registers* of information in one column (see DESIGN_RATIONALE DR-0001): **live/prospective** (Alerts, Watch Queue, Recommended — change on their own), **curated/retrospective** (Favorites, the History *archive* — change only when the user acts), and **system status** (Sources — online/active + the global show/hide filter). Reorganize by that axis: the **rail is a launcher/index into deeper views, not a content container** (root thesis — depth lives in the windshield views; only in-the-moment/forward items keep a rail face). Forward-instruments stay as the default rail; **split History** into a lightweight **Recent/resume strip** that stays in the rail (forward) and a **deep History archive** that graduates to a main-area view (see "History as a context engine"); **Favorites graduates to a windshield view** (Discovery-shelf collection) rather than a privileged rail section — real use: sidebar Favorites goes unused; **Sources** becomes an always-visible **collapsed status strip** above Settings (one-line summary → expand for per-source toggles + filter), never a tab. **Every new sidebar section must declare its register.** A recurring **live-vs-VOD** distinction runs through this (Recent re-tunes live vs. resumes VOD; the queue is a VOD construct). Open: live-follow as its own surface vs. the Recent strip; sequencing vs. the series-monitor feature.
-- [ ] **Reusable Discovery-shelf collection views (full Queue / History / Favorites views)** — generalize the `discover_shelf` / `discover_card` / flow-layout widgets into a **reusable collection-browse surface** (not Discovery-specific; reuse-before-reinvent). Concretely: a **full Watch Queue view** in the Discovery shelf style (posters organized by category/tag) reached by a new **Queue chip** on the bottom row — the windshield "face" of the rail's compact queue (see DESIGN_RATIONALE DR-0001 "Emerging pattern"). The same surface backs the History archive view and possibly Favorites. **Preserve order where it matters:** the VOD queue needs an **Up-Next** ordered lane alongside the category shelves so grouping doesn't bury "what's next"; live-follow content isn't queued (live-vs-VOD). One shelf presentation layer, many collections.
-- [ ] **UI vocabulary standard** — note the settled term is **"Global Exclusions"**, never "Global Filter(s)". Define one canonical term per action across all surfaces: "Exclude" for filter/suppression (panel or global), "Hide" for per-channel hiding, retire "Block" as a synonym; document in UI_UX_GUIDELINES.md and enforce in new UI code
-- [~] **Unified filter panel across views** — **one shared search/filter CONTROL SHIPPED v0.99.0 (#764, entry 610):** every filter and search box in the app is now the same widget — clear button, Escape to clear, the same typing behaviour — with each surface keeping its own hint text. That is the input, not the panel: a shared `FilterPanel` exists and is used by the main channel list; EPG, Discover and Recommended still carry their own controls, so the unification itself is open. **Blocked-adjacent:** the deeper problem is four parallel *filter engines* (`_apply_channel_filters`, `discovery_engine`, `preference_engine`, `tag.py._scope_to_visible_channels`) — being unified in v0.24.0 behind `core/channel_visibility.py`. Do the UI unification after that lands, not before. Original spec: EPG, Discover, and Recommended each have their own filter controls; goal is a single FilterPanel (or shared filter state) across all views; migrate EPG sports filter bar, discover chips, recommendations filter to the same pattern; deprecate the legacy "quick filter" bar where it still appears
-- [~] **Uncategorized prefix audit** — SHIPPED partially v0.54.0 (#554, entry 427): 293 of 421 source codes in a large library had no name at all, showing a blank language/country chip; eleven were named and two more recognised as streaming services rather than places, giving ~111,000 channels their label back — each read off the source's own category labels rather than guessed, and two genuinely ambiguous codes left unnamed on purpose. Still to classify: GO, CITY, V+, ONE, SU, VD, SKR, BEE, TY, RD, RG, RX, PLAYER, TF, CON, LSV, TEN, TK, BLUE, GEN, NIC, FZ, LUX, PN, TGK, CRB, EST into known groups; user is actively building the mapping
-- [ ] **A yearless movie key collapses unrelated productions (found 2026-08-24).** `content_key` is tmdb-first; for the rest it falls back to `{norm_title}|movie|{start_year}`, and `docs/CONTENT_IDENTITY.md` says "junk/empty → omitted". What it does **not** say is what an omitted year costs: the key degrades to the bare title, so yearless movies sharing a title become one production. **Measured exposure: 27,375 rows across 8,007 multi-row groups** (of 69,683 yearless-keyed movie rows — the other 42,308 are singletons that collapse with nothing and are harmless). That is ~8% of the 334,187 keyed movies, not the 20% a raw yearless count suggests. Worst groups: `lilo stitch` 46, `ballerina` 39, `how to train your dragon` 34, `wicked` 34, `superman` 32. Worked example — `aladdin|movie|` holds 15 rows spanning `|MULTI| DISNEY+`, `|EN| ANIME/MANGAS` ×2, `|IT| DRAMMI/ROMANTICI`, `|NL| GESCHIEDENIS / DOCUMENTAIRE` and `|TR| KLASIK FILMLERI` — a Disney animation, an anime, an Italian romance and a documentary, merged. The tmdb-keyed Aladdins beside it are perfectly separated (`tmdb:812` 1992 ×19, `tmdb:420817` 2019 ×21, `tmdb:11238` King of Thieves ×13): the id path works, only the fallback is weak. This is **the opposite failure** from the one the fallback was written to avoid — it was made coarse so language/quality variants would not split, and that coarseness now merges distinct films.
-  **Owner's question, answered with data (2026-08-24):** *"the documentary would be another type of content, no?"* — not in this model. `media_type` is only `live`/`movie`/`series`; "documentary" is a genre/collection facet, which `content_key` never reads. And it cannot simply start reading it: **only 18% of yearless movie rows carry a `genre` tag**, so the signal is absent for 4 in 5 of the rows that need it (in the Aladdin group, 2 of 15). `collection` covers 86% but is the raw provider category and is language-dependent (`Drammi/Romantici` vs `Drama / Romance` vs `Klasik Filmleri`), so comparing it raw would split genuine variants — the very failure the coarse key prevents. A collection-based discriminator would first need the provider categories normalised to a shared vocabulary.
-  Candidate directions, none chosen: (a) refuse to collapse without a year — a yearless row keys to `id:{channel_id}` and stands alone, trading ~27k lost merges for zero false ones; (b) require a corroborating signal before merging two yearless rows (needs the category normalisation above, or runtime/poster-hash); (c) fill the year before the key is computed — lazy `get_vod_info` or the Phase-2 fingerprint — shrinking the yearless population rather than changing the rule. **Do not "fix" this by tightening the fallback for movies only** — check what the same change does to `series`/`live`, which drop year deliberately. Related: `collapse_variants_in_list` (Settings → Interface → Channel List, OFF by default) is what makes any of this visible in the channel list.
-- [ ] **Details-pane poster size — revisit (owner request, 2026-08-24).** The poster box is a hard-fixed `_POSTER_FIXED_H = int(575 * 0.75)` = **431px** (`details_sections.py`), chosen so the Play/Resume row below it never moves between titles. Hard-fixed is right; *that number* was picked before the V3 pass and may simply be too big — a 2:3 portrait at 431px is ~287px wide, which is most of a 300-500px pane, so the poster dominates a column whose job is information. Two directions, not yet chosen: (a) just reduce it (the constant already carries a `0.75` factor from an earlier reduction, so this is one number); (b) offer **size options in Settings** — Small / Medium / Large, or a "show poster" off switch — which pairs with the existing density setting and with per-user pane widths. Whichever way, the *fixed-height* property must survive: a poster whose height varies with the image is what made the action row jump between titles. Related: `_POSTER_MIN_H`/`_POSTER_MAX_H` (400/600) are now unused by the fixed-height path and should be reconciled or removed as part of this.
-- [ ] **Preferred language / region — a POSITIVE preference, not just exclusions (owner request, 2026-08-24). After the UX overhaul.** Today the only lever is subtractive: Global Exclusions say what you do *not* want, and everything else is equally acceptable. That is enough to stop the wrong copy being shown, and not enough to say which copy is *right*. The owner's framing, from reviewing #454: *"a language that isn't being excluded is the version of the content to put forward"* — which is true, and is exactly as far as exclusions can take you. With English, MULTI and Spanish copies all un-excluded, nothing expresses that English is the one wanted.
-  **What #454 already does, so this is not re-solving it.** The collapse's representative election is now 3-tier: a copy that will be excluded loses to a copy whose *region* is an excluded code, which in turn loses to a copy carrying no excluded code at all (18,392 titles recovered; 2,497 more put forward a better copy). That is still subtractive — it demotes the compromised, it cannot promote the preferred.
-  **What this item adds:** a stored preference (ordered, not single — "English, then MULTI, then anything") consulted as a *promotion* tier in the same election, and surfaced in the details pane's "Also Available" so the preferred copy is the one the Play button uses. Prior art in-tree: `SeriesMonitor` already records a language per tracked title, so the preference could seed from what the user actually watches rather than starting empty. **Do NOT reuse `metadata_tmdb_language`** — that sets the language metadata is *fetched* in, not which variant appears (see docs/V3_INTERFACE_SPEC.md §8, which records that no `preferred_language` exists anywhere in the code or in git history). Sequenced after the UI/UX overhaul at the owner's request: it needs a home in Settings and a visible effect in the details pane, and both surfaces are still moving.
-  **Owner refinement (2026-08-27) — two things the item above does not yet cover.** (1) **Quality is a second ordered axis, not a footnote.** The ask is "show the preferred language *and* quality version", so the promotion tier is a lexicographic order over (language, quality), not language alone — and quality must stay *optional*, because a user who wants English at any quality must not be handed a 4K Spanish copy. Both axes already exist as ingestion-computed fields (`detected_region`/`detected_quality`), so this reads stored data rather than re-parsing names. (2) **The promotion belongs at the collapse chokepoint, not in one pane.** The item currently names only the details pane's "Also Available" and the Play button; the owner's framing is "in results and discovery, etc." — so it must land in `collapse_variants` itself, which is what Browse/tag counts, Discover's `_dedup_cards` and search results all already read. Adding it per-surface is the enumeration failure CLAUDE.md names; adding it to the election gives every surface the same answer at once. **Open question for the build:** whether an unavailable preferred copy silently falls through to the next tier (probably yes) or is surfaced as "English unavailable — showing MULTI".
-- [~] **Explain how filtering actually works (owner request, 2026-08-24).** SHIPPED partially v0.56.0 (#578, entry 446): the cheapest option on the list — the empty state naming its gate — is built for the adult axis, which now reads "28 hidden as adult content — change in Settings" and clicks through to the setting rather than quietly lifting it for one view. The other axes' notices, the chip-line explainer, the first-run card and the Help entry remain. Prompted by the filter-chip line (#449): the chips made the *state* legible and, in doing so, exposed that the *model* never was. A user cannot currently discover any of it. The filter system has: **two tiers** (view filters vs Global Exclusions), **nine independent AND axes** (language, region, platform, quality, category, genre, subtitle, dub, format) where a facet is unconstrained when all its values are ticked, a separate **untagged** decision per facet (all values ticked + untagged off is a real constraint that no value list can express — the chips say "tagged only"), plus **hide-watched**, the **adult gate**, and the **absolute** source gate (inactive/expired sources are never relaxed by any of it). Nothing anywhere says so. Options, cheapest first: a "why am I seeing this / why is this hidden" explainer on the chip line and the empty state; a first-run explainer card; a Help entry. Pairs with the **Hidden Management view** below (the recovery half of the same question) and with **UI vocabulary standard** (one word per action). Do NOT solve it by adding prose to the filter panel — that column is being replaced, not annotated.
-- [ ] **Filter system improvements** — search within excluded results for 50k+ filtered datasets; provider-level filtering when multiple providers active
-- [ ] **User-side category management — DEFERRED to the tag system.** Right-click "Add to Category" / "Remove from category" on a channel, and a "manage a category's contents" view, are intentionally **not being built now**: the whole category concept is going to be rehashed by the faceted/typed-**tag** model (see "Faceted/typed-tag model"), so investing in the current single-assignment category UX would be throwaway work. Today the only path is right-click → "Category: … (change…)" (CategoryPickerDialog) to re-assign one channel. **What IS still worth doing before tags:** the *source-data → category* **parsing/ingestion** side (how provider categories/prefixes map to groups) — that mapping is the foundation the tag system will build on. The *user-facing* category-editing surface waits for tags.
-- [ ] **User-defined prefix groups** — UI to assign "Other" prefixes to existing groups or new custom groups (e.g. promote "ARAB" → Arabic, or create "My Sports" = [ESPN, DAZN]); backed by `user_prefix_overrides` config already in place; "Reset to defaults" clears overrides and reverts all prefixes to built-in group mappings
-- [ ] **"Copy filters from…" across views** — apply a Tier 1 filter from one view (Search/Discover/EPG) to another; small dropdown on each filter bar
-- [ ] **"Promote to global exclusion"** — convert a dialed-in Tier 1 view filter into a Global Exclusion (requires inversion: everything NOT selected becomes excluded); useful when you've found a good filter config and want to make it permanent
-- [~] **Hidden-content visibility & recovery surface (mirror-not-cage)** — PARTIALLY SHIPPED: hidden **counts + reveal** landed for global exclusions and for dead/failed streams (#233, #245), and standalone region/locale tokens now render in the Exclusions dialog (#231). **Since then, two more axes stopped hiding silently:** the adult gate names itself on an empty list and links to its setting (#578, entry 446, v0.56.0), and "Also Available" stopped listing versions from sources you had disabled among the ones you can watch — they moved under their own **Offline Sources** heading and left the count, which used to read 3 versions when only 2 were reachable (#565, entry 435, v0.54.0). **The Hidden Management VIEW itself is still NOT BUILT** (re-verified 2026-09-07: no hidden-management surface exists) — the review-and-recover destination, the right-click entry point from the Search "Hidden" toggle, and the per-variant "exactly HOW is this filtered" tooltip all remain. Original spec: today the app can cage content with **no way to see or recover it**: a search can return 0 results with no "N filtered/hidden" warning, and the Global Exclusions dialog doesn't render standalone region/locale tokens (an `FR` in `global_filter_excluded_prefixes` maps to no category group → reads as "no filter" while still filtering). Build a **Hidden Management view** that surfaces "**#### channels completely hidden with no way to view or recover them**" (completely-hidden = excluded by the union of global exclusions, hidden categories, removed/inactive/expired sources, adult-gate, with **no visible variant**) and lets the user review + recover. Entry points: **right-click the "Hidden" toggle in the Search bar → open the Hidden Management view**; the search empty-state shows an "N filtered/hidden — review" affordance (extends the #238 hidden-count). The Global Exclusions dialog must also surface **every** active exclusion token (incl. region/locale codes) so nothing is invisible. **Filtered-variant tooltip:** hovering a chip under "Filtered variants" must explain **exactly HOW** it is filtered (which axis + token), with enough clarity that the user can undo it from the management interface. (Per-variant unblock lever fixed in #284.)
-- [ ] **Faceted/typed-tag model for channel metadata — FUTURE ARCHITECTURE (the data-organization rethink).** The prefix/code taxonomy currently forces each code into **one** bucket across three filter axes (locale / platform / quality), but real codes are **multi-type facets**: a single channel legitimately carries several typed tags at once. The cracks are already visible — `SC` is *Subtitles: Scandinavian* on foreign original-audio content (parked in **Platform**), `EAR` is *Subtitles: Arabic* (Platform), `Adult` is a *Genre/content-category* (parked in the **Language/locale** tier, with a "not a locale" comment admitting it). The user's articulated model (2026-06-19): category **types** are like **Language, Platform, Genre, Region, Quality, (Subtitles)**, and a source item can hold **multiple** tags across those types. Direction: rethink whether these are single-assignment "categories" or multi-assignment **tags/facets** — a channel → a *set of typed tags*; filtering becomes facet selection within and across types (the union/restrict semantics of the current six axes become per-type tag selectors). Generalizes the existing **"Channel sub-attributes / session type tags"** item (the `channel_tags` JSON column) and the six-axis model in `docs/FILTERING_DESIGN.md`. Touches ingestion (tag extraction at parse time), schema (`channel_tags`), and the filter UI. **Not now** — the `SC`/`Adult` mis-bucketing is the early symptom; until the model is reworked, leave `Adult` parked and `SC` in the platform/library tier (its `config.py` comment is stale: it's a Scandinavian-subtitle library, twin of `EAR`, not "origin TBD / English-Turkish-Indian"). Reconcile the `channel_name_utils.py` "Scandinavian" label vs the `config.py` platform framing as part of this.
-- [ ] **Grid view** for channel list — **NOT BUILT** (verified 2026-08-02: `ChannelListView` is a plain `QListView`, never set to `IconMode`; only Discover has a card grid). Named in the Wave 6 plan; never written.
-- [x] **Keyboard shortcuts** — **SHIPPED 0.103.0 (#798, entry 628)**: the whole minimum set below, on one window-owned registry (`metatv/gui/shortcuts.py`) that also fills the tooltips and the cheat-sheet — focus search (`Ctrl/Cmd+F` or `/`), `Ctrl+1..5` DERIVED from `NAV_CHIP_SPECS` so the keys and the chips cannot disagree, `Esc` (clear-and-unfocus, or dismiss the overlay in front — forwarded to whatever owns Escape there rather than reimplemented), `Space` play/pause and `Ctrl+.` stop through `PlayerManager`, `Ctrl+Down`/`Ctrl+Up` to step the channel list (selection only, and it steps over grouping headers), `Ctrl+B`/`Ctrl+D` on the Layout menu's existing panel toggles, and `?`/`F1` plus **Tools ▸ Keyboard Shortcuts…** for the cheat-sheet. The three typeable bindings (`/`, `?`, `Space`) are swallowed while a text field has focus; `Esc`, `F1` and every `Ctrl+…` are not. New **View** entries and a new **Playback** menu carry the rest, so every key bar `Esc` — whose meaning depends on what is in front — advertises itself in a menu. **Not covered:** `Space` still wins over a focused push-button or checkbox (Qt's own text-field override does not extend to buttons), and the historical note below is kept as written. (verified 2026-08-02: the ONLY shortcut in the app is `Ctrl+,` for Settings at `main_window.py:822`; no `QShortcut` is registered anywhere in `gui/`). Named in the Wave 6 plan; never written. **Re-raised by the owner 2026-08-27**, off the back of making the header search box permanent: once search is always present and Enter in it opens the Search view, the keyboard becomes a real navigation surface and the gap is obvious. Minimum set to design: focus search (`Ctrl/Cmd+F` or `/`), the five view switches (`Ctrl+1..5`, in the switcher's left-to-right order so the shortcut and the chip agree), clear-and-unfocus (`Esc`), play/pause + stop for the current stream, next/previous in the channel list, toggle the sidebar and details panes. **Design constraints:** they must not fire while a text field has focus, except `Esc` and the focus-search binding itself; put them on window-owned `QAction`s rather than `QShortcut`s scattered per widget, so they can surface in menus; and show each one in its control's existing tooltip, since there is no menu bar on macOS to advertise them. A cheat-sheet surface (Tools menu, or `?`) is part of the work — an accelerator nobody can find is not a feature.
-- [~] **V3 UI overhaul** — FOUNDATION SHIPPED v0.40.0 (#325-#329); rows and details pane NOT BUILT. The design is settled end-to-end (2026-08-22 pass, approved against rendered evidence — do not re-litigate or re-mockup). **Shipped:** text-role migration retiring `COLOR_FAINT/MUTED/DIM` as foregrounds across ~55 role constants (**36 of 36** measured combinations failed WCAG AA; now 0 of 12) (#325); a rebuilt **type scale** — nine steps with **seven inside a 6px band** (9/10/11/12/13/14/15) became a ratio scale, body baseline 11→13px, token names unchanged so all 482 call sites inherited it (#327); the **segmented view switcher** replacing five 30px-separated pills, active cell filling edge to edge (#328); **theme-tracking vector icons** on the five nav chips (#326) and four sidebar headings (#329), replacing emoji — which cannot take a colour, and so were the last chrome ignoring the palette; and per-section sidebar **height floors** (`MIN_ROWS`), fixing History starving at ~1.5 rows. Found en route: the Favorites star had **never actually been gold** — the colour was applied via `<span style="color:…">` around an emoji, which discards it. **Remaining, in build order:** (1) **channel row redesign** — the cascading-columns comfy row: media-kind distinction (live/movie/series), quality shown ONLY where present (it exists on just **6.6%** of the library, so never reserve space implying otherwise), ratings de-emphasised; rows are untouched by 0.40.0. (2) **spacing + radius scales** — 165 `border-radius` literals across 15 distinct values with no `RADIUS_*` family. (3) **details pane** collapsible cast/technical sections — do NOT flatten the shipped #259 architecture (rail over poster, Watched badge, sentiment trio), which was regressed once and rejected. ~~(4) filter chips~~ — SHIPPED #449 (the Includes column is now a one-line chip bar; `Layout ▸ Filters as chips` switches back). ~~(5) Inter font bundling~~ — SHIPPED #445 (Inter + a 7 KB 48-glyph Material Symbols subset, vendored with a build script). (6) **Option D** (click "MetaTV" → view dropdown) as a *Settings option*, with Option A remaining the default. (7) similar-titles poster/list toggle — **BLOCKED**: `ChannelVersion` carries no poster URL, needs DTO + repository + image-cache + async hydration first.
-- [~] **Dark mode / theme selection** — palette LAYER shipped v0.21.0 (#239: Midnight/Graphite/Daylight) and #251 claimed completion, but the owner's 2026-08-02 UX pass proves the APPLICATION layer is very incomplete: bottom nav bar and status bar render white in a dark theme, details-pane section headers render near-black on near-black, poster placeholder is a light-theme box. Root cause is not stray literals (`test_no_stray_color_literals.py` is correctly green) — it is widgets built with NO stylesheet inheriting Qt's default light palette (`details_sections.py:1250`/`:1322`, `main_window.py:809`), because `MainWindow.refresh_theme()` is a hand-maintained enumeration sweep that cannot see an absence. **Application-layer floor SHIPPED v0.24.0 (#253/PR #401):** `theme.qt_palette()` builds a `QPalette` from the active tokens and `apply_theme()` pushes it onto the whole `QApplication`, so a widget with no stylesheet inherits themed colours instead of Qt's built-in light default — no enumeration required. It also fixed a latent bug: a non-default saved theme was never applied at cold launch at all, only after a Settings round-trip. **Six restart-only views SHIPPED v0.24.0 (#261):** Discover, Recipe, EPG, Preferences/Recommended, Provider editor and Sources manager each gained their own `refresh_theme()`, swept by name from `MainWindow.refresh_theme()`. **Selection contrast SHIPPED v0.24.0 (#265):** the QPalette highlight took its foreground from the on-background text ramp, which put near-black on Daylight's navy accent (~1.2:1) and white on the dark palettes' light-blue accent (~2:1); a dedicated per-palette `COLOR_ON_ACCENT` token now clears 4.5:1 in all three, guarded by a contrast test that reads the roles back off the real `QPalette`. **Live theme switching SHIPPED v0.26.0 (#286):** the restart-only residue was fixed by a palette-diff rewrite, not by extending the sweep — `theme.style(w, "ROLE")` registers each widget weakly so `apply_theme()` re-applies it, replacing the hand-maintained `refresh_theme()` enumeration that could never see a widget nobody remembered to add (#253/#261 both "completed" it and both left it broken). A drift-guard test now fails the suite on any raw `setStyleSheet(theme.X)`. **Contrast SHIPPED v0.27.0 (#296, #298):** the primary view chips (Search/EPG/Recommended/Discover/Recipe) were unreadable in both states on both dark themes, and Graphite was barely distinguishable from Midnight; #298 then measured *every* foreground/background pair the stylesheets set and repaired nine unreadable control states — found by measuring rather than by looking, which is the reusable part. **The FIXED-DARK surfaces SHIPPED v0.32.0 (#318, #320, #321):** the preview overlay and Explore trail-map are a dark "cinema" panel in EVERY palette, but drew their foregrounds from palette-tuned tokens chosen for the app surface — measured against the card they actually paint on, Daylight's Back button was 1.06:1, its "here" tag white-on-white at 1.03:1, and the poster wells and keyboard chips rendered as white boxes. They now take colour from a fixed `COLOR_LIGHTBOX_*` family, and `theme.on_fill(fill)` picks legible text for anything on a solid fill (hardcoded `white` measured 1.59-2.51:1 on the row badges and PPV/EPG buttons). Two gates came out of it, both closing holes the old conformance test structurally could not see: `test_cinema_surface_contrast.py` measures by SURFACE (sweeping by prefix, so a new role is covered without anyone opting in), and `test_widget_composed_contrast.py` reconstructs the ~285 stylesheets composed inside WIDGET modules from the AST and measures those — which found five more unreadable controls, one of them (`filter_bar`'s Clear) invisible in all three themes. **Live switching COMPLETED v0.32.0 (#324):** the registry shipped in #286 but ~270 sheets were still written straight onto their widget and cached by Qt, so a switch left patches of the previous palette across dialogs, the filter panel and the details pane. All of them are on `style_fn` now (285 → 17 remaining, and the 17 are the ones interpolating a per-item value alongside a token — a lambda would re-read those at switch time, so they need a per-site decision, not a sweep). What is left on this line is no longer correctness: it is the **theme/style OVERHAUL** (look, density, hierarchy), which is design-gated on the owner.
-- [ ] **Channel sub-attributes / session type tags** — bracket suffixes like `[FP1]`, `[RACE]`, `[SPRINT]`, `[Prelims]`, `[Main Card]`, `[EVENT ONLY]` encode valuable sub-category data (Formula 1 session type; UFC/combat sports segment). No DB field exists today to store these — they're left in the bare channel title for now. Needs a `channel_tags` or `session_type` JSON column so sessions can be filtered ("show me only F1 Race rounds, not practice"). Related: `[WEST]`/`[EAST]` US regional variants would also benefit from a sub-region field.
-- [ ] **Audit the 134 remaining blind `except Exception` handlers — one at a time, boundary-vs-inline** — the second half of the audit's runtime finding. The first half SHIPPED: the 40 handlers that reported *nothing* are fixed and `tests/test_no_silent_blind_except.py` now fails the suite on any catch-all that neither logs, re-raises, passes the exception on, nor carries a written `# silent: <reason>`. **What is left is a different problem and must not be done as a sweep.** These 134 all report; the question is whether the catch is as narrow as the intent. Measured context: 23 sit at a thread or lifecycle entry, 22 inside a per-item loop over untrusted provider data, 7 in signal handlers, and ~82 are "inline" by a crude heuristic that is *wrong* often enough to matter — `Database.session_scope` is blind by necessity (it must roll back on anything and re-raises), `config.load`/`save` must not stop the app starting, and `metadata_manager.get_metadata` documents its catch-all as a per-provider isolation boundary. **The risk is the whole point:** narrowing a handler at a boundary converts a logged warning into a dead worker thread or an aborted Qt slot, and there is no defect behind the change to justify it. So: work in small batches by subsystem, decide each site as *boundary* (catch-all correct → record why, in one line) or *inline* (narrow to the exception the code expects, verified against the real exception rather than assumed — `ALTER TABLE`'s duplicate column IS `OperationalError`, a not-connected PyQt signal IS `TypeError`, and both were checked by running them). Full suite per batch, not per PR. Do NOT enable ruff's `BLE001`: it flags all 193 including the 134 that already behave correctly, so it forces either a meaningless ignore or 193 edits that make the codebase worse. The project-specific guard already asks the question that matters.
-- [x] **"Make recipe" from the Explore trail map arrives EMPTY — seed the pantry from the title** — SHIPPED v0.51.0 (#511, entry 396): the button now seeds the recipe with the title's genre, so you land on results rather than a blank builder — genre alone, deliberately, because seeding every facet narrows the recipe to the title you started from. The `hasattr` guard went with it: the switch runs through one `_activate_recipe_view()` entry point keyed on `"recipe_chip" in self.__dict__`. Original report and brief kept below. — owner report 2026-08-27, "doesn't do anything". It is wired, and that is the useful part: `trail_map_detail.py:225` builds the button, `trail_map_view.py:538` re-emits it as `recipe_requested(channel_id)`, and `main_window.py:2362` `_on_trail_recipe_requested` dismisses the overlays and switches to Recipe. What it does NOT do is use the `channel_id` it was handed — its own docstring says so: *"Seeding the pantry from channel_id's genres/tags is a follow-up (the intent already carries the id, so the wiring is in place)."* So you click "Make recipe" on a specific title and land in a blank builder, which reads as nothing happening. **The remaining work is small and the API already exists:** `RecipeView.seed_facet(facet_type, value)` at `recipe_view.py:257`. Read the channel's stored `detected_genre`/`detected_genres` (ingestion-computed — never re-parse `raw_data` at render) plus its content tags, and call `seed_facet` per facet before the view paints. **Decide while building:** how many facets to seed (all of them makes an over-narrow recipe that returns almost nothing — genre alone is probably the right default, with language/decade offered rather than applied), and whether seeding REPLACES an in-progress recipe or adds to it. **Also fix in passing:** the handler guards the switch with `hasattr(self, "switch_to_recipe_view")`, which CLAUDE.md forbids — if that method were ever renamed the button would silently do nothing at all, with no error. Before 1.0.
-- [x] **Episode history tracking fix** — SHIPPED v0.64.0 (#627, entry 489) and v0.86.0 (#705, entry 555): the cause was found without needing the tracing. Only the fully-validated play path recorded anything, so choosing Play Anyway after a failed pre-flight check, using a "Try <source>" action, or playing an **episode** left no History entry, no play count and no resume position. Every play now counts however it started, and History updates the moment Play is pressed instead of sometimes needing a second play or a manual refresh — the old refresh could run before the play had finished registering.
-- [ ] **Launch-time feedback prompts** — while channels load at startup (5-10s), show "You watched [X] — what did you think?" prompts for recently-watched content with no rating; feeds the recommendation engine quickly; opt-in ("Ask me about content I watch"), explain data stays local; dismissable and rate-limited so it doesn't become annoying
-- [ ] **Recommendation dashboard — category mood editor** — show all user categories with their current mood, channel count, and inferred genre; let user adjust mood in bulk without re-opening CategoryPickerDialog; "Why is this recommended?" explainer links back to category mood contributions
-
-- [ ] **Reorder the sidebar sections** — *(owner, 2026-08-26; PARKED, "leave it open until much later in the roadmap")*. `config.sidebar_sections` already persists an order and `create_sidebar` already builds every section (visible or not) "so live reordering works" — the gesture is the only missing half.
-
-  **A ⋯-menu version was built and rejected, and why is the useful part.** Move up / Move down were added to every section's overflow menu. It did not work, for two structural reasons rather than fixable bugs:
-  - `WatchAlertsSection` overrides `create_header` entirely, so it never calls `build_overflow_button` and had no ⋯ at all.
-  - `RecommendedSection` PROMOTES its single refresh action to a direct button, so its move entries could only live behind a right-click — undiscoverable.
-
-  Owner: *"alerts and recommendations don't have ... menus so they don't even have the options."* Any future attempt has to reach sections that build their own headers, which means the affordance belongs somewhere every header shares — not in a menu only three of five sections grow.
-
-  **Drag was considered first and is still the likely answer**, with two findings worth keeping: `_ClickableHeader` emits `clicked` on PRESS, which a drag would also fire, so the two gestures need splitting (press records, move past `QApplication.startDragDistance()` promotes to a drag, release without travel is the click); and the header carries the pointing-hand cursor for collapse, so a drag needs its own signpost — which was the last argument for keeping the header icons. They are gone now, so a drag rebuild needs a different one.
-
-  **The shared affordance this item was waiting for now exists — SHIPPED v0.81.0 (#690, entry 542).** *Every* section header carries a right-click menu, including the two that build their own headers, so the "only three of five sections grow a ⋯" objection no longer applies. It currently offers Hide {section} (with an Undo toast) and a jump to Settings ▸ Sidebar; the reorder gesture itself is still not built, and this stays parked at the owner's request.
-
-- [ ] **Sidebar sections shareable with the right-hand column** — *(owner, 2026-08-26; "Right now no, but worth a thought")*. Sections live in one vertical rail. The question is whether one should be able to leave it and sit beside the details pane — Recommended or Watch Queue as a right-hand column on a wide window, rather than everything competing for one strip.
-
-  Worth recording now because it changes what "order" means: `config.sidebar_sections` is a single ordered list, and a two-column rail needs a *placement* per section (which column, which position) instead. Whatever builds this should expect to migrate that field rather than extend it. It also interacts with the content cap (#487) — a section that releases height to its neighbours has different neighbours in each column.
-
-## UI correctness fixes with no roadmap line
-
-Recorded here only so the roadmap watermark can move honestly — these fixed existing behaviour rather than building anything the roadmap was tracking.
-
-**Reconciliation of 2026-09-07 (What's New #331-#626, v0.41.0 → v0.103.0).** Every entry in that
-range was read against this file. The lines it moved carry their entry and PR numbers inline. The
-large remainder — the search-results rebuild, the sports classification layer, the startup and
-scroll performance work, the playback-failure reporting ladder, the config-to-database migration —
-answered no roadmap line, and **no line was invented for them**: their What's New entries are the
-record, and `scripts/roadmap_audit.py --version X.Y.Z` lists what any release actually shipped.
-
-### 2026-09-03 — the live-QA wave (nineteen PRs, #704–#722, batches 0.86.0–0.92.0)
-
-One night of owner-driven testing; every item below carries its What's New entry (ids 555–576;
-#718 is the one entry-less crash fix — anchor `metatv/gui/deferred_config_save.py` timer parenting).
-
-- [x] Apostrophes no longer split content identity; propagation adopted 2,813 rows — SHIPPED 0.86.0 (#704, entry 557)
-- [x] History updates on play; details Resume state live on close — SHIPPED 0.86.0 (#705, entry 555)
-- [x] Closing the player saves the exact spot; movie EOF finalises — SHIPPED 0.86.0 (#705, entry 556)
-- [x] Sports reclassify stops stat()ing the definitions file per row — SHIPPED 0.86.0 (#706, entry 558)
-- [x] Sports search box says "Filter results…" — SHIPPED 0.86.0 (#707, entry 562)
-- [x] Paint never reads the disk: resident thumbnail cache — SHIPPED 0.86.0 (#708, entry 559)
-- [x] FLSP fixture clocks are US Eastern; fixture rows titled by matchup — SHIPPED 0.87.0 (#709, entries 560/561)
-- [x] Catalog staleness banner + the Auto-refresh setting wired (it had zero readers) — SHIPPED 0.87.0 (#710, entries 564/565)
-- [x] UI-state config writes settle to one per burst (88 sites) — SHIPPED 0.87.0 (#711, entry 563)
-- [x] Watch Queue builds in chunks (`gui/chunked_construction.py`) — SHIPPED 0.88.0 (#712, entry 566)
-- [x] Enrichment-driven refreshes coalesce to quiet/cap/drain — SHIPPED 0.89.0 (#713, entry 570)
-- [x] Trailer gets its own row; Watch Later un-crushed — SHIPPED 0.90.0 (#714, entry 571)
-- [x] Selected rows readable on the tinted selection, every palette — SHIPPED 0.89.0 (#715, entry 569)
-- [x] Live-only bulk refresh: banner + Content-tab rate + on-view-open — SHIPPED 0.90.0 (#716, entries 567/568)
-- [x] "18+" prefix parsed and classified adult (466 rows) — SHIPPED 0.90.0 (#717, entry 572)
-- [x] Deferred-save timer dies with its host (fire-after-free) — SHIPPED 0.90.0 (#718, no entry; crash fix)
-- [x] Nine sidebar lists route selection styling through the chokepoint — SHIPPED 0.90.0 (#719, entry 573)
-- [x] Sidebar sections wait out migration passes — SHIPPED 0.91.0 (#720, entry 574)
-- [x] Preferences stops computing while closed; reactivation survives — SHIPPED 0.91.0 (#721, entry 576)
-- [x] Discover: no hidden-view builds; cards chunk when open — SHIPPED 0.91.0 (#722, entry 575)
-
-
-- **Settings OK applied nothing (#319, v0.32.0).** `settings_applied` was Apply-only and the host compensated with a hand-written tail naming three of the five handlers it had connected, so OK silently dropped row density, thumbnails, platform-name style and collapse-variants. The Style menu also never re-read config, so picking the value Settings had just set hit an already-that early-return and did nothing.
-- **Icon-only buttons had no tooltips (#322, v0.32.0).** Five controls whose entire label is a glyph, including the source editor's URL reorder arrows — where the order IS failover priority. Guarded by `test_icon_button_tooltips.py`.
-- **Settings pages did not line up (#323, v0.32.0).** Three left edges for one kind of control and a control column that moved between groups, because `addRow("", w)` leaves an empty label holding the label column and Qt sizes each form's column independently. Fixed at a seam, per page.
-
-## Code Health / Refactor
-
-### The Sports row grammar — time column and adaptive slot (mockup Q12/Q16)
-
-The facet strip and search shipped; the ROW is what is left of the Sport Rundown
-design. Two pieces, both needing the shared delegate rather than the view:
-
-**A fixed, right-aligned time column (Q12).** `event_start_time` now exists on
-4,205 rows, so there is something to draw. `ChannelRowDelegate` has no leading
-column and `sizeHint`/`paint` assume the gutter-then-title layout.
-
-**The adaptive leading slot (Q16, refined by the owner).** One rule — *show
-whatever still discriminates*:
-
-| state | slot shows | why |
-|---|---|---|
-| no sport filter | the sport glyph | 16 values, high discrimination |
-| one sport selected | the **region code** | 76-90% populated within every sport, 15-37 distinct values |
-| sport + region | collapsed | nothing varies; the ~28px goes to the title, which currently clips |
-
-**Q16 SHIPPED v0.65.0 (#646, entry 508)** — the adaptive leading slot works exactly as the table above specifies: the sport's own icon with no filter, the region code once one sport is selected, and nothing at all when nothing varies, with the ~28px going back to the fixture name that was clipping. **Q12 (the fixed time column) did not ship, and the surface it was for is gone** — the Sports and Events views were retired in v0.94.0 (#731, entry 584). What follows is the original blocker analysis, kept because the classification data layer stayed.
-
-**The blocker was a signature, not a design.** `ChannelListModel` calls
-`get_media_type_icon(channel.media_type)` — it passes the media type, not the
-row, so the callable cannot see `sport_type` or `detected_region`. Widening it
-to take the DTO touches every caller of the shared model, which is why this is
-its own slice and not a rider on the filter work.
-
-Rejected on evidence, so nobody re-proposes them: **team badges** (only 12.8% of
-sports rows carry a `team_name`, and the feed ships no crests — a column filled
-one row in eight reads as broken) and **league** (within one sport it is either a
-single value — American football 100% but ONE league — or nearly absent: tennis
-1%, soccer 19%).
-
-### Collapsing regional feed duplicates is BLOCKED on the parser (measured 2026-08-31)
-
-Mockup Q18 — "collapse regional feed duplicates into one fixture row with a feed
-count" — is **not ready to build**, and the measurement is why.
-
-A first pass with a crude key (strip a leading `REGION (NETWORK)` marker and a
-trailing feed number) reported **7,275 titles on more than one feed, 9,507 rows
-collapsible**. That number was garbage: the key reduced `CA| SUPER SPORTS CH 267`
-to `"ca"`, so it was grouping unrelated channels by region. Shipping it would
-have hidden ~9,500 genuinely different channels.
-
-With a real fixture identity — the parsed `event_start_time` plus the title's
-content words — the honest figure is **116 groups, 393 rows, 277 collapsible**.
-Two orders of magnitude smaller. And even that over-groups: `US Open: Court 14`,
-`Court 11` and `Court 5` at the same instant collapse into one row, because the
-court number is exactly the detail a words-based key discards.
-
-**So the blocker is the same one as everything else here: the title parser.** A
-correct key needs the team names (or court/venue) extracted, not inferred from
-leftover words. Until then a collapse hides real fixtures, which is the opposite
-of what the view is for — and the same shape as the sports-gate fix that removed
-11,451 real channels to catch ~2,000 false ones.
-
-What DID ship instead: the placeholder lane. 5,565 of 28,323 sports rows are
-literally named `NO EVENT STREAMING NOW - | …`. Those are unambiguous, so they
-get their own lane with its count rather than a heuristic collapse.
-
-### Sports/PPV event titles are not parsed at all (owner report, 2026-08-31)
-
-**APPROVED 2026-08-31 — build it.** Deferred once ("don't get distracted by it now"), then
-un-deferred by the owner the same day once the cost became visible: *"sports titles should be
-parsed if you aren't already doing that."*
-
-**It is the sole blocker on FOUR separate features**, which is the argument for doing it ahead of
-its apparent size:
-
-| blocked feature | why it needs the parser |
-|---|---|
-| Team/league logos | a badge needs a team NAME; only 12.8% of sports rows have one today |
-| The Team facet (Q9) | the cascade's third level has nothing to populate it |
-| Trustworthy LIVE state (Q19) | the provider's token is wrong on 99% of rows; the only cross-check is the start time inside the title |
-| Live status + scores (Q24) | nothing to look up against an API without an event identity |
-
-Do the **date/time and region** fields first even if team extraction lags — `event_start_time`
-alone fixes the Events countdown and Q19, and it is the least ambiguous part of the string.
-
-**BUILT, and in that order. `event_start_time` SHIPPED v0.60.0 (#605, entry 469):** all three
-date formats are read (654 of 1,358 fixtures in a typical library were parsing before), and the
-day-name form's named local zone is resolved at ingestion — nearly 9 in 10 of those are not GMT,
-so trap 2 above was real and was avoided. **Team extraction SHIPPED v0.85.0 (#701, entry 553):**
-fixture names parse into their two opponents (`vs` / `@` / `x` and the uppercase dash form) and
-store at ingestion, backfilled on next launch. **Region from the category prefix SHIPPED v0.94.0
-(#730, entry 581)** — about 8,800 rows that escaped Global Exclusions inherit their region now.
-**Q19 followed from it:** "On now" stopped guessing a four-hour window and read the game's real end
-time (#672, entry 532, v0.72.0), a fixture row said whether it was on now or already over (#673,
-entry 533, v0.73.0), and the slot-fixture clock error that put baseball six hours out was corrected
-(#691, entry 544, v0.82.0). The **views** those fields were for were retired in v0.94.0 (#731,
-entry 584); the classification layer stayed and kept improving.
-
-**NOT a rendering bug — an ingestion gap.** The Sports view shows raw provider
-strings because `detected_title` *is* the raw string for this whole family:
-
-```
-MAJOR LEAGUE BASEBALL CARDINALS - ORIOLES | Thu 27 Aug 20:00 CEST (SE) | 8K EXCLUSIVE | SE: VIAPLAY PPV 9
-Cardinals - Cubs | Major League Baseball 2026 | 2026-05-31 | 23:00 (GMT) | 8K EXCLUSIVE | ...
-```
-
-**Measured on the owner's library:** 7,660 of 28,018 sports rows (**27%**) still
-contain a `|` in `detected_title`. Pipe-field counts: 1→1,248, 2→5,700, 3→514,
-4→25, 5→159, 6→14 — so it is not one format, but it is a small number of them.
-
-**The structure is unusually parseable** — this is not scene-release soup. The
-fields are pipe-delimited and positional:
-
-| field | example | maps to |
-|---|---|---|
-| event | `CARDINALS - ORIOLES` | `detected_title`, and both `team_name`s |
-| league | `MAJOR LEAGUE BASEBALL` / `Major League Baseball 2026` | `league_name` (+ year) |
-| when | `Thu 27 Aug 20:00 CEST` / `2026-05-31 | 23:00 (GMT)` | `event_start_time` — **currently NULL for these** |
-| region | `(SE)`, `(DK)`, `(NO)`, `(FI)` | `detected_region` |
-| quality | `8K EXCLUSIVE` | `detected_quality` |
-| source | `SE: VIAPLAY PPV 9` | provider channel, not part of the title |
-
-**Three traps for whoever writes the parser** — measured 2026-08-31, before the
-naive version gets written:
-
-1. **There are THREE date formats, not one.** `| 27-08-2026 | 14:00 (GMT) |`
-   (numeric), `| Sat 29 Aug 14:00 CEST (DK) |` (day-name, **no year**), and
-   `| 2026-07-04 | 09:00 (GMT) |` (ISO). The day-name form is the one the `LIVE |`
-   rows use, and it carries no year — so it needs a nearest-plausible-year rule,
-   not `int(...)`.
-2. **The day-name form names a LOCAL timezone, and nothing reads it.** 307 rows
-   say `CEST`, 45 `EDT`, 27 `EEST`, 16 `UTC`, 2 `GMT`, 1 `NDT`. A parser that
-   assumes GMT puts 307 European fixtures one to two hours wrong — and they will
-   look *almost* right, which is the worst kind of wrong. `start_time`/`stop_time`
-   are UTC-naive by rule (`epg_utils.py`), so the zone must be resolved at
-   ingestion, not carried.
-3. **The provider's own `LIVE |` token is not evidence.** Of 640 rows currently
-   labelled live, 398 carry a parseable start time and **396 of those (99%)
-   started more than 24 hours ago**; the oldest genuine fixture has flown a LIVE
-   badge for 15.4 days. Treat the token as a hint and corroborate it against the
-   parsed time — never render a Live state the clock does not support.
-
-**Two things fall out of parsing it that are worth more than the tidier title:**
-
-1. **`event_start_time` for the Events view.** These rows carry a real date and
-   time in the string and reach `event_start_time = NULL`, so they land in the
-   "undated / always-on" bucket rather than the countdown. The Events view was
-   built assuming dated rows are the exception; here they are the majority,
-   mis-filed.
-2. **Cross-region dedup.** The SAME event is a separate row per country feed —
-   `(SE)`, `(DK)`, `(NO)`, `(FI)` of one Cardinals–Orioles game, four rows and
-   four cards. Parsing the event out of the string is what would let
-   `content_key` collapse them into one title with four sources, which is
-   exactly what "Other Versions" exists for.
-
-**And a third finding, separate and immediate: 5,473 rows say literally
-`NO EVENT STREAMING NOW -`.** That is ~20% of the Sports view, and ~72% of the
-unparsed population — placeholder channels the provider leaves standing between
-events. They are not dead streams to be *probed*; they announce their own
-emptiness in the title, so they can be filed cheaply at ingestion without
-opening a single connection. This is the biggest single win available to the
-"verify events" sweep, and it needs none of the sweep's machinery.
-
-**Owner's call: note it, do not fix it now.** Recorded because it is invisible
-from the code — the render path is correct and reads a stored field, exactly as
-the rules require; the field itself is what was never computed.
-
-### Componentization backlog — from the 2026-08-31 audit
-
-Three parallel audits looked for one shape: **a capability that works but was
-never packaged, sitting next to a packaged one that is wrong for the job.** The
-worked example was the virtualized channel list — model + delegate + view +
-thumbnail hydrator, ~50 lines hand-wired inside `main_window.setup_ui()`, so
-nothing in the tree said "this is how you render results" — while
-`chip_row.build_chip_row` IS one obvious call and is correct only for a bounded
-sidebar section. Sports used it for 28,018 rows and froze the app for minutes.
-
-**The predictor is asymmetry**: how much easier is the wrong path than the right
-one. Each item below carries that score (1–5). Fixed items are in git history
-and the What's New entries; only what is still open is listed here.
-
-- [ ] **`CollapsibleHeader` stopped at the details pane — 14 hand-rolled copies.**
-  *Asymmetry 5.* `gui/details_section_header.py` already exists, and its own
-  docstring is the finding: *"The details pane had four hand-rolled collapsible
-  sections… Four copies is why they had drifted."* Six adopters, all in the
-  details pane. Fourteen copies elsewhere — `preferences_view` (three),
-  `filter_group_row` (two), `global_filter_dialog` (two, using a **`QLabel`** as
-  the chevron so there is no pointer cursor and no keyboard focus),
-  `categories_dialog`, `discover_shelf`, `details_versions` (three, in a file
-  that also uses the mixin), `discover_view`, `qa_checklist_window` (three).
-  Twenty sites read the glyph from `config.*` and fourteen from `icons.*`, which
-  happen to be identical strings today — one edit to either renders two
-  different chevrons for the same idea. **Do:** widen `CollapsibleHeader` with an
-  optional `body` + `persist_key` so a non-details caller gets save/restore for
-  free, then migrate. **Guard:** AST walk — no file outside
-  `details_section_header.py` / `sidebar/base.py` / `icons.py` / `config.py` may
-  mention `expand_icon` or `collapse_icon`.
-
-- [ ] **Four flow layouts, three visibility policies.** *Asymmetry 4.* The
-  packaged `flow_layout.FlowLayout` is used LEAST (3 sites) and is the one that
-  lays out hidden children, leaving a hole; `details_versions._FlowLayout` and
-  `weighted_tag_cloud._FlowLayout` skip them. Two of the four are not `QLayout`s
-  at all — `discover_card._FlowLayout` and `weighted_tag_cloud._FlowLayout`
-  position by manual `setGeometry`, so every host hand-rolls its own reflow.
-  `weighted_tag_cloud` says so outright: *"We define our own copy here rather
-  than importing the private class."* `tests/test_flow_layout_wrap.py`
-  parametrizes over two of the four, because the other two structurally cannot be
-  tested that way — the enumeration lesson again. **Do:** keep
-  `flow_layout.FlowLayout`, add `h_spacing`/`v_spacing` and a `skip` predicate
-  defaulting to `isHidden`, migrate all 11 construction sites, delete the host
-  `resizeEvent`/`setFixedHeight` plumbing the manual copies force.
-  **Note:** `UniformCardGrid` (added for the browse grid) is NOT one of these —
-  it is a virtualizer for uniform items, not a measuring flow layout.
-
-- [ ] **The poster well is written four times.** *Asymmetry 3.* Scale into a
-  fixed box with `KeepAspectRatioByExpanding`, set the pixmap, clear the
-  placeholder — in `trail_map_detail`, `similar_lightbox_card` (twice),
-  `trail_map_view`, `discover_card` (which then hand-rolls a centre-crop that
-  `AlignCenter` already achieves). Plus two independent `_poster_targets`
-  fan-out dicts with the same name and shape. The four `KeepAspectRatio` (fit,
-  not fill) sites are a deliberate policy difference — a live logo and a
-  full-screen lightbox letterbox on purpose — and must not be folded in.
-  **Do:** `gui/poster_well.py` with `PosterWell(size, fill=FILL|FIT)` and
-  `.bind(cache, url)` over `ImageCache.subscribe()`, exposing `full_pixmap()`
-  for the enlarge affordance. **Guard:** AST — no `.scaled(…)` mentioning
-  `KeepAspectRatioByExpanding` outside that module.
-
-- [ ] **`HierarchicalFilterDropdown` is a copy-and-extend of `FilterDropdown`.**
-  *Asymmetry 3.* It re-implements `get_selected`, `select_all`, `clear_all`,
-  `update_button_label`, `show_menu` and the checkbox handler — the label logic
-  character-for-character. The footer labels are shared constants as of
-  2026-08-31 (they had drifted to "Clear" and "Clear All" on the same bar), but
-  the classes are still two. The flat one also shows per-item counts and the
-  hierarchical one does not. **Do:** make hierarchy a PARAMETER —
-  `FilterDropdown(label, groups, hierarchy=None)` — driving only the menu
-  builder; delete the second class. **Constraint:** `update_hierarchy` preserves
-  `selected_items` across a rebuild, which the sport→league→team cascade depends
-  on; `update_groups` must keep that.
-
-- [ ] **`main_window_metadata.py` hand-rolls the async read seam four times.**
-  *Asymmetry 3.* Four `executor.submit` + bespoke-signal pairs beside the
-  documented single `_run_query` seam, each needing its own `pyqtSignal` on the
-  MainWindow class body. **Two swallow the exception entirely** —
-  `_bg_fetch_action_state` and `_bg_fetch_episode_action_state` log and return
-  without emitting, so on a DB error the details pane keeps showing the PREVIOUS
-  channel's action state with no visible failure. `_run_query` always marshals
-  back precisely to prevent that. One of them also rebuilds
-  `RatingRepository.get_all_map()` inline. **Do:** migrate all four, delete the
-  four signals.
-
-- [ ] **The Preferences recommendation row is hand-rolled (`_RecRow`).**
-  *Asymmetry 4.* Its own layout, label, buttons, middle-click and context menu,
-  beside `build_chip_row` — "the one row builder" — which the sidebar uses for
-  the same `ScoredChannel` objects. So the dashboard shows no media-type glyph,
-  no quality/year/language chips, and ignores `sidebar_row_density`. (The
-  raw-title half of this shipped 2026-08-31 via `ScoredChannel.display_title`;
-  its two buttons were styled with raw `setStyleSheet` and went stale on a theme
-  switch — that half is gone, since every widget now registers its style at
-  construction, SHIPPED v0.103.0 (#791, entry 624).) **Constraint:** `build_chip_row` sets
-  `WA_TransparentForMouseEvents` unless given a `trailing_button`; two buttons
-  plus a row-level middle-click needs the untransparent branch.
-
-- [ ] **Pay down the 138 skeleton-host attribute probes.**
-  `tests/test_skeleton_host_attribute_probes.py` freezes them shrink-only.
-  `hasattr(self, "x")` and `getattr(self, "x", None)` both raise `RuntimeError`
-  on a `MainWindow.__new__` host rather than returning a default, so a guard
-  meant to skip an absent widget explodes instead — and two test files already
-  hand-roll a `SimpleNamespace` workaround rather than fix production. Convert to
-  `"x" in self.__dict__` **with per-site verification**: `__dict__.get` differs
-  from `getattr` for class attributes, properties and anything inherited, so a
-  blind sweep can silently change what a branch reads. Lower the budget as you go.
-
-- [ ] **Incidental, from the same audit.** `preferences_view._update_excl_toggle_label`
-  runs `get_rec_suppressed()` synchronously on the UI thread (and on a legacy
-  bare session) from a disclosure click; `record_impressions` likewise runs on
-  the UI thread inside the render path. `trail_map_view._on_image_loaded`
-  early-returns on `not isVisible()` *before* draining `_poster_targets`, so an
-  image that lands while the trail map is hidden is dropped and the label keeps
-  its placeholder until the next rebuild. The browse filter box is undebounced
-  (every other search box in the app uses 300 ms). `EpgRepository.search_upcoming_by_patterns`
-  has zero callers. `EpgManager.watchlist_notification` is emitted and never
-  connected — decide whether it is the hook for the parked "Alerts Matched"
-  queue or dead. `SourcesSection` (`gui/sidebar/sources.py`) — never
-  instantiated since Sources moved out of the sidebar stack in Wave 6 — was
-  deleted as dead code (audit slice 4, 2026-09-07).
-
-## Code Health / Refactor
-
-- [ ] **Document the title pipeline end to end — ingestion → identity → storage → query → exclusion → collapse → render (owner request, 2026-08-24).** Partial docs exist and none of them joins up: `docs/FILTERING_DESIGN.md` (the opt-out philosophy), `docs/CONTENT_IDENTITY.md` (the `content_key` spec), `docs/METADATA_SYSTEM.md` (the enrichment chain), `docs/SOURCE_INGESTION_GENERALIZATION.md` (scoping for one problem source), plus DR-0007 and `docs/CRITICAL_RULES.md#channel-visibility`. What is missing is the **single narrative**: what happens to one provider row from the moment it arrives to the moment it becomes a row on screen, and — critically — **which decisions happen at which stage, and where each one can go wrong.**
-  **Why it is worth writing, from one session's evidence.** Every defect found on 2026-08-24 was at a seam between two stages, and each took a fresh reverse-engineering pass to locate:
-  1. **Identity.** The yearless `content_key` fallback silently merges distinct films (see the entry above). The rule is documented; the *consequence of an omitted year* is not.
-  2. **Exclusion split.** `VisibilityScope` (`core/channel_visibility.py`) declares **all** the exclusion axes, but the channel-list path populates only `excluded_provider_ids` / `excluded_keywords` / `adult_mode` / `force_adult_provider_ids` / `include_hidden` in SQL, and applies `excluded_prefixes` / `excluded_user_categories` / content-type ids in **Python** afterwards (`main_window_channels._apply_python_exclusions`). Nothing anywhere states that split, and nothing says why.
-  3. **Ordering.** Because of (2), collapse elected a representative before the Python exclusions ran, and 18,486 titles vanished (fixed #454). `get_all`'s docstring stated the required invariant — for one axis only — which is exactly the kind of half-truth a whole-pipeline document exists to catch.
-  4. **Naming.** `global_filter_excluded_categories` stores **prefix codes**, not categories. Reading the config alone leads you to the wrong conclusion; only `filter_utils.get_active_category_filter`'s docstring says otherwise.
-  **What it should contain:** the stage list with the file that owns each; a table of every exclusion axis → where it is applied (SQL predicate / Python pass / both) → why; the ordering constraints between stages (anything that elects, samples or aggregates must run *after* every exclusion, or rank around them); and the config-key → actual-meaning glossary for the keys whose names mislead. Pairs with the user-facing **"Explain how filtering actually works"** item under UI/UX — this one is for whoever changes the code, that one is for whoever uses it.
-
-- [ ] **Split `core/repositories/channel.py` (4044 lines).** The one file split that earns
-  doing: it is not one long concern but FIVE sharing a session — ingestion/backfill (1006
-  lines), core queries (1533), provider lifecycle (518), user state (395), identity (224).
-  Four behaviour-preserving slices, largest first, each keeping a delegator so no caller
-  changes. The seam is proven: extracting `channel_lens.py` in v0.32.0 SHRANK the file 85
-  lines because the helpers went with it. Plan, constraints and done-criteria:
-  **docs/CHANNEL_REPOSITORY_SPLIT.md**. Independent of the theme/layout work (`core/` vs
-  `gui/`), so the two can run in either order.
-
-The big refactor work is **done** — Bands 1–8 (2026-06-01 → 06-14; details in git history)
-delivered the structural fixes (`session_scope`, `closeEvent` registry, `JSONEncoded`, `icons.py`,
-EPG conversion boundary), `theme.py` token migration, `main_window.py` decomposition into mixins,
-the `_run_query` async-read seam + repository DTOs, and the `BackgroundRefreshMixin` sidebar pattern.
-The unified channel-menu registry (2026-06-19) closed the long-standing context-menu duplication.
-What remains is small, not a "massive refactor" — see the **[2026-06-19 audit](docs/AUDIT_2026-06-19.md)**
-for the full findings + the **Band 10** remediation plan (P1: `expunge`→DTO, render-parse cleanup;
-P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
-
-- [ ] **Exclusions chip dead zone** — text area of the Exclusions chip is not clickable at cold launch; becomes clickable after a notification appears/dismisses. Root cause unknown (`setCheckable(False)` and solid-fill hover did NOT fix it). Likely z-order/geometry-timing in the bottom nav bar at startup; investigate `notification_widget.py` show/hide side-effects + bottom-nav-bar layout init.
+- [ ] **V3 overhaul — rows and details pane** — the foundation shipped; the design is settled and
+  approved (memory `project_v3_design_settled`) — build against it, do not re-mockup.
+- [ ] **Search typo tolerance** — real edit distance (trigram or edit-distance index); never a
+  "fuzzy" toggle that does not do it. Measurements: the "Finding Tron" artifact.
+- [ ] **Chevron treatment** — sidebar headers dropped theirs; details pane, dialogs, shelves and the
+  watchlist still use mixed treatments. Inventory and mockup first.
+- [ ] **Cross-view sync phase 3** — a bulk-aware seam for bulk favourite/queue/hide/watched (one
+  publish per set, not per channel), and a list-membership seam for the views that are still
+  hand-listed in mutation handlers.
+- [ ] **Sidebar register split** — rail as launcher/index, live vs curated vs system status
+  (DR-0001); plus reusable shelf-style full views for Queue / History / Favorites.
+- [ ] **Reorder sidebar sections** (PARKED) — drag on the header (split press-click from drag past
+  `startDragDistance`); the shared right-click menu now reaches every header.
+- [ ] **Sidebar sections in a right-hand column** — would turn `sidebar_sections` order into a
+  placement per section (migrate the field, do not extend it).
+- [ ] **UI vocabulary standard** — "Exclude" for Global Exclusions, "Hide" for one row, retire
+  "Block"; document in UI_UX_GUIDELINES.md and apply across older menus.
+- [ ] **Unified filter panel across views** — the input is one widget; EPG, Discover and
+  Recommended still carry their own panels.
+- [ ] **Explain how filtering works** — empty-state notices for the remaining axes, the chip-line
+  explainer, a first-run card and a Help entry (the adult axis is done).
+- [ ] **Hidden-content recovery surface** — one place to see and restore everything hidden, per axis.
+- [ ] **Filter improvements** — search within excluded results; "Copy filters from…" across views;
+  "Promote to global exclusion"; provider-level filtering with several sources.
+- [ ] **User-defined prefix groups** — UI over `user_prefix_overrides` to move codes between groups.
+- [ ] **Unrecognized prefixes** — ~149 codes remain (Source Analytics lists them); the owner
+  names them when there is time.
+- [ ] **Channel-list grid view** (Discover's browse grid exists; the channel list is a plain list).
+- [ ] **Details-pane poster size** — reduce the fixed 431px, or offer Small/Medium/Large.
+- [ ] **Session sub-attributes** — `[FP1]`, `[RACE]`, `[Prelims]`, `[Main Card]`, `[EAST]/[WEST]` as a
+  stored tag so sessions can be filtered.
+- [ ] **Tag hierarchy rollup** — tags carry type and provenance; rollup (sub-facet → parent) is not
+  implemented. Memory `project_tag_concept_alias_model`.
+- [ ] **User-side category management** — deferred to the tag system.
+- [ ] **Exclusions chip dead zone** — the text area is not clickable at cold launch until a
+  notification appears and dismisses. Root cause unknown (z-order/geometry timing suspected).
+
+## Code Health
+
+- [ ] **Document the title pipeline end to end** — ingestion → identity → storage → query →
+  exclusion → collapse → render, with a table of every exclusion axis and where it applies, the
+  ordering constraints, and a glossary of misleading config keys.
+- [ ] **`main_window_metadata.py` hand-rolls the async seam** — move its `executor.submit` +
+  bespoke-signal pairs onto `_run_query`; two swallow errors and leave the previous channel's state.
+- [ ] **`_RecRow`** (preferences) — onto `build_chip_row`, the one row builder.
+- [ ] **Collapsible headers** — 3 files outside `details_section_header.py` / `sidebar/base.py`
+  still hand-roll the expand/collapse glyph; widen `CollapsibleHeader` and add the AST guard.
+- [ ] **Poster well written four times** — one `PosterWell(size, FILL|FIT)` over
+  `ImageCache.subscribe()`; the deliberate FIT sites stay FIT.
+- [ ] **Skeleton-host attribute probes** — 104 left (budget in
+  `tests/test_skeleton_host_attribute_probes.py`); convert per site, lowering the budget.
+- [ ] **Blind `except Exception` handlers** — narrow each to its intent, boundary vs inline, one at a
+  time (never as a sweep).
+- [ ] **UI-thread work** — `preferences_view` runs `get_rec_suppressed()` and `record_impressions`
+  on the UI thread.
+- [ ] **Small defects from the 2026-08-31 audit** — `trail_map_view._on_image_loaded` returns on
+  `not isVisible()` before handing the image to waiting posters, so a poster loaded while the trail
+  map is hidden keeps its placeholder; the Discover Browse filter box is undebounced
+  (`debounce_ms=0`; every other search box uses 300 ms).
+- [ ] **A title that changes under you on reload** — an unconfirmed report from the scroll work:
+  some refresh path (TMDb match / title update) re-titles a row in view. Needs a reproduction first.
 
 ## Data & Storage
 
-- [ ] **Image cache: settings control + prune images of removed providers.** The cap and LRU
-  eviction already ship (`image_cache.py:224-250`, 500MB default). Remaining nicety: expose the cap
-  as a settings UI control, and prune cached images whose URL-derived key belongs to a provider that
-  has since been deleted (today they age out only via LRU).
-
-- [ ] **Tier / package detection reads the wrong field, and half its vocabulary is not tier
-  words** *(measured 2026-08-30, artifact: "Where Tier Lives")* — `parse_channel_name().tier`
-  looks for `VIP` / `PPV` / `GOLD` / `PLUS` / `PREMIUM` / `ULTRA` in the channel **name**.
-  Measured across 785,163 channels, the signal is in the **category**, by 20×:
-
-  | token | in NAME | in CATEGORY | tagged today | distinct categories |
-  |---|---|---|---|---|
-  | PPV | 17,873 | **27,149** | 168 | 208 |
-  | VIP | 424 | **17,528** | 21 | 76 |
-  | PLUS | 1,196 | 1,650 | **0** | 5 |
-  | PREMIUM | 469 | 1,491 | 169 | 13 |
-  | ULTRA | 164 | 214 | 83 | 1 |
-  | GOLD | 1,308 | **90** | **484** | 1 |
-
-  Two separate problems. **The field:** a package tier is a property of the subscription
-  bundle and providers express it in the category (`US| ESPN+ PPV VIP`, `LAT| MEXICO VIP`);
-  reading names finds show titles instead — *Big Brother VIP*, *Gold Rush*, *Gold Cup*. The
-  rule works hardest on `GOLD`, the token with the least signal. **The vocabulary:** moving
-  fields will not fix `ULTRA` in `NEDERLAND ULTRA 4K` (that is Ultra HD, a quality — there is
-  already a ladder for it), or `PREMIUM` in *Rai Premium* and *Fox Sports Premium* (broadcaster
-  brands). Three of the six are not tier words in this library.
-
-  Owner's call 2026-08-30: **leave tier untouched for now** — nothing reads the field, so
-  there is no user-visible harm and no migration cost to any option. `PPV` + `VIP` read off
-  the category is the clean win (44,677 channels, both defensible); the other four want a
-  separate look. Options and evidence: the artifact.
+- [ ] **Image cache** — a Settings control for the cap, and pruning images of deleted sources.
+- [ ] **Export user state to plain text** — watchlist, presets, favourites, ratings, queue, hidden,
+  sources minus credentials: a readable backup now that the YAML no longer holds them. Never
+  include credentials.
+- [ ] **Filter presets** — saved, named filter sets as a chip row above the facet strip. `FilterDB` /
+  `FilterRepository` exist with zero callers; check the `rules` JSON can express the whole query
+  before adopting it.
 
 ## Sharing & Social
 
-- [ ] **Share watch activity, recipes, and queues — send recommendations between people** *(user idea 2026-06-23)* — let a user **share what they've watched, share a recipe, share their watch-queue contents, and broadcast "what I'm watching now"** so people can pass recommendations around. The shareable artifacts: a **recipe** (a saved tag-facet category — the most naturally portable, since it's just an `includes/excludes` facet query + pinned/excluded title ids, see [Tag-cloud recipe builder] / `project_tag_cloud_recipe`), a **watch-queue** snapshot, a **history** slice (curated or "recently watched"), and a **now-watching** ping. **Keystone design constraint:** share **content identity, NOT stream URLs.** Two people rarely share the same provider, and stream URLs carry credentials — so a share must be a list of **canonical title identities** (`tmdb_id`/`imdb_id` once wired; normalized `title + year + media_type` as the stopgap) that the **recipient resolves against their OWN sources** (reuse the existing cross-source title-resolution / `content_dedup` path). A recipe shares even more cleanly — the facet query travels, and the recipient's library fills it from their own catalog live. **Transport, local-first:** start with a copyable **export blob / `.metatv-share` file / share-link** (no server required); a lightweight share service is a later stretch. **Privacy/guardrails:** opt-in, user picks exactly what's included, and the exporter **must strip all provider creds, stream URLs, and host info** — only canonical identity + user-authored metadata (recipe name, ratings, note) leaves the app. Ties to **Canonical content IDs (TMDb/IMDb)** (Discovery section — the share-identity backbone), the recipe/custom-category model, and PRODUCT_VISION's subordinate "headless backend + clients" direction (a share service would live there).
+- [ ] **Share watch activity, recipes and queues** between people.
 
 ## Platform & Distribution
 
-- [ ] **M3U playlist support**
-- [ ] **Python 3.15** — 3.15.0 shipped 2026-10-09; everything runs 3.14 since #1020. Bump the three workflows (`ci.yml`, `release.yml`, `windows-rolling.yml`) and ruff's `target-version` once PyInstaller ships 3.15 wheels; then try its lazy imports on startup time.
-- [ ] **Multi-language UI** — i18n via Qt Linguist / gettext; RTL layout support for Arabic/Hebrew; locale-aware date/time formatting
-- [ ] **Plugin system** for community providers
-
----
-
-## Next Up
-
-Shipped work is not kept here — git history and the What's New entries are the record.
-This section lists only what is still open.
-
-### The three big unbuilt features — sequencing (owner question, 2026-08-31)
-
-**Reconciled 2026-09-07: two of the three are BUILT, and this section's
-2026-08-31 verdict is superseded.** Downloads shipped across v0.64.0-v0.98.0
-(#612 entry 475, #620 entry 483, #638 entry 499, #656 entry 516, #697 entry 548,
-#732 entry 586, #747 entry 599, #749 entry 600) and DVR/recording across
-v0.64.0-v0.101.0 (#612 entry 476, #644 entry 506, #741 entry 588, #746 entry 598,
-#748 entry 597, #779 entry 616). The **watchlist** is two-thirds done: the
-database move shipped v0.63.0 (#610, entry 474) and match prioritization was
-already built; **preferred playback source for a watched show is the one piece
-still open.** Their full specs live above under **Playback & Queue**; the
-sequencing below is kept because it is the record of why they were built in this
-order and what each one turned out to depend on.
-
-**They share one dependency, and it already exists.** `ConnectionAccountant`
-(`core/connection_accountant.py`) arbitrates the per-source connection limit —
-every provider here is `max_connections = 1` — and its docstring already
-anticipates `"download"` and `"recording"` as future holder kinds. All three
-features are consumers of that one arbiter. **Do not add a second counter**;
-that is the single constraint most likely to be violated by building them
-separately.
-
-The priority axis is **not** foreground-vs-background — it is how recoverable
-the content is:
-
-| Holder | Yields to | Rationale |
-|---|---|---|
-| Playback | nothing | the user is watching now |
-| Download | playback | VOD is still there later |
-| Scheduled recording | **nothing** — warns instead | the moment is gone forever |
-| Signal-check sweep | everything | diagnostic, resumable |
-
-1. **Watchlist finish first.** It is the cheapest and it de-risks the other two,
-   because recording is *scheduled from* a watchlist/EPG entry. Three pieces:
-   move entries from config to the database (needed for any future multi-device
-   sync) — **SHIPPED v0.63.0 (#610, entry 474)**; rank a keyword's matches
-   instead of showing them arbitrarily (quality, then previously-watched, then
-   user demote) — the **same ranking** the preferred-playback-source item needs,
-   so build it once — **already SHIPPED, see the Watchlist section**; and
-   remember which source the user actually picked for a title — **STILL OPEN,
-   the only unbuilt piece of the three big features.**
-
-2. **Downloads second — SHIPPED, and it did grow the accountant's `"download"`
-   kind as predicted.** VOD only. Direct HTTP GET of the static Xtream VOD URL
-   **reusing the canonical headers/User-Agent** (dropping them is a known bug
-   class here), with a queue, resume-partial via HTTP Range, and progress
-   notifications. Range support is why direct GET beats `--stream-record`: a
-   preempted download must continue, not restart. Per-source scheduling — a
-   download on source B keeps running while you watch source A — plus a global
-   pause. This is where the accountant grows its `"download"` kind and where the
-   yields-to-playback rule gets its first real exercise.
-
-3. **Recording/DVR third — SHIPPED**, and it did need both: the watchlist/EPG
-   entry to schedule from, and the accountant already carrying a second
-   non-playback kind. Record a live channel for a window, scheduled straight off an
-   `EpgProgramDB` row with pre/post padding. The behavioural difference from
-   downloads is the whole point: a recording **reserves** its slot and makes a
-   conflicting play warn the user rather than silently killing it.
-   **Known limitation:** "leave the app up" needs the GUI process running; a
-   true unattended PVR is the headless-backend stretch in PRODUCT_VISION.
-
-**Also queued, and unrelated to the above:** the signal-check sweep ("verify
-events"). `hide_dead_events` is now wired — **SHIPPED v0.99.0 (#769, entry
-611)**: a live channel the check has found dead N consecutive times (N is the
-streak setting) leaves the channel list, search, Discover and recommendations.
-The probe itself remains **disabled** and parked (see the PARKED note under
-Source reliability — it jams a one-connection source and its verdicts were wrong
-in the common case), so the setting has nothing feeding it until that design
-conversation happens. It is the fourth consumer of the accountant and the lowest
-priority of all four, by design.
-
-**Next.**
-
-- [~] **"Reconnect content mangles the content" — DIAGNOSED 2026-08-16; detection shipped (#313),
-  remedy still open.** Owner's report: a source expired, they renewed it (new user/pass, **same
-  source row**) and refreshed; afterwards Favorites and the Watch Queue held titles they never
-  added, greyed out, and some saved titles were gone.
-
-  **Mechanism (confirmed by code, not caught in the act).** `ChannelDB.id = f"{provider_id}_{stream_id}"`
-  (`providers/xtream.py:345`), and editing credentials keeps the same `provider_id`
-  (`gui/provider_editor.py:776` mutates the row in place). A different account on the same panel
-  reuses those `stream_id`s for different titles, and the refresh upsert
-  (`provider_loader.py:370-392`) replaces the catalog columns while **deliberately preserving**
-  `is_favorite`/`is_hidden`/`play_count`/`user_category`. So the user's flag stays and the title
-  under it becomes someone else's. The loader already carried a "**Stream-ID reuse guard**" that
-  nulls `metadata_id` on a name change — the hazard was known, the guard just never covered user
-  state. **Ruled out:** cross-provider contamination is impossible (`provider_id` is inside the PK).
-
-  - [x] **Detection (#313)** — `_snapshot_engaged_names` / `_report_recycled_ids` log a greppable
-    `STREAM-ID REUSE` warning naming the old and new title whenever a refresh re-points a row the
-    user favorited/queued/rated/played. Bounded by engaged count, not catalog size. Diagnostic only.
-  - [x] **SHIPPED 0.99.0 (#759, entry 604) — Skip expired sources in Refresh All (bulk only).** `refresh_all_providers`
-    (`main_window_providers.py:915-923`) filters on `is_active` alone; expiry is never consulted,
-    and expired ≠ inactive. **Do NOT block per-source refresh on expiry** — the refresh is what
-    fetches account info and rewrites `account_exp_date` (`provider_loader.py:788-805`), so
-    "expired blocks refresh" is self-locking: renew, and nothing can ever clear the flag. Mirrors
-    the existing `is_active` split (bulk skips; a deliberate per-source refresh always runs).
-  - [ ] **Detach-on-recycle + a "lost its source" review surface (the actual fix).** DESIGN PROPOSED 2026-09-05 as worklog row RECYCLE-1 (a `RecycledEngagementDB` record per recycled engaged row, flags cleared on the new occupant, a review list with Find again / Keep the new one / Forget; Q1-Q4 await the owner). When a refresh
-    changes the name of a row carrying user state, the **new occupant must not inherit** the
-    favorite/queue/rating, and the old engagement is preserved as a record of the old title +
-    identity rather than deleted (user data is sacrosanct). Do **not** "freeze" the stored name —
-    that leaves a row labelled with the old title while streaming the new content, which is worse
-    than the visible bug. Do **not** silently auto-rematch by `content_key`: cross-account matching
-    is a guess, and silently re-pointing a favorite at a guess repeats this bug's error class.
-    Surface the list, let the user confirm. Folds into "re-map engaged content" / the Hidden
-    Management view.
-  - [x] **SHIPPED 0.99.0 (#757, entry 605) — Sibling defects found alongside:** `repositories/queue.py:105-112` relocated an orphaned
-    queue row by `source_id` **unscoped by `provider_id`**, so it can bind to a different source's
-    channel; and `sidebar/queue.py:521` prefers the live `search_title` over the deliberately
-    orphan-safe stored `channel_name`, defeating that denormalization.
-- [ ] **Which reload changes a title under you?** Unconfirmed leftover from the scroll report:
-  whether the TMDb-match / title-update refresh the owner saw comes from a third path (not the
-  sidebar sections, which are now covered). Needs a reproduction before it is worth chasing.
-- [x] **Platform rollup for Discover shelves** — SHIPPED 0.103.0 (#805, entry 633). Q1-Q5 answered by
-  the owner 2026-09-08: the floor is a setting (`discover_platform_shelf_min_titles`, default 50 DISTINCT
-  titles, Settings ▸ Content ▸ Discover shelves), one shelf per platform value, VOD only, and the two
-  catch-alls (`Other Streaming`, `Pay TV`) plus the two subtitle libraries mis-bucketed as platforms
-  (`SC`, `EAR`) never qualify — `channel_name_utils.PLATFORM_SHELF_EXCLUDED_VALUES`. On the owner's
-  library three platforms clear 50: Netflix (9,656 titles), Disney+ (2,343), Apple TV+ (193).
-  Q4's version preference is a documented seam only (`platform_shelves.representative_version`), for VP-1.
-- [ ] **A LIVE platform surface** — the same rollup for live channels, which PLAT-1 deliberately excluded
-  (Discover is the VOD surface). Its own design: a live strip answers "what is on now on this platform",
-  not "what did this platform add", so it is not the same shelf with a different filter. Ties into LIVE-1.
-
-**Owner-owed, not buildable by the coding agent:** TMDb/OMDb have never made a real network call
-(#395 was mocked-aiohttp only). The Settings **Test** button already exists at
-`settings_dialog_tabs.py:486` — paste a key, click Test, enrich one title. Until then that work is
-unverified regardless of its green suite.
-
-**Biggest genuinely-unbuilt features** (see NOT BUILT annotations above; download/save VOD and
-live DVR left this list on 2026-09-07 because they shipped): mini-player, global hotkeys, keyboard
-shortcuts, channel-list grid view, Similar Content metadata sibling, preference-scored Explore
-columns, Discover pre-warm, Hidden Management view. Each was re-checked against the tree during the
-#331-#626 reconciliation and each is still absent.
+- [ ] **M3U playlist support** (only Xtream exists).
+- [ ] **Python 3.15** — 3.15.0 shipped 2026-10-09; everything runs 3.14 since #1020. Bump the
+  three workflows and ruff's `target-version` once PyInstaller ships 3.15 wheels; then try its
+  lazy imports on startup time.
+- [ ] **Multi-language UI** — Qt Linguist / gettext, RTL, locale-aware dates.
+- [ ] **Plugin system** for community providers.
