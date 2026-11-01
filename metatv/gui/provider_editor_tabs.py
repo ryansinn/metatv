@@ -44,6 +44,7 @@ from loguru import logger
 
 from metatv.core.models import ProviderURL
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.repositories.provider import apply_account_info
 from metatv.core.time_display import date_text
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
@@ -375,11 +376,7 @@ class _ProviderEditorTabsMixin:
             if not db_prov:
                 return
 
-            db_prov.account_status = info.get("status")
-            db_prov.account_active_cons = info.get("active_cons", 0)
-            db_prov.max_connections = info.get("max_connections", 1)
-            db_prov.account_exp_date = self._parse_ts(info.get("exp_date"))
-            db_prov.account_created_at = self._parse_ts(info.get("created_at"))
+            apply_account_info(db_prov, info)
             db_prov.updated_at = datetime.now()
             session.commit()
             logger.info(f"Account info auto-saved for '{db_prov.name}'")
