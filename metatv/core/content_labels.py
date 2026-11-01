@@ -20,6 +20,14 @@ AGE_RATING_PREFIXES: frozenset[str] = frozenset({"18+", "16+", "12+"})
 #: after the game; Settings → "Show finished events" decides whether it shows.
 ENDED_EVENT_PREFIXES: frozenset[str] = frozenset({"END", "ENDED"})
 
+#: Every event-status prefix: on now, coming up, finished. LIVE and NEXT stay
+#: visible; only the finished ones are hidden (ENDED_EVENT_PREFIXES above).
+EVENT_STATUS_PREFIXES: frozenset[str] = frozenset({"LIVE", "NEXT"}) | ENDED_EVENT_PREFIXES
+
+#: Prefixes that only say "this is a live channel" ("TV| A3 NEW YORK 02 WCBS
+#: CBS" — 550 US local stations on TREX). A content type, not a locale.
+LIVE_TV_PREFIXES: frozenset[str] = frozenset({"TV"})
+
 
 
 #: Spelled-out league names prefixing a dash-matchup fixture's team A — "MAJOR

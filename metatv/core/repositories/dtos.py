@@ -502,6 +502,7 @@ class PrefixStatDTO:
     count: int
     sample_names: list[str]       # 3-5 example channel names
     is_recognized: bool           # whether it's in the canonical lexicon
+    media_type: str = ""          # live / movie / series — the list groups by it
 
 
 # ---------------------------------------------------------------------------

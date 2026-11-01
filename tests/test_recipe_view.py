@@ -991,6 +991,10 @@ def _set_global_filter(view, *, paused=False, categories=None, prefixes=None,
     cfg.global_filter_excluded_categories = categories or []
     cfg.global_filter_excluded_prefixes = prefixes or []
     cfg.global_filter_excluded_user_categories = user_categories or []
+    # Finished events (END/ENDED) join the set by default (#985); these tests
+    # pin the category/prefix union, so they show them. Covered on its own in
+    # tests/test_ended_events_hidden.py.
+    cfg.show_ended_events = True
 
 
 def test_global_exclusion_sets_unions_prefixes_and_categories(qapp):

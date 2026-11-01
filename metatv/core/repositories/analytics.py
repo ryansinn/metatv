@@ -22,10 +22,11 @@ from metatv.core.repositories.dtos import (
     TitleOverlapDTO,
     ViewingDTO,
 )
-from metatv.core.quality_vocab import QUALITY_TOKENS
-from metatv.core.region_codes import REGION_FULL_NAMES, PLATFORM_CODES
+from metatv.core.prefix_vocabulary import is_known_prefix
 
 _SAMPLE_NAMES = 5
+#: The order the unknown-prefix list groups media types in.
+_PREFIX_MEDIA_ORDER = ("live", "movie", "series")
 
 #: Most-played titles a source's Viewing section names.
 TOP_TITLES = 3
@@ -188,42 +189,45 @@ class AnalyticsRepository:
                                total=unknown + sum(n for _, n in regions))
 
     def unrecognized_prefixes(self, provider_id: str | None = None) -> list[PrefixStatDTO]:
-        """Prefix tokens no lookup table recognises, with counts and sample names.
+        """Prefix tokens the parser does not know, per media type, with samples.
 
-        Counted with GROUP BY and sampled with one windowed query, both scoped
-        to *provider_id* — it used to load every channel as a full ORM row
-        (13.5 s on the owner's library) and took its samples from any source.
-        If *provider_id* is None, counts across all sources.
+        "Known" is ``prefix_vocabulary.is_known_prefix`` — the same tables the
+        parser reads, compounds included — not a lexicon of its own. One row
+        per (prefix, media type), live first, then films, then series; most
+        common first within each. Counted with GROUP BY and sampled with one
+        windowed query, both scoped to *provider_id* (None = every source).
         """
-        canonical_lexicon = QUALITY_TOKENS | set(REGION_FULL_NAMES.keys()) | PLATFORM_CODES
-
         scope = [ChannelDB.detected_prefix.isnot(None), ChannelDB.detected_prefix != "",
                  ChannelDB.is_hidden.is_(False)]
         if provider_id:
             scope.append(ChannelDB.provider_id == provider_id)
         counts = [
-            (prefix, n) for prefix, n in self.session.query(
-                ChannelDB.detected_prefix, func.count(ChannelDB.id)
-            ).filter(*scope).group_by(ChannelDB.detected_prefix)
-            if prefix not in canonical_lexicon
+            (prefix, media or "", n) for prefix, media, n in self.session.query(
+                ChannelDB.detected_prefix, ChannelDB.media_type, func.count(ChannelDB.id)
+            ).filter(*scope).group_by(ChannelDB.detected_prefix, ChannelDB.media_type)
+            if not is_known_prefix(prefix)
         ]
         if not counts:
             return []
-        counts.sort(key=lambda pc: (-pc[1], pc[0]))
+        order = {m: i for i, m in enumerate(_PREFIX_MEDIA_ORDER)}
+        counts.sort(key=lambda c: (order.get(c[1], len(order)), -c[2], c[0]))
 
-        rank = func.row_number().over(partition_by=ChannelDB.detected_prefix, order_by=ChannelDB.id)
+        rank = func.row_number().over(
+            partition_by=(ChannelDB.detected_prefix, ChannelDB.media_type), order_by=ChannelDB.id)
         sampled = (
-            select(ChannelDB.detected_prefix.label("prefix"), ChannelDB.name.label("name"), rank.label("rn"))
-            .where(*scope, ChannelDB.detected_prefix.in_([p for p, _ in counts]))
+            select(ChannelDB.detected_prefix.label("prefix"), ChannelDB.media_type.label("media"),
+                   ChannelDB.name.label("name"), rank.label("rn"))
+            .where(*scope, ChannelDB.detected_prefix.in_({p for p, _, _ in counts}))
             .subquery()
         )
-        samples: dict[str, list[str]] = defaultdict(list)
-        for prefix, name in self.session.execute(
-            select(sampled.c.prefix, sampled.c.name).where(sampled.c.rn <= _SAMPLE_NAMES)
+        samples: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for prefix, media, name in self.session.execute(
+            select(sampled.c.prefix, sampled.c.media, sampled.c.name).where(sampled.c.rn <= _SAMPLE_NAMES)
         ):
-            samples[prefix].append(name)
+            samples[(prefix, media or "")].append(name)
 
         return [
-            PrefixStatDTO(prefix=prefix, count=n, sample_names=samples.get(prefix, []), is_recognized=False)
-            for prefix, n in counts
+            PrefixStatDTO(prefix=prefix, count=n, sample_names=samples.get((prefix, media), []),
+                          is_recognized=False, media_type=media)
+            for prefix, media, n in counts
         ]

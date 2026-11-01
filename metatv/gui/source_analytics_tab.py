@@ -465,23 +465,31 @@ class SourceAnalyticsTab(QWidget):
 
     def _on_prefixes(self, prefixes: list[PrefixStatDTO]) -> None:
         clear_layout(self._prefixes.body)
-        self._prefixes.subtitle.setText(f"{len(prefixes):,} the name parser does not know")
+        distinct = len({p.prefix for p in prefixes})
+        self._prefixes.subtitle.setText(f"{distinct:,} the name parser does not know")
         if not prefixes:
             self._prefixes.text("Every prefix on this source is recognised.")
             return
-        grid = self._prefixes.grid()
-        grid.setColumnStretch(1, 0)
-        grid.setColumnStretch(2, 1)
-        for row, stat in enumerate(prefixes[:PREFIX_ROWS]):
-            code = QLabel(stat.prefix)
-            _theme.style(code, "FIELD_LABEL")
-            grid.addWidget(code, row, 0)
-            count = QLabel(f"{stat.count:,}")
-            _theme.style(count, "META_HINT")
-            grid.addWidget(count, row, 1)
-            sample = MiddleElideLabel(f"e.g. {stat.sample_names[0]}" if stat.sample_names else "",
-                                      color_token="COLOR_MUTED_2")
-            sample.setToolTip("\n".join(stat.sample_names))
-            grid.addWidget(sample, row, 2)
-        if len(prefixes) > PREFIX_ROWS:
-            self._prefixes.text(f"+ {len(prefixes) - PREFIX_ROWS:,} more", "META_HINT")
+        groups: dict[str, list[PrefixStatDTO]] = {}
+        for stat in prefixes:  # already live → films → series, commonest first
+            groups.setdefault(stat.media_type, []).append(stat)
+        nouns = dict(MEDIA)
+        for media, stats in groups.items():
+            heading = nouns.get(media, "other").capitalize()
+            self._prefixes.text(f"{heading} · {len(stats):,}", "LABEL_MUTED")
+            grid = self._prefixes.grid()
+            grid.setColumnStretch(1, 0)
+            grid.setColumnStretch(2, 1)
+            for row, stat in enumerate(stats[:PREFIX_ROWS]):
+                code = QLabel(stat.prefix)
+                _theme.style(code, "FIELD_LABEL")
+                grid.addWidget(code, row, 0)
+                count = QLabel(f"{stat.count:,}")
+                _theme.style(count, "META_HINT")
+                grid.addWidget(count, row, 1)
+                sample = MiddleElideLabel(f"e.g. {stat.sample_names[0]}" if stat.sample_names else "",
+                                          color_token="COLOR_MUTED_2")
+                sample.setToolTip("\n".join(stat.sample_names))
+                grid.addWidget(sample, row, 2)
+            if len(stats) > PREFIX_ROWS:
+                self._prefixes.text(f"+ {len(stats) - PREFIX_ROWS:,} more", "META_HINT")
