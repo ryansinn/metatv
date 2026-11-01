@@ -230,10 +230,10 @@ class TestTransferKeepsFamilies:
             self, qapp, config, owned_widgets):
         """Hide moves the row under Hidden ▸ Platforms, prunes the emptied one,
         and rebuilds nothing else."""
-        config.discover_collapsed_shelves = [
+        collapsed = [
             "platform:Netflix", "genre:Action", "genre:Drama",
-        ]
-        dlg = _dialog(config, owned_widgets)
+        ]   # the default zone: comes from the zone map, never config (F47)
+        dlg = _dialog(config, owned_widgets, zones=dict.fromkeys(collapsed, "collapsed"))
 
         untouched = {k: dlg._row_widgets[k]
                      for k in ("genre:Action", "genre:Drama")}
@@ -263,9 +263,8 @@ class TestTransferKeepsFamilies:
     def test_restoring_into_an_existing_family_reuses_its_heading(
             self, qapp, config, owned_widgets):
         """A second platform lands under the heading the first one created."""
-        config.discover_collapsed_shelves = ["platform:Netflix"]
         config.discover_hidden_shelves = ["platform:Max", "genre:Action"]
-        dlg = _dialog(config, owned_widgets)
+        dlg = _dialog(config, owned_widgets, zones={"platform:Netflix": "collapsed"})   # derived (F47)
 
         platforms = next(g for g in _groups(dlg._collapsed_list)
                          if g.family == "Platforms")
@@ -287,8 +286,8 @@ class TestTransferKeepsFamilies:
             self, qapp, config, owned_widgets):
         """Pinning a genre into a section holding a platform keeps table order."""
         config.discover_pinned_shelves = ["collection:Bond"]
-        config.discover_collapsed_shelves = ["platform:Netflix"]
-        dlg = _dialog(config, owned_widgets)
+        collapsed = ["platform:Netflix"]   # the default zone: comes from the zone map, never config (F47)
+        dlg = _dialog(config, owned_widgets, zones=dict.fromkeys(collapsed, "collapsed"))
 
         dlg._transfer("platform:Netflix",
                       dlg._collapsed, dlg._collapsed_list,
