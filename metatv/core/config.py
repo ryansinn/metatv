@@ -1208,6 +1208,7 @@ class Config(BaseModel):
     bad_region_cleanup_version: int = 0
     age_rating_region_cleanup_version: int = 0
     company_person_cleanup_version: int = 0   # F59: studios stored as people
+    unknown_region_cleanup_version: int = 0   # F4: region codes nothing names
 
     # Internal migration version for the detected_restricted backfill (owner-reported
     # gap — restricted-content name/prefix detection, e.g. XXX/ADULT/X-prefix, that the

@@ -50,6 +50,7 @@ from metatv.core.migrations import (
     tag_case_merge,
     tmdb_id_backfill,
     tmdb_sibling_propagation,
+    unknown_region_cleanup,
 )
 
 if TYPE_CHECKING:
@@ -89,6 +90,7 @@ _MODULES = {m.__name__.rsplit(".", 1)[-1]: m for m in (
     tag_case_merge,
     tmdb_id_backfill,
     tmdb_sibling_propagation,
+    unknown_region_cleanup,
 )}
 
 #: ``(module, class, extra)`` in run order. ``extra`` names what the task's
@@ -106,6 +108,9 @@ TASKS: tuple[tuple[str, str, str], ...] = (
     # DetectedTitleReparse populates ChannelDB.detected_audio (and the other
     # detected_* fields + content_key); TagBackfill's audio_annotation feeder
     # READS it. Version-gated, so the wrong order would never self-correct.
+    # BEFORE the reparse: clears region codes nothing names (F4); the reparse's
+    # fill-empty pass then re-derives them with the fixed parser.
+    ("unknown_region_cleanup", "UnknownRegionCleanupTask", ""),
     ("detected_title_reparse", "DetectedTitleReparseTask", ""),
     ("detected_genre_backfill", "DetectedGenreBackfillTask", ""),
     # Regions inherited from an unrelated same-title sibling (#272).
