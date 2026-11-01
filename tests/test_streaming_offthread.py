@@ -9,7 +9,6 @@ These tests verify:
 from __future__ import annotations
 
 from contextlib import contextmanager
-import pytest
 from unittest.mock import MagicMock, patch
 
 from metatv.core.models import ProviderURL
