@@ -959,20 +959,12 @@ class ProviderLoadThread(QThread):
             if not info:
                 return
             from metatv.core.database import ProviderDB
-            from datetime import datetime as _dt
             acct_session = self.db.get_session()
             try:
                 db_prov = acct_session.query(ProviderDB).filter_by(id=self.provider.id).first()
                 if db_prov:
-                    db_prov.account_status = info.get("status")
-                    db_prov.max_connections = info.get("max_connections", 1)
-                    db_prov.account_active_cons = info.get("active_cons", 0)
-                    exp_ts = info.get("exp_date")
-                    if exp_ts:
-                        db_prov.account_exp_date = _dt.fromtimestamp(int(exp_ts))
-                    created_ts = info.get("created_at")
-                    if created_ts:
-                        db_prov.account_created_at = _dt.fromtimestamp(int(created_ts))
+                    from metatv.core.repositories.provider import apply_account_info
+                    apply_account_info(db_prov, info)
                     acct_session.commit()
                     logger.info(
                         f"Account info refreshed for '{self.provider.name}': "

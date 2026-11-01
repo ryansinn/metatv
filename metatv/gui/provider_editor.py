@@ -38,7 +38,7 @@ from metatv.core.connection_diagnosis import diagnose
 from metatv.gui.connection_diagnosis_text import _DIAGNOSIS_TEXT
 from metatv.core.provider_probe import ProbeResult, ProbeStatus, probe_all_urls
 from metatv.core.repositories import RepositoryFactory
-from metatv.core.repositories.provider import provider_url_to_raw
+from metatv.core.repositories.provider import apply_account_info, parse_account_timestamp, provider_url_to_raw
 from metatv.gui import icons as _icons
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
@@ -768,12 +768,7 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
 
             # Account info (if freshly fetched)
             if self._pending_account_info:
-                info = self._pending_account_info
-                db_prov.account_status = info.get("status")
-                db_prov.account_active_cons = info.get("active_cons", 0)
-                db_prov.max_connections = info.get("max_connections", 1)
-                db_prov.account_exp_date = self._parse_ts(info.get("exp_date"))
-                db_prov.account_created_at = self._parse_ts(info.get("created_at"))
+                apply_account_info(db_prov, self._pending_account_info)
 
             # Purge EPG data on enabled→disabled transition so the UI reflects
             # the change immediately (no stale programmes in On Now / Watchlist).
@@ -968,11 +963,4 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
         if not enabled:
             self._epg_refresh_btn.setEnabled(False)
 
-    @staticmethod
-    def _parse_ts(ts) -> Optional[datetime]:
-        if not ts:
-            return None
-        try:
-            return datetime.fromtimestamp(int(ts))
-        except (TypeError, ValueError, OSError, OverflowError):
-            return None  # silent: junk timestamp from the provider — show nothing
+    _parse_ts = staticmethod(parse_account_timestamp)   # display uses it too

@@ -28,7 +28,7 @@ from loguru import logger
 from metatv.core.database import ProviderDB
 from metatv.core.models import Provider, ProviderURL
 from metatv.core.repositories import RepositoryFactory
-from metatv.core.repositories.provider import provider_url_to_raw
+from metatv.core.repositories.provider import apply_account_info, provider_url_to_raw
 from metatv.gui import icon_utils as _icon_utils
 
 #: The Connection tab — where a new source starts (addresses and credentials).
@@ -178,11 +178,7 @@ class _NewSourceMixin:
             )
             info = self._pending_account_info
             if info:
-                db_prov.account_status = info.get("status")
-                db_prov.account_active_cons = info.get("active_cons", 0)
-                db_prov.max_connections = info.get("max_connections", 1)
-                db_prov.account_exp_date = self._parse_ts(info.get("exp_date"))
-                db_prov.account_created_at = self._parse_ts(info.get("created_at"))
+                apply_account_info(db_prov, info)
             db_prov.updated_at = datetime.now()
             session.add(db_prov)
         logger.info("Source '{}' added ({} address(es))", name, len(urls))

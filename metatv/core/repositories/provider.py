@@ -189,6 +189,36 @@ def persist_url_stats(db: Database, provider: Provider, policy: Optional[UrlRank
         logger.warning(f"Failed to persist URL stats for provider {provider.id!r}: {e}")
 
 
+def parse_account_timestamp(ts) -> Optional[datetime]:
+    """An Xtream account timestamp (epoch seconds, as int or str) → local datetime.
+
+    ``None`` for a missing value — Xtream sends ``null`` expiry for an unlimited
+    account — and for junk, which is shown as nothing rather than raised.
+    """
+    if not ts:
+        return None
+    try:
+        return datetime.fromtimestamp(int(ts))
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None
+
+
+def apply_account_info(row: ProviderDB, info: dict) -> None:
+    """Write a fetched account-info dict onto *row* — the one writer (ledger D69).
+
+    The Sources editor (save, auto-save, add) and the catalogue load each wrote
+    these five fields themselves, and the load's copy differed: it kept an old
+    expiry when the account reported none (an account renewed to unlimited
+    stayed "expired", which hides a source) and a junk timestamp raised and
+    dropped the whole write. Here a missing or junk timestamp clears the field.
+    """
+    row.account_status = info.get("status")
+    row.account_active_cons = info.get("active_cons", 0)
+    row.max_connections = info.get("max_connections", 1)
+    row.account_exp_date = parse_account_timestamp(info.get("exp_date"))
+    row.account_created_at = parse_account_timestamp(info.get("created_at"))
+
+
 class ProviderRepository:
     """Repository for provider data access"""
     
