@@ -208,7 +208,12 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: v10 (2026-09-03): repairs rows renamed before ingestion enrolled the
 #: classification columns in the rename-clear — their stored sport/event columns
 #: are stale on disk.
-CURRENT_VERSION = 12
+#: v13 (2026-11-01): a dated slot the classifier files under NO event view
+#: (339 rows — "(Apple) (MLS) 005 | … (2026-10-28 19:25:20)", VICTORY+/VIX/
+#: FANATIZ/SN+ PPV) and a live_event whose platform grammar read no time (75)
+#: now store the generic window, so "Hide finished events" can see them. Owner:
+#: "all these MLS PPV channels … are just black screens".
+CURRENT_VERSION = 13
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
