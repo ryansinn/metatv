@@ -291,9 +291,11 @@ def test_shared_exact_id_goes_to_the_feeds_own_source(db, manager, own_first):
     with db.session_scope() as session:
         _add_provider(session, "prov-own")
         _add_provider(session, "prov-other")
+        # Row order follows both insertion and id, so vary both together.
         order = ["prov-own", "prov-other"] if own_first else ["prov-other", "prov-own"]
-        ids = {pid: _add_channel(session, provider_id=pid, name=f"CNN {pid}", epg_channel_id="cnn.us")
-               for pid in order}
+        ids = {pid: _add_channel(session, channel_id=f"{i}-{pid}", provider_id=pid, name=f"CNN {pid}",
+                                 epg_channel_id="cnn.us")
+               for i, pid in enumerate(order)}
     session = db.get_session()
     try:
         result = manager._build_match_map(session, [XmltvChannel(epg_id="cnn.us", display_name="CNN")],
