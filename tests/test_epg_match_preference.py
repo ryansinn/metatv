@@ -286,23 +286,24 @@ def test_hidden_provider_skipped_active_cross_provider_wins(db, manager):
 
 @pytest.mark.parametrize("own_first", [True, False])
 def test_shared_exact_id_goes_to_the_feeds_own_source(db, manager, own_first):
-    """Two sources carry "cnn.us"; the feed is prov-own's. Whatever order the rows
-    come back in, prov-own's channel gets the link (it used to be the last row)."""
+    """Two sources carry "cnn.us"; the feed is a-own's. Whatever order the rows
+    come back in, a-own's channel gets the link (it used to be the last row)."""
     with db.session_scope() as session:
-        _add_provider(session, "prov-own")
-        _add_provider(session, "prov-other")
-        # Row order follows both insertion and id, so vary both together.
-        order = ["prov-own", "prov-other"] if own_first else ["prov-other", "prov-own"]
+        _add_provider(session, "a-own")
+        _add_provider(session, "b-other")
+        # SQLite hands the rows back in an index order that ends up sorting by
+        # source id; "a-own" sorts first, so a last-row-wins tier 1 picks b-other.
+        order = ["a-own", "b-other"] if own_first else ["b-other", "a-own"]
         ids = {pid: _add_channel(session, channel_id=f"{i}-{pid}", provider_id=pid, name=f"CNN {pid}",
                                  epg_channel_id="cnn.us")
                for i, pid in enumerate(order)}
     session = db.get_session()
     try:
         result = manager._build_match_map(session, [XmltvChannel(epg_id="cnn.us", display_name="CNN")],
-                                          provider_id="prov-own")
+                                          provider_id="a-own")
     finally:
         session.close()
-    assert result["cnn.us"] == ids["prov-own"]
+    assert result["cnn.us"] == ids["a-own"]
 
 
 def test_shared_exact_id_never_goes_to_an_expired_source(db, manager):
