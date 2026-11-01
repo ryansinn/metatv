@@ -29,7 +29,9 @@ if TYPE_CHECKING:
 
 # Bump to re-run for every user on next launch.
 #   1 — initial sweep (F59).
-CURRENT_VERSION: int = 1
+#   2 — plurals/Spanish ("Entertainments", "Estudios") and dash compounds
+#       ("W-Pictures"): 8 survivors of v1 on the owner's library.
+CURRENT_VERSION: int = 2
 
 _BATCH = 500
 

@@ -1119,7 +1119,7 @@ def _extract_episode_marker(bare: str) -> "tuple[str, str, str]":
         if (bolum := _BOLUM_MARKER_RE.search(bare)) and bare[: bolum.start()].strip():
             return bare[: bolum.start()].strip(" _-|"), "", bolum.group(1)
         return bare, "", ""
-    title = (bare[: match.start()] + " " + bare[match.end():])
+    title = bare[: match.start()] + " " + _BOLUM_MARKER_RE.sub(" ", bare[match.end():], count=1)  # "S02E04 76. Bolum"
     title = re.sub(r"\s{2,}", " ", title)
     return _SCENE_EDGE_RE.sub("", title), match.group(1), match.group(2)
 _LEADING_QUALIFIERS_RE = re.compile(r"^((?:\s*[\(\[][^\)\]]*[\)\]])+)\s*(.*)$")  # "(US) X"

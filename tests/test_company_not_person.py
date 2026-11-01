@@ -54,3 +54,9 @@ def test_the_task_is_registered_and_version_gated():
     task = CompanyPersonCleanupTask.__new__(CompanyPersonCleanupTask)
     assert task.needs_run(SimpleNamespace(company_person_cleanup_version=0))
     assert not task.needs_run(SimpleNamespace(company_person_cleanup_version=CURRENT_VERSION))
+
+
+def test_plural_spanish_and_dash_company_words():
+    from metatv.core.content_labels import looks_like_company
+    assert all(looks_like_company(n) for n in ("Sithara Entertainments", "Ánima Estudios", "W-Pictures"))
+    assert not looks_like_company("Jean-Luc Godard")
