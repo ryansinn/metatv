@@ -62,6 +62,22 @@ FIXTURE_LEAGUE_NAME_PREFIXES: tuple[str, ...] = (
 # UNCREDITED"): stripped from the END of the name, never part of the person.
 CREDIT_QUALIFIER_WORDS: frozenset[str] = frozenset({"UNCREDITED", "CAMEO", "VOICE"})
 
+#: Words that make a credited "name" a company: a series' metadata often puts
+#: the studio in the director field ("A+E Studios" directing YOU). Census on
+#: the owner's library 2026-11-01 (ledger F59): every person tag carrying one
+#: was a company, or a fragment of one split on its comma ("Ltd.", "Inc").
+COMPANY_NAME_WORDS: frozenset[str] = frozenset({
+    "ENTERTAINMENT", "PICTURES", "PRODUCTIONS", "PRODUCTION", "STUDIOS", "STUDIO",
+    "FILMS", "MEDIA", "LTD", "INC", "GMBH", "COMPANY", "TELEVISION", "NETWORKS",
+    "NETWORK", "LLC", "CORP", "CORPORATION", "GROUP", "ANIMATION", "BROADCASTING",
+})
+
+
+def looks_like_company(name: str) -> bool:
+    """True when a credited name carries a company word (:data:`COMPANY_NAME_WORDS`)."""
+    return any(w.strip(".,()").upper() in COMPANY_NAME_WORDS for w in re.split(r"[\s/]+", name or ""))
+
+
 NON_PERSON_RESIDUAL_WORDS: frozenset[str] = frozenset({
     # Collection / edition labels
     "COLLECTION", "COLECCION", "COLECCIÓN", "COLLECTIE", "SAGA", "TRILOGY",

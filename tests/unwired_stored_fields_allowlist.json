@@ -7,6 +7,7 @@
     "ChannelDB.source_quality_flags",
     "Config.accent_color",
     "Config.age_rating_region_cleanup_version",
+    "Config.company_person_cleanup_version",
     "Config.background_polling_off_version",
     "Config.bad_region_cleanup_version",
     "Config.category_facet_version",
