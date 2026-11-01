@@ -1744,6 +1744,36 @@ def first_chip_row(list_widget):
     return None
 
 
+def wire_episode_state_refresh(host) -> list:
+    """Give a skeleton host the D60 episode refresh its writers now end in.
+
+    Every episode state write (watched, favourite, queue — from the series tree
+    or the details pane) now ends by telling the details pane, through
+    ``details_pane.refresh_episode_state``, and the favourite toggle from the
+    pane re-reads the tree through ``refresh_episode_watch_state``. A
+    ``__new__``'d or plain-mixin double has neither; a ``hasattr`` guard in
+    production would hide a genuinely missing pane, so the wiring lives here.
+
+    Args:
+        host: The skeleton host to wire. Gets a ``details_pane`` stub, and a
+            recording ``refresh_episode_watch_state`` only if it has none of its
+            own (a ``_FavoritesMixin``-only double).
+
+    Returns:
+        The list recording every id-list the pane was told about.
+    """
+    told: list = []
+
+    class _PaneStub:
+        def refresh_episode_state(self, ids):
+            told.append(list(ids))
+
+    host.details_pane = _PaneStub()
+    if not callable(getattr(type(host), "refresh_episode_watch_state", None)):
+        host.refresh_episode_watch_state = lambda ids: told.append(list(ids))
+    return told
+
+
 def wire_episode_watch_signal(host) -> list:
     """Give a ``__new__``'d streaming/watch-capture double the episode refresh signal.
 

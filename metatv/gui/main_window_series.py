@@ -747,6 +747,7 @@ class _SeriesMixin:
         status = "added to" if new_status else "removed from"
         self.status(f"{episode.title} {status} favorites", ms=0)
         self.load_favorites()
+        self.details_pane.refresh_episode_state([episode.id])
 
     def _toggle_episodes_watched(
         self,
@@ -784,6 +785,7 @@ class _SeriesMixin:
         # searched for. The context menu already holds them, and a re-find would
         # silently skip an item that is not currently under the tree's root.
         self._repaint_episode_items([(it.parent(), it) for it in episode_items])
+        self.details_pane.refresh_episode_state(episode_ids)
         logger.info(
             f"Toggled {len(episode_ids)} episode(s) as {'watched' if watched else 'unwatched'} in-place"
         )
@@ -804,6 +806,7 @@ class _SeriesMixin:
         Args:
             episode_ids: Episode DB ids whose stored watch state to re-read.
         """
+        self.details_pane.refresh_episode_state(episode_ids)   # D60: the pane too
         if not episode_ids or "series_tree" not in self.__dict__:
             return
         wanted = set(episode_ids)
@@ -847,7 +850,7 @@ class _SeriesMixin:
                     watch_completed=bool(row.watch_completed),
                     watch_percent=int(row.watch_percent or 0),
                     watch_progress=int(row.watch_progress or 0),
-                    last_played_via=row.last_played_via,
+                    last_played_via=row.last_played_via, is_favorite=bool(row.is_favorite),
                 )
                 ep_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": new_dto})
                 self._update_episode_item_icon(ep_item, new_dto)

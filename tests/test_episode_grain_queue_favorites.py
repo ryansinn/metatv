@@ -486,6 +486,8 @@ def _build_favorites_host(db):
     wire_status_method(host)   # STATUS-1: the toggle handlers call self.status(...)
     host.sidebar_sections = {}
     host.load_favorites = MagicMock()
+    from tests.conftest import wire_episode_state_refresh
+    host.pane_told = wire_episode_state_refresh(host)
     return host
 
 
@@ -593,6 +595,8 @@ class TestSeriesTreeFavoriteEpisodeAction:
         host.status_bar = MagicMock()
         wire_status_method(host)   # STATUS-1: _toggle_episode_favorite calls self.status(...)
         host.load_favorites = MagicMock()
+        from tests.conftest import wire_episode_state_refresh
+        pane_told = wire_episode_state_refresh(host)
 
         tree = QTreeWidget()
         item = QTreeWidgetItem(tree)

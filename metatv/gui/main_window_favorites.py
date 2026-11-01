@@ -196,9 +196,10 @@ class _FavoritesMixin:
             watched: True if marking watched, False if marking unwatched.
         """
         hide_watched = bool(getattr(self, '_stats_hide_watched', False))
+        for cid in channel_ids:   # D60: the details pane re-reads (resume, watched badge)
+            self.channel_state_bus.publish(cid, watch_completed=watched)
         if not hasattr(self, 'channel_model'):
-            # Fallback if model isn't set up yet
-            self.load_channels()
+            self.load_channels()  # model not set up yet
             return
 
         if hide_watched and watched:
@@ -583,19 +584,18 @@ class _FavoritesMixin:
                         episode_title=ep.title or "",
                         source_id=series.source_id if series else "",
                     )
-        # Episode-grain rows key on episode_id (see WatchQueueSection._row_matches),
-        # so unqueuing an episode never disturbs its parent series' own row.
+        # Episode-grain rows key on episode_id (see WatchQueueSection._row_matches).
         if removed:
             self._remove_sidebar_row("queue", episode_id)
         else:
             self._refresh_queue_section()
+        self.details_pane.refresh_episode_state([episode_id])   # D60
 
     def _on_details_episode_favorite_toggle(self, episode_id: str) -> None:
         """Toggle favorite for the single EPISODE shown in the details pane (episode mode).
 
-        Direct session_scope() attribute write — the new status is read back INSIDE
-        the block (before commit/expire), so no ORM object crosses the boundary
-        (mirrors _toggle_favorite_by_id's shape for channels).
+        The new status is read back INSIDE the session block, so no ORM object
+        crosses the boundary (mirrors _toggle_favorite_by_id for channels).
         """
         from metatv.core.database import EpisodeDB
         new_status = None
@@ -607,9 +607,9 @@ class _FavoritesMixin:
             ep.is_favorite = not bool(ep.is_favorite)
             new_status = ep.is_favorite
             title = ep.title or "Episode"
-        status = "added to" if new_status else "removed from"
-        self.status(f"{title} {status} favorites", ms=0)
+        self.status(f"{title} {'added to' if new_status else 'removed from'} favorites", ms=0)
         self.load_favorites()
+        self.refresh_episode_watch_state([episode_id])   # D60: tree menu + the pane
 
     def _on_queue_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
         """Thin wrapper → unified channel menu (queue surface)."""

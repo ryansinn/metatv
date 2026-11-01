@@ -72,6 +72,7 @@ class DetailsPaneWidget(QWidget):
     similar_preview_requested  = pyqtSignal(list, int, str)
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
     episode_action_state_requested = pyqtSignal(str)    # episode_id — episode-mode queue/favorite async load (Slice 2B)
+    watchlist_changed          = pyqtSignal()           # the agenda's bell changed the watchlist (D60)
     channel_tags_requested     = pyqtSignal(str)        # channel_id — triggers async tags load
     stream_probe_requested     = pyqtSignal()           # "Get stream details" pressed (PLAYED-2)
     weights_requested          = pyqtSignal(str)        # channel_id — triggers async taste-weight load
@@ -215,6 +216,19 @@ class DetailsPaneWidget(QWidget):
         if not self.current_channel or self.current_channel.id != state.channel_id:
             return  # stale response — user already moved on
         self._action_bar.load(state)
+        if state.media_type and state.media_type != "live" and not self._in_episode_mode:
+            self._poster.set_watched(state.watch_completed)   # D60: marked elsewhere
+
+    def refresh_episode_state(self, episode_ids) -> None:
+        """An episode's stored state changed: re-read the buttons if it is shown (D60).
+
+        The pane only ever learned episode state when it opened one, so a
+        favourite/queue/watched change — from the pane itself or the series
+        tree — left its buttons showing the old answer.
+        """
+        ep = self.current_episode
+        if self._in_episode_mode and ep is not None and getattr(ep, "id", None) in set(episode_ids):
+            self.episode_action_state_requested.emit(ep.id)
 
     def apply_episode_action_state(
         self, episode_id: str, in_queue: bool, is_favorite: bool, watch_progress: int = 0, watch_completed: bool = False
@@ -667,6 +681,7 @@ class DetailsPaneWidget(QWidget):
         if self._epg_agenda:
             self._content_layout.addWidget(self._epg_agenda)
             self._epg_agenda.now_title_changed.connect(self._on_epg_title_changed)
+            self._epg_agenda.watchlist_changed.connect(self.watchlist_changed)
 
         # Wire action buttons into their tiered visual slots.  _ActionBar owns all
         # state/signals; _PosterSection provides the slots (Play/Resume → primary

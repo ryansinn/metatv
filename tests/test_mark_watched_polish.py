@@ -329,6 +329,8 @@ def test_toggle_episodes_watched_dto_carries_manual_provenance(tmp_path, qapp, o
     host = MainWindow.__new__(MainWindow)
     host.db = db
     host.config = type("C", (), {"watch_partial_threshold": 0.10})()
+    from tests.conftest import wire_episode_state_refresh
+    wire_episode_state_refresh(host)
     # Avoid _update_season_item_icon / _find_episode_items side effects
     host._season_item_map = {}
 
