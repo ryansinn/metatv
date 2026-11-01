@@ -82,7 +82,7 @@ def test_global_exclusions_dialog_checkbox_saves_the_setting(qtbot, db):
     cfg = Config()
     dlg = GlobalFilterDialog(db, cfg)
     qtbot.addWidget(dlg)
-    assert dlg._ended_cb.isChecked(), "hidden by default: the box reads 'Hide finished events'"
-    dlg._ended_cb.setChecked(False)
+    assert dlg._toggles.ended.isChecked(), "hidden by default: the box reads 'Hide finished events'"
+    dlg._toggles.ended.setChecked(False)
     dlg._save_and_accept()
     assert cfg.show_ended_events is True

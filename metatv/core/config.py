@@ -1040,6 +1040,11 @@ class Config(BaseModel):
     global_exclusions_dialog_size: list = Field(default_factory=list, json_schema_extra=PROFILE)  # [w, h]
     # Excluded collections, keyed by source: [[provider_id, collection tag value], …].
     global_filter_excluded_collections: list = Field(default_factory=list, json_schema_extra=PROFILE)
+    # "Hide live events that start more than [amount] [unit] in the future";
+    # unit "refresh" = each source's own refresh cycle (core/tag_exclusions.py).
+    hide_upcoming_events: bool = Field(default=True, json_schema_extra=PROFILE)
+    upcoming_events_amount: int = Field(default=24, json_schema_extra=PROFILE)
+    upcoming_events_unit: str = Field(default="refresh", json_schema_extra=PROFILE)
 
     # User-defined categories that are globally excluded (added via "Add to Global Exclusions"
     # in the CategoryPickerDialog when creating or editing a user category).

@@ -213,7 +213,9 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: FANATIZ/SN+ PPV) and a live_event whose platform grammar read no time (75)
 #: now store the generic window, so "Hide finished events" can see them. Owner:
 #: "all these MLS PPV channels … are just black screens".
-CURRENT_VERSION = 13
+#: v14 (2026-11-01): an EMPTY slot ("(Victory+ 002) |  (2098-12-31 …)") stores
+#: its sentinel start, so "Hide events that haven't started yet" hides it.
+CURRENT_VERSION = 14
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
