@@ -959,6 +959,23 @@ class DiscoverView(QWidget):
         # Trigger image loading for visible cards in non-collapsed shelves.
         QTimer.singleShot(120, self._trigger_image_load_all)
 
+    def on_channel_state(self, channel_id: str, delta: dict) -> None:
+        """Bus subscriber (D60): a card's badges (liked, favourite, Watch Later,
+        watched) take a change made elsewhere. Only shelves holding the card are
+        rebuilt, through the same ``set_cards(replace=True)`` path zoom uses."""
+        from dataclasses import replace
+
+        from metatv.gui.channel_state_bus import row_changes
+        for shelf_key, cards in list(self._shelf_data_cache.items()):
+            if not any(c.channel_id == channel_id for c in cards):
+                continue
+            cards = [replace(c, **row_changes(delta, c)) if c.channel_id == channel_id else c
+                     for c in cards]
+            self._shelf_data_cache[shelf_key] = cards
+            if shelf := self._shelf_widgets.get(shelf_key):
+                shelf.set_cards(cards, image_cache=self._image_cache, config=self._config, replace=True)
+                QTimer.singleShot(120, self._trigger_image_load_all)
+
     # ---- Manage dialog ------------------------------------------------------
 
     def _open_manage_dialog(self) -> None:

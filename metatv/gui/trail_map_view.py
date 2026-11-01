@@ -832,6 +832,26 @@ class TrailMapView(QWidget):
             watch_percent=(100 if watched else 0),
         )
 
+    def on_channel_state(self, channel_id: str, delta: dict) -> None:
+        """Bus subscriber (D60): a change made anywhere — the main list, the
+        details pane, this map's own buttons — reaches the column rows' badges
+        and the detail strip. The rows are drawn from ``_seed_rows`` /
+        ``_similars_cache``, so those are patched, not only ``_row_cache``."""
+        from metatv.gui.channel_state_bus import row_changes
+        row = self._row_cache.get(channel_id)
+        changes = row_changes(delta, row) if row else {}
+        if not changes:
+            return
+        self._apply_row_change(channel_id, **changes)
+
+        def patched(rows):
+            return [replace(r, **changes) if r.id == channel_id else r for r in rows]
+        self._seed_rows = patched(self._seed_rows)
+        self._similars_cache = {k: (patched(v) if v is not None else v)
+                                for k, v in self._similars_cache.items()}
+        if self.isVisible():
+            self._render_columns()
+
     def _apply_row_change(self, channel_id: str, **changes) -> None:
         """Optimistically update the cached DTO so badges/detail stay consistent."""
         row = self._row_cache.get(channel_id)

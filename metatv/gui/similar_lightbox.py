@@ -94,6 +94,7 @@ class SimilarTitleLightbox(QWidget):
         # queries the DB on the UI thread (it repaints on every navigation).
         self._nav_titles: dict[str, str] = {}
         self._current_id: str = ""
+        self._last_data: dict | None = None   # what the card shows, for on_channel_state
         # Facet lenses. Clicking a cast name or genre chip re-seeds the overlay
         # with that facet's titles instead of punching through to the channel
         # list — the list is hidden behind the overlay, so a click there would
@@ -443,6 +444,7 @@ class SimilarTitleLightbox(QWidget):
         if not isinstance(data, dict) or not data:
             self._card.show_error("Could not load details")
             return
+        self._last_data = data
 
         # Remember this title for the breadcrumb, then repaint it now that the
         # real name is known (the first paint happens before the load returns).
@@ -468,6 +470,21 @@ class SimilarTitleLightbox(QWidget):
                 self._image_cache.get_image_async(
                     url, provider_urls=provider_urls if url == main_url else None
                 )
+
+    def on_channel_state(self, channel_id: str, delta: dict) -> None:
+        """Bus subscriber (D60): the card or a strip row for *channel_id* takes a
+        change made elsewhere, without reloading (no "loading" flash)."""
+        from metatv.gui.channel_state_bus import row_changes
+        data = self._last_data
+        if not self.isVisible() or not data:
+            return
+        strip = data.get("similar") or []
+        if data.get("id") != channel_id and not any(r.get("id") == channel_id for r in strip):
+            return
+        data = {**data, **(row_changes(delta, data) if data.get("id") == channel_id else {})}
+        data["similar"] = [{**r, **row_changes(delta, r)} if r.get("id") == channel_id else r
+                           for r in strip]
+        self._apply_data(self._current_id, data)
 
     def _on_image_loaded(self, url: str, pix: QPixmap) -> None:
         if self.isVisible():

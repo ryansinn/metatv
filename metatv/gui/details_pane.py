@@ -100,6 +100,7 @@ class DetailsPaneWidget(QWidget):
         self.provider_urls: list = []
         self._provider_map: dict = {}
         self._last_versions: "list[ChannelVersion] | None" = None
+        self._last_similar: "list[ChannelVersion] | None" = None
         self._current_record: "dict | None" = None
         # "Currently playing" indicator — last play-state report from the host's
         # player-position poll; the green Play-button outline + live timer fire only
@@ -175,8 +176,25 @@ class DetailsPaneWidget(QWidget):
             self.similar_titles_requested.emit(self.current_channel.id)
 
     def set_similar_titles(self, titles: list[ChannelVersion]) -> None:
+        self._last_similar = titles
         origin = self.current_channel.name if self.current_channel else ""
         self._similar.load(titles, origin)
+
+    def on_channel_state(self, channel_id: str, delta: dict) -> None:
+        """Bus subscriber (D60): a Similar / Other versions row for *channel_id*
+        takes the change made elsewhere — queued, favourited, watched, rated."""
+        from dataclasses import replace
+
+        from metatv.gui.channel_state_bus import row_changes
+
+        def patched(rows):
+            hit = [r for r in rows or () if r.channel_id == channel_id]
+            return hit and [replace(r, **row_changes(delta, r)) if r.channel_id == channel_id else r
+                            for r in rows]
+        if new := patched(self._last_versions):
+            self.set_versions(new)
+        if new := patched(self._last_similar):
+            self.set_similar_titles(new)
 
     def set_recommendation_reason(self, reason: str | None) -> None:
         self._meta.set_recommendation_reason(reason)
@@ -320,7 +338,7 @@ class DetailsPaneWidget(QWidget):
         self.current_channel = channel
         self.current_metadata = metadata
         self._current_record = None          # a new title: its measurement loads next
-        self._last_versions = None
+        self._last_versions = self._last_similar = None
         is_live = getattr(channel, "media_type", None) == MediaType.LIVE
 
         # Configure sections for channel type before clearing (reduces flicker)

@@ -61,6 +61,7 @@ class _OverlaysMixin:
         # is. It owns a ThreadPoolExecutor and was the one widget that owned a
         # pool with nothing stopping it.
         self._register_cleanable("lightbox", self._lightbox.shutdown)
+        self.channel_state_bus.subscribe(self._lightbox.on_channel_state)   # D60
         # The lens strip's "See all in Search" — the only way a metadata click
         # inside the overlay reaches the channel list, and it goes through the
         # same strict context-filter chokepoint a details-pane click uses.
@@ -108,7 +109,10 @@ class _OverlaysMixin:
         One seam for BOTH trail-map instances (the lightbox Explore overlay and the
         embedded Full Watch-History view) so every action routes through the same
         canonical play/queue/favorite/rating handlers (single chokepoint).
+        Also subscribes it to ``channel_state_bus`` so a change made anywhere
+        reaches its rows (D60).
         """
+        self.channel_state_bus.subscribe(tm.on_channel_state)
         tm.play_requested.connect(self.play_channel_by_id)
         tm.resume_requested.connect(self.play_channel_resume_by_id)
         tm.queue_toggled.connect(self._on_details_queue_toggle)
