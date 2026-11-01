@@ -233,7 +233,7 @@ class TestTransferKeepsFamilies:
         collapsed = [
             "platform:Netflix", "genre:Action", "genre:Drama",
         ]   # the default zone: comes from the zone map, never config (F47)
-        dlg = _dialog(config, owned_widgets, zones={k: "collapsed" for k in collapsed})
+        dlg = _dialog(config, owned_widgets, zones=dict.fromkeys(collapsed, "collapsed"))
 
         untouched = {k: dlg._row_widgets[k]
                      for k in ("genre:Action", "genre:Drama")}
@@ -287,7 +287,7 @@ class TestTransferKeepsFamilies:
         """Pinning a genre into a section holding a platform keeps table order."""
         config.discover_pinned_shelves = ["collection:Bond"]
         collapsed = ["platform:Netflix"]   # the default zone: comes from the zone map, never config (F47)
-        dlg = _dialog(config, owned_widgets, zones={k: "collapsed" for k in collapsed})
+        dlg = _dialog(config, owned_widgets, zones=dict.fromkeys(collapsed, "collapsed"))
 
         dlg._transfer("platform:Netflix",
                       dlg._collapsed, dlg._collapsed_list,
