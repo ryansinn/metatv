@@ -87,6 +87,9 @@ class ChannelMenuContext:
     # each dict a row from get_content_key_siblings, fetched alongside the
     # rest of the DB-pass context so the picker needs no second round trip.
     variant_options: list = field(default_factory=list)
+    # Collections the title's copies sit in: (provider_id, source name, value,
+    # channel count) — what "Exclude collection" offers (TagRepository.collections_for).
+    collections: list = field(default_factory=list)
     # REC-3: the EPG programme this row represents (alerts/On Now/Browse),
     # else None/"" — what "record_programme"'s applies= predicate gates on.
     programme_start: "datetime | None" = None
@@ -611,6 +614,16 @@ ACTIONS: dict[str, ChannelAction] = {
             "Categories appear as shelves in the Discover view."
         ),
         applies=lambda c: c.is_single and c.channel_found,
+    ),
+    # A Global Exclusion, so "Exclude" (never "Hide", which is this one row).
+    # Several collections → the handler opens a picker, as "show_versions" does.
+    "exclude_collection": ChannelAction(
+        id="exclude_collection",
+        label=lambda c: (f'Exclude collection "{c.collections[0][2]}"' if len(c.collections) == 1
+                         else "Exclude collection…"),
+        tooltip=lambda c: ("Hide every channel this source files under this collection, everywhere —\n"
+                           "undo from the notice or Global Exclusions"),
+        applies=lambda c: c.is_single and bool(c.collections),
     ),
     # ── History extras ──────────────────────────────────────────────────────
     "remove_history": ChannelAction(

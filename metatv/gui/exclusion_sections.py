@@ -323,3 +323,40 @@ def remember_dialog_size(dialog: QWidget, config) -> None:
     """Save the dialog size (UI state, saved on OK and Cancel alike)."""
     config.global_exclusions_dialog_size = [dialog.width(), dialog.height()]
     config.save()
+
+
+def collection_section(db, config, select_links) -> "TagExclusionSection | None":
+    """The excluded collections, each "value · source (N channels)", checked;
+    unchecking one includes it again. Collections are added from the details
+    chip and the row menu, not here — 2,000+ would bury this dialog."""
+    from sqlalchemy import func
+
+    from metatv.core.database import ChannelDB, ContentTagDB, ProviderDB, TagDB
+    from metatv.core.tag_exclusions import collection_slug
+
+    pairs = [tuple(p) for p in getattr(config, "global_filter_excluded_collections", None) or []]
+    if not pairs:
+        return None
+    items = []
+    with db.session_scope() as session:
+        for pid, value in pairs:
+            n = (session.query(func.count(func.distinct(ChannelDB.id)))
+                 .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)
+                 .join(TagDB, TagDB.id == ContentTagDB.tag_id)
+                 .filter(ChannelDB.provider_id == pid, TagDB.type == "collection", TagDB.value == value)
+                 .scalar()) or 0
+            name = session.query(ProviderDB.name).filter(ProviderDB.id == pid).scalar() or "removed source"
+            items.append((collection_slug(pid, value), f"{value} · {name}", int(n)))
+    return TagExclusionSection(
+        config, "Collections",
+        "Collections you excluded from a channel's right-click menu or its details\n"
+        "collection chip. Uncheck one to include it again.",
+        items, {slug for slug, _l, _n in items}, unit=" channels", columns=2,
+        select_links=select_links)
+
+
+def collection_pairs(slugs) -> list[list[str]]:
+    """Decode checked collection slugs back into ``[provider_id, value]`` pairs."""
+    from metatv.core.tag_exclusions import split_tag_exclusions
+
+    return sorted([list(p) for p in split_tag_exclusions(slugs).collections])

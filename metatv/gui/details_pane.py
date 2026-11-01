@@ -63,6 +63,8 @@ class DetailsPaneWidget(QWidget):
     prefix_unblock_requested   = pyqtSignal(str)        # prefix
     prefix_name_saved          = pyqtSignal(str, str)   # prefix, name
     manage_filters_requested   = pyqtSignal()
+    collection_exclude_requested = pyqtSignal(str, str)   # (provider_id, collection value)
+    collection_include_requested = pyqtSignal(str, str)
     genre_filter_requested     = pyqtSignal(str)        # genre name
     person_filter_requested    = pyqtSignal(str)        # person name
     tag_filter_requested       = pyqtSignal(str, str)   # (facet_type, value) — left-click tag chip
@@ -141,6 +143,10 @@ class DetailsPaneWidget(QWidget):
         (VERS-1) — ``None`` hides it. Owned by the pane, like ``_byline``."""
         self._source_notice_lbl.setText(text or "")
         self._source_notice_lbl.setVisible(bool(text))
+
+    def set_collection_excluded_check(self, fn) -> None:
+        """``fn(provider_id, value) -> bool`` — whether a collection is excluded."""
+        self._meta.collection_excluded = fn
 
     def set_versions(self, versions: list[ChannelVersion]) -> None:
         self._last_versions = versions
@@ -777,6 +783,9 @@ class DetailsPaneWidget(QWidget):
         self._meta.collection_clicked.connect(
             lambda value: self.tag_filter_requested.emit("collection", value)
         )
+        self._meta.collection_exclude_requested.connect(self.collection_exclude_requested)
+        self._meta.collection_include_requested.connect(self.collection_include_requested)
+        self._meta.manage_exclusions_requested.connect(self.manage_filters_requested)
         # Source chip (title block) + its id-chip copy status feedback.
         self._meta.status_message.connect(self.status_message)
 

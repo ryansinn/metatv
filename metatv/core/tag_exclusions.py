@@ -13,6 +13,9 @@ axes with no new parameter:
 * ``genre-only:Horror`` hides a channel whose genres are ALL excluded — the
   default, because provider genre tagging is sloppy ("Drama, Religion,
   History") and "any" hides ten times more (Horror: 5,491 titles vs 516);
+* ``collection:<provider_id>\t<value>`` hides one source's ``collection``
+  tag (its provider category, e.g. "Au Espn Play") — keyed by source, since
+  104 collection names recur on other sources that the user did not exclude;
 * ``ended-events`` ("Hide finished events") hides a fixture slot whose
   scheduled window has passed — the same window the row's "Ended" label uses
   (``event_datetime.event_is_on_now``). Names marked "END |" are the prefix
@@ -30,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 CATEGORY_PREFIX = "category:"
+COLLECTION_PREFIX = "collection:"
 GENRE_ANY_PREFIX = "genre:"
 GENRE_ONLY_PREFIX = "genre-only:"
 
@@ -48,6 +52,12 @@ class TagExclusions:
     genres: frozenset[str] = field(default_factory=frozenset)
     genre_only: bool = True
     ended_events: bool = False
+    collections: frozenset[tuple[str, str]] = field(default_factory=frozenset)
+
+
+def collection_slug(provider_id: str, value: str) -> str:
+    """Encode one excluded (source, collection) pair."""
+    return f"{COLLECTION_PREFIX}{provider_id}\t{value}"
 
 
 def split_tag_exclusions(slugs) -> TagExclusions:
@@ -63,9 +73,13 @@ def split_tag_exclusions(slugs) -> TagExclusions:
     content_types, categories, genres = set(), set(), set()
     genre_only = True
     ended = False
+    collections = set()
     for s in slugs or ():
         if s == ENDED_EVENTS:
             ended = True
+        elif s.startswith(COLLECTION_PREFIX):
+            pid, _, value = s[len(COLLECTION_PREFIX):].partition("\t")
+            collections.add((pid, value))
         elif s.startswith(CATEGORY_PREFIX):
             categories.add(s[len(CATEGORY_PREFIX):])
         elif s.startswith(GENRE_ONLY_PREFIX):
@@ -76,7 +90,7 @@ def split_tag_exclusions(slugs) -> TagExclusions:
         else:
             content_types.add(s)
     return TagExclusions(frozenset(content_types), frozenset(categories), frozenset(genres),
-                         genre_only, ended)
+                         genre_only, ended, frozenset(collections))
 
 
 def excluded_tag_content_types(config) -> set[str]:
@@ -102,6 +116,7 @@ def excluded_tag_content_types(config) -> set[str]:
     out |= {prefix + v for v in getattr(config, "global_filter_excluded_genres", []) or []}
     if not getattr(config, "show_ended_events", False):
         out.add(ENDED_EVENTS)
+    out |= {collection_slug(p, v) for p, v in getattr(config, "global_filter_excluded_collections", []) or []}
     return out
 
 
@@ -152,6 +167,29 @@ def _has_ended_event(channel_key_col, now):
                   .correlate_except(_c))
 
 
+def _collection_match(tag_cls, channel_cls, pairs):
+    from sqlalchemy import and_, or_
+    return and_(tag_cls.type == "collection",
+                or_(*[and_(channel_cls.provider_id == p, tag_cls.value == v) for p, v in pairs]))
+
+
+def _has_collection(channel_key_col, pairs):
+    """Correlated EXISTS: the channel carries an excluded collection on its own source."""
+    from sqlalchemy import exists, select
+    from sqlalchemy.orm import aliased
+
+    from metatv.core.database import ChannelDB, ContentTagDB, TagDB
+
+    _ct, _t, _c = (aliased(m, flat=True) for m in (ContentTagDB, TagDB, ChannelDB))
+    return exists(
+        select(_ct.channel_key)
+        .join(_t, _t.id == _ct.tag_id)
+        .join(_c, _c.channel_key == _ct.channel_key)
+        .where(_ct.channel_key == channel_key_col, _collection_match(_t, _c, pairs))
+        .correlate_except(_ct, _t, _c)
+    )
+
+
 def tag_exclusion_hit(excluded_slugs, channel_key_col):
     """The clause that is TRUE for an excluded channel (``None`` when nothing is excluded)."""
     from sqlalchemy import and_, or_
@@ -170,6 +208,8 @@ def tag_exclusion_hit(excluded_slugs, channel_key_col):
     if ex.ended_events:
         from metatv.core.epg_utils import now_utc
         hits.append(_has_ended_event(channel_key_col, now_utc()))
+    if ex.collections:
+        hits.append(_has_collection(channel_key_col, ex.collections))
     return or_(*hits) if hits else None
 
 
@@ -219,6 +259,11 @@ def excluded_channel_ids(session, excluded_slugs) -> set[str]:
     if ex.ended_events:
         from metatv.core.epg_utils import now_utc
         out = {cid for (cid,) in session.query(ChannelDB.id).filter(_ended(ChannelDB, now_utc())).all()}
+    if ex.collections:
+        out |= {cid for (cid,) in session.query(ChannelDB.id)
+                .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)
+                .join(TagDB, TagDB.id == ContentTagDB.tag_id)
+                .filter(_collection_match(TagDB, ChannelDB, ex.collections)).distinct().all()}
     if not axes:
         return out
     # Driven from the tag index (only matching rows are touched), never a scan of

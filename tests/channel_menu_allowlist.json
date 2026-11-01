@@ -30,6 +30,14 @@
       "reason": "episode-grain series-tree menu - episodes are not ChannelDB rows; own comment: 'that registry is ChannelDB-only today'."
     },
     {
+      "entry": "metatv/gui/details_title.py::_MetadataSection._on_collection_chip_menu",
+      "reason": "collection-level chip menu (exclude/include a source's collection, manage exclusions) - a collection axis, the sibling of _show_filtered_chip_menu, not channel-shaped."
+    },
+    {
+      "entry": "metatv/gui/main_window_exclusions.py::_ExclusionActionsMixin._exclude_collection_from_menu",
+      "reason": "the exclude_collection action's own flat picker of a title's collections - like the show_versions picker, not a channel-verb menu itself."
+    },
+    {
       "entry": "metatv/gui/main_window_channels.py::_ChannelListMixin._show_variant_picker_menu",
       "reason": "the show_versions action's own flat picker of (quality, language, source) content_key siblings - not a channel-verb menu itself."
     },

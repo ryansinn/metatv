@@ -83,6 +83,10 @@ class _MetadataSection(QWidget):
 
     genre_clicked = pyqtSignal(str)            # genre name — left-click a genre chip
     collection_clicked = pyqtSignal(str)        # collection value — left-click the collection chip
+    # Right-click the collection chip: (provider_id, collection value).
+    collection_exclude_requested = pyqtSignal(str, str)
+    collection_include_requested = pyqtSignal(str, str)
+    manage_exclusions_requested = pyqtSignal()
     status_message = pyqtSignal(str)            # one-line status text — id-chip copy feedback
 
     def __init__(self, config, parent=None):
@@ -221,6 +225,10 @@ class _MetadataSection(QWidget):
 
         self._collection_chip = make_chip("", "COLOR_FACET_COLLECTION")
         self._collection_chip.clicked.connect(self._on_collection_chip_clicked)
+        self._collection_chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._collection_chip.customContextMenuRequested.connect(self._on_collection_chip_menu)
+        # Set by the host: (provider_id, value) -> bool, so the menu offers the right row.
+        self.collection_excluded = lambda _pid, _value: False
         self._collection_chip.hide()
         self._genres_layout.addWidget(self._collection_chip)   # parented from the start
 
@@ -625,6 +633,31 @@ class _MetadataSection(QWidget):
     def _on_collection_chip_clicked(self) -> None:
         if self._collection_value:
             self.collection_clicked.emit(self._collection_value)
+
+    def _on_collection_chip_menu(self, pos) -> None:
+        """Right-click the collection chip — the same grammar as the "Available
+        in" chips: a header, then the Global-Exclusion row, then Manage."""
+        from PyQt6.QtWidgets import QMenu
+
+        pid, value = self._source_provider_id, self._collection_value
+        if not pid or not value:
+            return
+        menu = QMenu(self)
+        header = menu.addAction(f"{value} ({self._source_name})" if self._source_name else value)
+        header.setEnabled(False)
+        menu.addSeparator()
+        excluded = self.collection_excluded(pid, value)
+        toggle = menu.addAction(f'Include the "{value}" collection again' if excluded
+                                else f'Exclude the "{value}" collection')
+        toggle.setToolTip("Every channel this source files under this collection, everywhere")
+        menu.addSeparator()
+        manage = menu.addAction("Manage Global Exclusions…")
+        chosen = menu.exec(self._collection_chip.mapToGlobal(pos))
+        menu.deleteLater()
+        if chosen == toggle:
+            (self.collection_include_requested if excluded else self.collection_exclude_requested).emit(pid, value)
+        elif chosen == manage:
+            self.manage_exclusions_requested.emit()
 
     # ------------------------------------------------------------------ #
     # Rating / TMDb / IMDb chips — private helpers                         #
