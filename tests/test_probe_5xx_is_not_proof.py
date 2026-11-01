@@ -47,7 +47,7 @@ class _Resp:
 def _validate(status: int, body: bytes = b""):
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
-    with patch("metatv.gui.main_window_streaming.requests.get",
+    with patch("metatv.core.stream_validation.requests.get",
                return_value=_Resp(status, body)):
         return _StreamingMixin.validate_stream_url(host, "http://x/y.ts")
 

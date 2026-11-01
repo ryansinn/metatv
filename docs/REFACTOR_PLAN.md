@@ -36,7 +36,8 @@ the owner answers. Recorded 2026-10-21.
 |---|---|---|
 | D57 | GUARD-4 matches stored fields by bare name | False "wired" across models; false "unwired" through `setattr` (#912). Needs type resolution. |
 | D60 | State changes not reaching on-screen surfaces — reader half | Owner-requested audit: every watch/queue/alert/favourite surface repaints on change. Writer half is guarded. |
-| D61 | Pre-play probe spends the only connection on one-slot sources | Skip it when `max_connections == 1` and no alternate URL; measure on the owner's account first. |
+| D61 | ~~Pre-play probe spends the only connection on one-slot sources~~ — DONE (#996) | Measured on the owner's log first: TREX (1 connection) 5 of 36 fresh plays that probed were refused (509/458), 0 of 21 switches that skipped it. The probe is now skipped whenever the source's polled account info reports a limit of 1 (`_reports_one_connection`) — with alternates too, since the play URL is already on the ranked best host. Keyed on `ProviderDB.max_connections` + `account_status`, not the accountant's capacity (1 for every source until a play reports one) or the column default (1). |
+| D69 | The account-info write is copy-pasted three times | `provider_editor.py:772`, `provider_editor_tabs.py:378`, `provider_editor_new.py:181` each set `account_status` / `max_connections` (default 1) / expiry from the same `info` dict. Found 2026-11-01 doing D61. Check whether they differ before folding them into one repository method. |
 | F4 | `REGION_FULL_NAMES` likely has more ISO-vs-IOC alpha-3 gaps | One systematic pass. |
 | F6 | Selection colours can be overwritten by a later stylesheet | Audit every item view per palette; guard the ordering. |
 | F19 | Concurrent background writers starve the catalogue insert | Writer count, not write size; see memory "SQLite single-writer budget". |

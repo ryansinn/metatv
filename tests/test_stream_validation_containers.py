@@ -12,7 +12,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
-from metatv.gui.main_window_streaming import _StreamingMixin, _looks_like_video
+from metatv.core.stream_validation import _looks_like_video
+from metatv.gui.main_window_streaming import _StreamingMixin
 
 
 # Representative first-chunk headers.
@@ -55,21 +56,21 @@ def _validator() -> _StreamingMixin:
 
 def test_faststart_mp4_validates_ok():
     obj = _validator()
-    with patch("metatv.gui.main_window_streaming.requests.get", _fake_get(MP4_FASTSTART)):
+    with patch("metatv.core.stream_validation.requests.get", _fake_get(MP4_FASTSTART)):
         ok, err = obj.validate_stream_url("http://x/movie/u/p/1.mp4")
     assert ok is True and err is None
 
 
 def test_matroska_validates_ok():
     obj = _validator()
-    with patch("metatv.gui.main_window_streaming.requests.get", _fake_get(MKV_EBML)):
+    with patch("metatv.core.stream_validation.requests.get", _fake_get(MKV_EBML)):
         ok, err = obj.validate_stream_url("http://x/movie/u/p/1.mkv")
     assert ok is True and err is None
 
 
 def test_mpeg_ts_still_validates_ok():
     obj = _validator()
-    with patch("metatv.gui.main_window_streaming.requests.get", _fake_get(MPEG_TS)):
+    with patch("metatv.core.stream_validation.requests.get", _fake_get(MPEG_TS)):
         ok, err = obj.validate_stream_url("http://x/live/u/p/1.ts")
     assert ok is True and err is None
 
@@ -77,7 +78,7 @@ def test_mpeg_ts_still_validates_ok():
 def test_text_error_still_rejected_with_message():
     """A genuine text error body must still fail and surface its first line."""
     obj = _validator()
-    with patch("metatv.gui.main_window_streaming.requests.get",
+    with patch("metatv.core.stream_validation.requests.get",
                _fake_get(TEXT_ERROR, content_type="text/html")):
         ok, err = obj.validate_stream_url("http://x/movie/u/p/1.mp4")
     assert ok is False
