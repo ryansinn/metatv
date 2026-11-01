@@ -16,6 +16,12 @@ axes with no new parameter:
 * ``collection:<provider_id>\t<value>`` hides one source's ``collection``
   tag (its provider category, e.g. "Au Espn Play") — keyed by source, since
   104 collection names recur on other sources that the user did not exclude;
+* ``upcoming-events:<seconds>`` or ``upcoming-events:refresh`` ("Hide live
+  events that start more than N in the future") hides a slot starting beyond
+  the threshold — with ``refresh``, its own source's NEXT catalog refresh
+  (last refresh + cycle; now + cycle when overdue; 24 hours for a manual
+  source), since a game past the next refresh is re-read before it matters. Empty
+  slots are stored with their far-future sentinel start, so they always are;
 * ``ended-events`` ("Hide finished events") hides a fixture slot whose
   scheduled window has passed — the same window the row's "Ended" label uses
   (``event_datetime.event_is_on_now``). Names marked "END |" are the prefix
@@ -31,6 +37,10 @@ hand-roll a parallel tag check (single chokepoint, CLAUDE.md).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:                       # pragma: no cover
+    from datetime import datetime
 
 CATEGORY_PREFIX = "category:"
 COLLECTION_PREFIX = "collection:"
@@ -38,6 +48,19 @@ GENRE_ANY_PREFIX = "genre:"
 GENRE_ONLY_PREFIX = "genre-only:"
 
 ENDED_EVENTS = "ended-events"
+UPCOMING_PREFIX = "upcoming-events:"
+
+#: The threshold units the Exclusions dialog offers, in seconds. A month and a
+#: year are approximate on purpose — "more than 2 months away" needs no calendar.
+#: The default: each source's ``refresh_schedule`` (catalog_refresh), 24 hours
+#: for a manual or on-launch source that has no cycle.
+UPCOMING_REFRESH = "refresh"
+UPCOMING_FALLBACK_S = 24 * 3600
+
+UPCOMING_UNITS: dict[str, int] = {
+    "minutes": 60, "hours": 3600, "days": 86400, "weeks": 7 * 86400,
+    "months": 30 * 86400, "years": 365 * 86400,
+}
 
 GENRE_MODE_ONLY = "only"
 GENRE_MODE_ANY = "any"
@@ -53,6 +76,7 @@ class TagExclusions:
     genre_only: bool = True
     ended_events: bool = False
     collections: frozenset[tuple[str, str]] = field(default_factory=frozenset)
+    upcoming: str | None = None   # seconds as digits, or UPCOMING_REFRESH
 
 
 def collection_slug(provider_id: str, value: str) -> str:
@@ -74,9 +98,12 @@ def split_tag_exclusions(slugs) -> TagExclusions:
     genre_only = True
     ended = False
     collections = set()
+    upcoming = None
     for s in slugs or ():
         if s == ENDED_EVENTS:
             ended = True
+        elif s.startswith(UPCOMING_PREFIX):
+            upcoming = s[len(UPCOMING_PREFIX):]
         elif s.startswith(COLLECTION_PREFIX):
             pid, _, value = s[len(COLLECTION_PREFIX):].partition("\t")
             collections.add((pid, value))
@@ -90,7 +117,7 @@ def split_tag_exclusions(slugs) -> TagExclusions:
         else:
             content_types.add(s)
     return TagExclusions(frozenset(content_types), frozenset(categories), frozenset(genres),
-                         genre_only, ended, frozenset(collections))
+                         genre_only, ended, frozenset(collections), upcoming)
 
 
 def excluded_tag_content_types(config) -> set[str]:
@@ -117,6 +144,13 @@ def excluded_tag_content_types(config) -> set[str]:
     if not getattr(config, "show_ended_events", False):
         out.add(ENDED_EVENTS)
     out |= {collection_slug(p, v) for p, v in getattr(config, "global_filter_excluded_collections", []) or []}
+    if getattr(config, "hide_upcoming_events", False):
+        unit = getattr(config, "upcoming_events_unit", UPCOMING_REFRESH)
+        if unit == UPCOMING_REFRESH:
+            out.add(UPCOMING_PREFIX + UPCOMING_REFRESH)
+        else:
+            amount = max(0, int(getattr(config, "upcoming_events_amount", 24) or 0))
+            out.add(f"{UPCOMING_PREFIX}{amount * UPCOMING_UNITS.get(unit, 3600)}")
     return out
 
 
@@ -154,6 +188,61 @@ def _ended(channel_cls, now):
         and_(stop.isnot(None), stop <= now),
         and_(stop.is_(None), default_stop <= func.datetime(now)),
     ))
+
+
+def _upcoming(channel_cls, now, spec: str):
+    """A slot starting further ahead than *spec* allows (stored UTC): a fixed
+    number of seconds, or its own source's refresh cycle."""
+    from datetime import timedelta
+
+    from sqlalchemy import case, func, select
+
+    from metatv.core.catalog_refresh import CATALOG_REFRESH_THRESHOLDS
+    from metatv.core.database import ProviderDB
+
+    if spec != UPCOMING_REFRESH:
+        return channel_cls.event_start_time > now + timedelta(seconds=int(spec))
+    fallback = func.datetime(now, f"+{UPCOMING_FALLBACK_S} seconds")
+    cycle = case(*[(ProviderDB.refresh_schedule == k, f"+{int(td.total_seconds())} seconds")
+                   for k, td in CATALOG_REFRESH_THRESHOLDS.items()], else_=None)
+    next_refresh = func.datetime(ProviderDB.last_catalog_refresh_at, cycle)
+    threshold = case(
+        (cycle.is_(None), fallback),                              # manual / on launch
+        (next_refresh > func.datetime(now), next_refresh),         # the scheduled next refresh
+        else_=func.datetime(now, cycle),                           # overdue or never stamped
+    )
+    per_source = select(threshold).where(ProviderDB.id == channel_cls.provider_id).scalar_subquery()
+    return channel_cls.event_start_time > func.coalesce(per_source, fallback)
+
+
+def next_refresh_times(session, now) -> list[tuple[str, datetime]]:
+    """``(source name, next scheduled refresh)`` for each active source with a
+    cycle — the Python twin of the ``refresh`` threshold above, for display."""
+
+    from metatv.core.catalog_refresh import CATALOG_REFRESH_THRESHOLDS
+    from metatv.core.database import ProviderDB
+
+    out = []
+    for name, schedule, last in session.query(
+            ProviderDB.name, ProviderDB.refresh_schedule, ProviderDB.last_catalog_refresh_at
+    ).filter(ProviderDB.is_active.is_(True)).all():
+        cycle = CATALOG_REFRESH_THRESHOLDS.get(schedule or "")
+        if cycle is None:
+            continue
+        nxt = last + cycle if last is not None and last + cycle > now else now + cycle
+        out.append((name, nxt))
+    return sorted(out, key=lambda r: r[1])
+
+
+def _has_upcoming_event(channel_key_col, now, spec: str):
+    from sqlalchemy import exists, select
+    from sqlalchemy.orm import aliased
+
+    from metatv.core.database import ChannelDB
+
+    _c = aliased(ChannelDB, flat=True)
+    return exists(select(_c.channel_key).where(_c.channel_key == channel_key_col, _upcoming(_c, now, spec))
+                  .correlate_except(_c))
 
 
 def _has_ended_event(channel_key_col, now):
@@ -210,6 +299,9 @@ def tag_exclusion_hit(excluded_slugs, channel_key_col):
         hits.append(_has_ended_event(channel_key_col, now_utc()))
     if ex.collections:
         hits.append(_has_collection(channel_key_col, ex.collections))
+    if ex.upcoming is not None:
+        from metatv.core.epg_utils import now_utc
+        hits.append(_has_upcoming_event(channel_key_col, now_utc(), ex.upcoming))
     return or_(*hits) if hits else None
 
 
@@ -259,6 +351,10 @@ def excluded_channel_ids(session, excluded_slugs) -> set[str]:
     if ex.ended_events:
         from metatv.core.epg_utils import now_utc
         out = {cid for (cid,) in session.query(ChannelDB.id).filter(_ended(ChannelDB, now_utc())).all()}
+    if ex.upcoming is not None:
+        from metatv.core.epg_utils import now_utc
+        out |= {cid for (cid,) in session.query(ChannelDB.id)
+                .filter(_upcoming(ChannelDB, now_utc(), ex.upcoming)).all()}
     if ex.collections:
         out |= {cid for (cid,) in session.query(ChannelDB.id)
                 .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)

@@ -10,7 +10,7 @@ from loguru import logger
 
 from metatv.core.database import ChannelDB
 from metatv.core.channel_name_utils import parse_platform_event
-from metatv.core.event_datetime import parse_event_window
+from metatv.core.event_datetime import parse_event_window, placeholder_slot_start
 from metatv.core.log_paths import config_directory
 from metatv.core.fixture_titles import fixture_display_title, parse_fixture_opponents
 
@@ -594,7 +594,7 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         # finished game (a black placeholder slot) from an upcoming one, and
         # "Hide finished events" cannot hide it.
         _window = parse_event_window(channel.name or "") if channel.media_type == "live" else None
-        channel.event_start_time = _window.start if _window else None
+        channel.event_start_time = (_window.start or placeholder_slot_start(channel.name)) if _window else None
         channel.event_stop_time = _window.stop if _window else None
         return False
 
@@ -623,7 +623,8 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
             # The platform grammar did not read a time (75 rows): the generic
             # date forms still may — same chokepoint as every other branch.
             _window = parse_event_window(channel.name or "")
-            channel.event_start_time, channel.event_stop_time = _window.start, _window.stop
+            channel.event_start_time = _window.start or placeholder_slot_start(channel.name)
+            channel.event_stop_time = _window.stop
         if pe is not None:
             if pe.start_time is not None:
                 channel.event_start_time = pe.start_time

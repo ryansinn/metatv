@@ -17,12 +17,14 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -360,3 +362,111 @@ def collection_pairs(slugs) -> list[list[str]]:
     from metatv.core.tag_exclusions import split_tag_exclusions
 
     return sorted([list(p) for p in split_tag_exclusions(slugs).collections])
+
+
+class ExclusionToggles(QWidget):
+    """The dialog's bottom switches (checked = hidden): untagged content,
+    finished events, and live events starting more than [N] [unit] in the
+    future — "after the next source refresh" by default. ``save`` writes all three."""
+
+    def __init__(self, config, db=None, parent: QWidget | None = None) -> None:
+        from metatv.core.tag_exclusions import UPCOMING_REFRESH, UPCOMING_UNITS
+
+        super().__init__(parent)
+        vl = QVBoxLayout(self)
+        vl.setContentsMargins(0, 0, 0, 0)
+        vl.setSpacing(0)
+        self.uncategorized = QCheckBox("Hide content with no category label")
+        self.uncategorized.setChecked(not config.global_filter_include_uncategorized)
+        self.uncategorized.setToolTip("Content with no category prefix is usually general/English-language.\n"
+                                      "Leave unchecked to keep it visible (the safe default).")
+        self.ended = QCheckBox("Hide finished events")
+        self.ended.setChecked(not config.show_ended_events)
+        self.ended.setToolTip("Events that are over: names starting \"End |\" or \"ENDED |\", and fixtures\n"
+                              "whose scheduled time has passed (rows marked \"Ended\"). Nothing left to watch.")
+        self.upcoming = QCheckBox("Hide live events that start")
+        self.upcoming.setChecked(bool(getattr(config, "hide_upcoming_events", True)))
+        self.upcoming.setToolTip(
+            "Event slots whose game is further away than this — they show a black screen until\n"
+            "kickoff — and empty slots with no game scheduled. \"After the next source refresh\" uses\n"
+            "each source's own schedule (24 hours for a manual one): a game past the next refresh is\n"
+            "re-read before it matters. Times are read as UTC unless the source says otherwise.")
+        for cb in (self.uncategorized, self.ended, self.upcoming):
+            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT}; padding-top: 4px;")
+        self.amount = QSpinBox()
+        self.amount.setRange(1, 999)
+        self.amount.setValue(max(1, int(getattr(config, "upcoming_events_amount", 24) or 24)))
+        self.unit = QComboBox()
+        self.unit.addItem("after the next source refresh", UPCOMING_REFRESH)
+        for name in UPCOMING_UNITS:
+            self.unit.addItem(name, name)
+        idx = self.unit.findData(getattr(config, "upcoming_events_unit", UPCOMING_REFRESH))
+        self.unit.setCurrentIndex(max(idx, 0))
+        self.unit.currentIndexChanged.connect(self._sync_enabled)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.addWidget(self.upcoming)
+        # Back to the default in one click; shown only while a custom amount is set.
+        self.sync_link = QLabel()
+        self.sync_link.setText(f'<a href="#" style="color:{_theme.COLOR_ACCENT_BLUE};">Sync to source refresh</a>')
+        self.sync_link.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.sync_link.setToolTip("Use each source's own refresh cycle again")
+        self.sync_link.linkActivated.connect(lambda _h: self.unit.setCurrentIndex(self.unit.findData(UPCOMING_REFRESH)))
+        # The actual moment "source refresh cycle" means — the next scheduled refresh.
+        self.next_refresh = QLabel(_next_refresh_text(db))
+        _theme.style(self.next_refresh, "LABEL_MUTED")
+        # The sentence follows the choice: "start [after the next source refresh]
+        # (2 Nov, 5:31 PM)" or "start more than [24] [hours] in the future".
+        self.more_than, self.in_future = QLabel("more than"), QLabel("in the future")
+        for w in (self.more_than, self.amount, self.unit, self.in_future, self.next_refresh, self.sync_link):
+            row.addWidget(w)
+        row.addStretch()
+        vl.addWidget(self.uncategorized)
+        vl.addWidget(self.ended)
+        vl.addLayout(row)
+        self.upcoming.toggled.connect(self._sync_enabled)
+        self._sync_enabled()
+
+    def _sync_enabled(self) -> None:
+        from metatv.core.tag_exclusions import UPCOMING_REFRESH
+
+        on = self.upcoming.isChecked()
+        custom = self.unit.currentData() != UPCOMING_REFRESH
+        self.unit.setEnabled(on)
+        self.amount.setEnabled(on)
+        for w in (self.more_than, self.amount, self.in_future):
+            w.setVisible(custom)
+        self.sync_link.setVisible(on and custom)
+        self.next_refresh.setVisible(not custom and bool(self.next_refresh.text()))
+
+    def save(self, config) -> None:
+        config.global_filter_include_uncategorized = not self.uncategorized.isChecked()
+        config.show_ended_events = not self.ended.isChecked()
+        config.hide_upcoming_events = self.upcoming.isChecked()
+        config.upcoming_events_amount = self.amount.value()
+        config.upcoming_events_unit = self.unit.currentData()
+
+
+def _next_refresh_text(db) -> str:
+    """"(next refresh 2 Nov 2026, 6:31 PM)" — the soonest active source's next
+    scheduled catalog refresh, local; listed by source when there are several.
+    Empty without a database or a scheduled source (a manual source uses 24
+    hours instead)."""
+    if db is None:
+        return ""
+    from metatv.core.epg_utils import now_utc, to_local
+    from metatv.core.tag_exclusions import next_refresh_times
+    from metatv.core.time_display import clock_text, date_text
+
+    with db.session_scope() as session:
+        times = next_refresh_times(session, now_utc())
+    if not times:
+        return ""
+
+    def when(dt):
+        local = to_local(dt)
+        return f"{date_text(local)}, {clock_text(local)}"
+
+    if len(times) == 1:
+        return f"(next refresh {when(times[0][1])})"
+    return "(next refresh " + "; ".join(f"{name} {when(dt)}" for name, dt in times) + ")"

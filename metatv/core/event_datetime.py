@@ -171,6 +171,31 @@ _EVENT_AT_RE = re.compile(
 #: Mirrors channel_name_utils._EVENT_SENTINEL_YEAR.
 _SENTINEL_YEAR = 2090
 
+#: An EMPTY slot: the sentinel date is the only thing after the last "|" —
+#: "(Victory+ 002) |  (2098-12-31 08:00:01)". All 282 sentinel rows in the
+#: owner's library (VICTORY+, VIX, SN+, MLS PPV, 2026-11-01) look like this and
+#: play nothing: a slot waiting for a game, not an always-on feed.
+_PLACEHOLDER_SLOT_RE = re.compile(
+    r"\|\s*\(\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::\d{2})?\s*\)\s*$")
+
+
+def placeholder_slot_start(name: str) -> "Optional[datetime]":
+    """The sentinel start of an empty event slot, else None.
+
+    Stored as the slot's ``event_start_time`` so "Hide events that haven't
+    started yet" hides it by the same "more than N away" rule as a real
+    upcoming game — no special case downstream. A sentinel on a NAMED event is
+    not matched and stays "always available".
+    """
+    m = _PLACEHOLDER_SLOT_RE.search(name or "")
+    if m is None or int(m.group(1)) < _SENTINEL_YEAR:
+        return None
+    try:
+        return datetime(*(int(g) for g in m.groups()))
+    except ValueError:
+        return None
+
+
 #: How long an event is assumed to run when the provider names no end.
 #:
 #: A FALLBACK, not a rule — :func:`event_is_on_now` prefers the real stop time

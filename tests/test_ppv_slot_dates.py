@@ -25,10 +25,13 @@ def test_unclassified_dated_slot_stores_its_start():
     assert ch.event_start_time == datetime(2026, 10, 28, 19, 25)
 
 
-def test_placeholder_slot_with_the_far_future_sentinel_stays_unscheduled():
+def test_placeholder_slot_stores_its_sentinel_start_not_a_real_date():
+    # v14: an EMPTY slot keeps its far-future sentinel as its start, so the
+    # "start more than N in the future" exclusion hides it; it never reads as
+    # a near date and never as finished.
     ch = _ch("(Victory+ 002) |  (2098-12-31 08:00:01)")
     update_channel_special_content(ch)
-    assert ch.event_start_time is None, "the 2098 sentinel means 'no schedule', never a date"
+    assert ch.event_start_time is not None and ch.event_start_time.year == 2098
 
 
 def test_vod_names_are_never_read_as_schedules():
@@ -38,4 +41,4 @@ def test_vod_names_are_never_read_as_schedules():
 
 
 def test_classifier_version_bumped_so_existing_rows_are_recomputed():
-    assert CURRENT_VERSION >= 13
+    assert CURRENT_VERSION >= 14

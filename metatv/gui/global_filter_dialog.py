@@ -31,7 +31,7 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui.exclusion_sections import (
     SectionCollapser, TagExclusionSection, genre_mode_choice, load_tag_counts,
-    collection_pairs, collection_section, remember_dialog_size, restore_dialog_size,
+    ExclusionToggles, collection_pairs, collection_section, remember_dialog_size, restore_dialog_size,
 )
 from metatv.gui.fonts import monospace_family
 from metatv.gui.scoped_filter_box import ScopedFilterBox
@@ -646,17 +646,9 @@ class GlobalFilterDialog(QDialog):
         scroll.setWidget(inner)
         vl.addWidget(scroll)
 
-        # ── Untagged content and finished events (blacklist: checked = hidden) ─
-        self._uncat_cb = QCheckBox("Hide content with no category label")
-        self._uncat_cb.setChecked(not self._config.global_filter_include_uncategorized)
-        self._uncat_cb.setToolTip("Content with no category prefix is usually general/English-language.\nLeave unchecked to keep it visible (the safe default).")
-        self._ended_cb = QCheckBox("Hide finished events")
-        self._ended_cb.setChecked(not self._config.show_ended_events)
-        self._ended_cb.setToolTip("Events that are over: names starting \"End |\" or \"ENDED |\", and fixtures\n"
-                                  "whose scheduled time has passed (rows marked \"Ended\"). Nothing left to watch.")
-        for cb in (self._uncat_cb, self._ended_cb):
-            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT}; padding-top: 4px;")
-            vl.addWidget(cb)
+        # ── Untagged content, finished and not-yet-started events ──────────────
+        self._toggles = ExclusionToggles(self._config, self._db)
+        vl.addWidget(self._toggles)
 
         # ── Globally hidden categories (explicit blocklist) ────────────────────
         self._hidden_row = QWidget()
@@ -1374,8 +1366,7 @@ class GlobalFilterDialog(QDialog):
         self._config.global_filter_excluded_categories = excluded_prefixes
 
         # Checked = hidden: untagged content, finished events.
-        self._config.global_filter_include_uncategorized = not self._uncat_cb.isChecked()
-        self._config.show_ended_events = not self._ended_cb.isChecked()
+        self._toggles.save(self._config)
 
         # Tag axes — a section that did not render (no data) keeps what was saved.
         tags = self._tag_sections
