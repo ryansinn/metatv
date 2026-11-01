@@ -588,6 +588,14 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
     special_view = detect_and_categorize_channel(channel)
 
     if not special_view:
+        # A dated slot no event rule recognises — "(Apple) (MLS) 005 | Miami vs.
+        # Cincinnati (Spanish) (2026-10-28 19:25:20)", VICTORY+/VIX/FANATIZ/SN+
+        # PPV: 339 rows — still has a schedule. Without it nothing can tell a
+        # finished game (a black placeholder slot) from an upcoming one, and
+        # "Hide finished events" cannot hide it.
+        _window = parse_event_window(channel.name or "") if channel.media_type == "live" else None
+        channel.event_start_time = _window.start if _window else None
+        channel.event_stop_time = _window.stop if _window else None
         return False
 
     channel.special_view = special_view
@@ -611,12 +619,18 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
     elif special_view == 'live_event':
         # EPG-embedded event feeds carry a network/time in the name; enrich from them.
         pe = parse_platform_event(channel.name or "")
+        if pe is None or pe.start_time is None:
+            # The platform grammar did not read a time (75 rows): the generic
+            # date forms still may — same chokepoint as every other branch.
+            _window = parse_event_window(channel.name or "")
+            channel.event_start_time, channel.event_stop_time = _window.start, _window.stop
         if pe is not None:
-            channel.event_start_time = pe.start_time
-            # This grammar names a start and nothing else; "still on" falls back
-            # to DEFAULT_EVENT_DURATION. Assigned rather than left alone so a row
-            # that changes shape cannot keep a stop from its previous form.
-            channel.event_stop_time = None
+            if pe.start_time is not None:
+                channel.event_start_time = pe.start_time
+                # This grammar names a start and nothing else; "still on" falls
+                # back to DEFAULT_EVENT_DURATION. Assigned rather than left alone
+                # so a row that changes shape cannot keep a stop from its old form.
+                channel.event_stop_time = None
 
             metadata: Dict[str, Any] = {
                 'event_name': pe.title or None,
