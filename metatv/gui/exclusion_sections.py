@@ -266,7 +266,8 @@ def load_tag_counts(db, tag_type: str, *, by_title: bool = False,
 
     with db.session_scope() as session:
         if by_title:
-            unit = func.count(func.distinct(func.coalesce(ChannelDB.content_key, "id:" + ChannelDB.id)))
+            from metatv.core.content_identity import title_key_expr
+            unit = func.count(func.distinct(title_key_expr(ChannelDB.content_key, ChannelDB.id)))
         else:
             unit = func.count(func.distinct(ContentTagDB.channel_key))
         q = (session.query(TagDB.value, unit)
@@ -305,3 +306,20 @@ def genre_mode_choice(current: str, only_example: str, any_example: str) -> tupl
         hint.setContentsMargins(24, 0, 0, 2)
         vl.addWidget(hint)
     return w, group
+
+
+def restore_dialog_size(dialog: QWidget, config) -> None:
+    """Open the Exclusions dialog at the size the user last left it, else one
+    that fits the category and genre grids — never larger than the screen."""
+    w, h = (list(getattr(config, "global_exclusions_dialog_size", None) or []) + [0, 0])[:2]
+    w, h = (w, h) if w and h else (860, 900)
+    screen = dialog.screen().availableGeometry() if dialog.screen() else None
+    if screen is not None:
+        w, h = min(w, screen.width() - 40), min(h, screen.height() - 40)
+    dialog.resize(max(w, dialog.minimumWidth()), max(h, dialog.minimumHeight()))
+
+
+def remember_dialog_size(dialog: QWidget, config) -> None:
+    """Save the dialog size (UI state, saved on OK and Cancel alike)."""
+    config.global_exclusions_dialog_size = [dialog.width(), dialog.height()]
+    config.save()

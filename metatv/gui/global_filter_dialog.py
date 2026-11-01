@@ -31,6 +31,7 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui.exclusion_sections import (
     SectionCollapser, TagExclusionSection, genre_mode_choice, load_tag_counts,
+    remember_dialog_size, restore_dialog_size,
 )
 from metatv.gui.fonts import monospace_family
 from metatv.gui.scoped_filter_box import ScopedFilterBox
@@ -48,17 +49,11 @@ def _info_label(tooltip: str) -> QLabel:
 
 @dataclass
 class _FilterBlock:
-    """One filterable unit of the exclusion list: a top-level type (Languages,
-    Platforms, Content Types, …) plus everything needed to show/hide it as the
-    realtime search query changes.
+    """One top-level type of the exclusion list, filtered by the realtime search.
 
-    ``containers`` are child widgets that know how to filter themselves
-    (``_GroupSection`` / ``TagExclusionSection`` — they own nested checkboxes
-    behind a lazy expand/collapse). ``leaf_rows`` are flat checkbox rows with
-    precomputed lowercase match text. ``header_widgets`` (the type's title row
-    + separator) are shown only while the block still has ≥1 visible member —
-    a filterable type may have neither (e.g. the bare "Uncategorized" prefix
-    group has no wrapping type header of its own).
+    ``containers`` filter themselves (``_GroupSection`` / ``TagExclusionSection``);
+    ``leaf_rows`` are flat rows with lowercase match text; ``header_widgets``
+    show only while the block still has a visible member.
     """
 
     header_widgets: list[QWidget] = field(default_factory=list)
@@ -202,17 +197,8 @@ def _group_prefixes(
 
 
 class _ExpandableSection:
-    """The collapse/expand half of the two filter sections below.
-
-    They are separate classes — one holds region prefixes, the other raw
-    provider category labels — but the toggle, the lazy body, the caret and the
-    realtime search were identical, twice. Only what COUNTS as a match differs,
-    which is the one hook (``_row_matches``). Neither copy set hover text at
-    all, though the whole header row is the click target.
-
-    Expects ``_expanded``, ``_body``, ``_body_built``, ``_build_body``,
-    ``_checkboxes``, ``_pre_search_expanded``, ``_expand_lbl``, ``_header`` and
-    ``_toggle_label``.
+    """The collapse/expand half of ``_GroupSection``: toggle, lazy body, caret
+    and realtime search. ``_row_matches`` is the one hook.
     """
 
     def _sync_expand_affordance(self) -> None:
@@ -593,6 +579,11 @@ class GlobalFilterDialog(QDialog):
         self.setWindowTitle("Exclusions")
         self.setMinimumSize(420, 540)
         self._setup_ui()
+        restore_dialog_size(self, self._config)
+
+    def done(self, result: int) -> None:  # Qt override: remember size on OK and Cancel
+        remember_dialog_size(self, self._config)
+        super().done(result)
 
     def _setup_ui(self) -> None:
         vl = QVBoxLayout(self)
@@ -767,7 +758,13 @@ class GlobalFilterDialog(QDialog):
             f"GlobalFilterDialog: {len(prefix_counts)} prefixes (incl. {len(region_only_tokens)} region-only) in {len(all_groups)} groups"
         )
 
-        named_groups = [(n, p) for n, p in all_groups if n != "Uncategorized"]
+        from metatv.core.content_labels import CONTENT_DESCRIPTOR_GROUPS
+
+        # A content descriptor (Adult, Kids, Sports, …) is not a language: it is
+        # listed with the platforms, where its siblings already are.
+        named_groups = [(n, p) for n, p in all_groups
+                        if n != "Uncategorized" and n not in CONTENT_DESCRIPTOR_GROUPS]
+        descriptor_groups = {n: p for n, p in all_groups if n in CONTENT_DESCRIPTOR_GROUPS}
         other_entries = next((p for n, p in all_groups if n == "Uncategorized"), [])
 
         # ── Languages header (with per-type select-all) ─────────────────────────
@@ -813,9 +810,11 @@ class GlobalFilterDialog(QDialog):
                 for c in codes
                 if prefix_upper_counts.get(c.upper(), 0) > 0
             ]
+            entries += [e for e in descriptor_groups.pop(group_name, []) if e[0] not in {c for c, _ in entries}]
             if entries:
                 entries.sort(key=lambda x: -x[1])
                 platform_data.append((group_name, entries))
+        platform_data += [(n, sorted(p, key=lambda x: -x[1])) for n, p in descriptor_groups.items() if p]
 
         if platform_data:
             sep = QFrame()

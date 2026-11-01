@@ -1037,6 +1037,7 @@ class Config(BaseModel):
     # Exclusions dialog sections the user left collapsed (by section title).
     global_exclusions_collapsed: list = Field(
         default_factory=lambda: ["Languages", "Platforms"], json_schema_extra=PROFILE)
+    global_exclusions_dialog_size: list = Field(default_factory=list, json_schema_extra=PROFILE)  # [w, h]
 
     # User-defined categories that are globally excluded (added via "Add to Global Exclusions"
     # in the CategoryPickerDialog when creating or editing a user category).
