@@ -146,3 +146,40 @@ def test_the_tree_repaint_carries_a_favourite_made_elsewhere(qapp, db):
         assert item.data(0, Qt.ItemDataRole.UserRole)["data"].is_favorite is True
     finally:
         destroy_widget(tree)
+
+
+def test_an_alert_set_from_the_details_agenda_reaches_watch_alerts(qapp, db):
+    """The agenda's bell wrote the watchlist and told no one (D60 gap 4)."""
+    from PyQt6.QtWidgets import QPushButton
+
+    from metatv.gui.epg_agenda_widget import EpgAgendaWidget
+    config = MagicMock()
+    config.epg_watchlist = []
+    agenda = EpgAgendaWidget(db, config)
+    try:
+        heard: list = []
+        agenda.watchlist_changed.connect(lambda: heard.append(True))
+        from unittest.mock import patch
+        with patch("metatv.gui.epg_agenda_widget.watchlist.add") as add:
+            agenda._toggle_watchlist("The Daily Show", True, QPushButton())
+        add.assert_called_once()
+        assert heard == [True]
+    finally:
+        destroy_widget(agenda)
+
+
+def test_the_details_pane_forwards_the_agendas_watchlist_change(qapp, db):
+    """MainWindow connects details_pane.watchlist_changed to _refresh_watch_alerts,
+    the same slot the EPG view's signal drives; the pane must forward the agenda's."""
+    from metatv.gui.details_pane import DetailsPaneWidget
+    from tests.test_episode_grain_queue_favorites import _make_config
+    cache = MagicMock()
+    cache.get_image_sync.return_value = None
+    pane = DetailsPaneWidget(_make_config(), cache, db=db)
+    try:
+        heard: list = []
+        pane.watchlist_changed.connect(lambda: heard.append(True))
+        pane._epg_agenda.watchlist_changed.emit()
+        assert heard == [True]
+    finally:
+        destroy_widget(pane)

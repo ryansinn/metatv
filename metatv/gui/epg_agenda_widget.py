@@ -25,6 +25,9 @@ class EpgAgendaWidget(QWidget):
     """
 
     now_title_changed = pyqtSignal(str)  # current show title (empty string = no data)
+    #: A title was added to / removed from the watchlist here (D60: Watch Alerts
+    #: in the sidebar must hear about it, as it does from the EPG view).
+    watchlist_changed = pyqtSignal()
 
     def __init__(self, db: Database, config=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -205,6 +208,7 @@ class EpgAgendaWidget(QWidget):
             watchlist.remove(self._config, title)
         _icon_utils.set_button_icon(btn, "monitor" if add else "monitor_off")
         btn.setToolTip("Remove from watchlist" if add else "Add to watchlist")
+        self.watchlist_changed.emit()
 
 
 # ------------------------------------------------------------------

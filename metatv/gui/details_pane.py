@@ -72,6 +72,7 @@ class DetailsPaneWidget(QWidget):
     similar_preview_requested  = pyqtSignal(list, int, str)
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
     episode_action_state_requested = pyqtSignal(str)    # episode_id — episode-mode queue/favorite async load (Slice 2B)
+    watchlist_changed          = pyqtSignal()           # the agenda's bell changed the watchlist (D60)
     channel_tags_requested     = pyqtSignal(str)        # channel_id — triggers async tags load
     stream_probe_requested     = pyqtSignal()           # "Get stream details" pressed (PLAYED-2)
     weights_requested          = pyqtSignal(str)        # channel_id — triggers async taste-weight load
@@ -680,6 +681,7 @@ class DetailsPaneWidget(QWidget):
         if self._epg_agenda:
             self._content_layout.addWidget(self._epg_agenda)
             self._epg_agenda.now_title_changed.connect(self._on_epg_title_changed)
+            self._epg_agenda.watchlist_changed.connect(self.watchlist_changed)
 
         # Wire action buttons into their tiered visual slots.  _ActionBar owns all
         # state/signals; _PosterSection provides the slots (Play/Resume → primary

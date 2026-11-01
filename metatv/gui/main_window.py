@@ -771,6 +771,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnec
         self.details_pane.queue_toggled.connect(self._on_details_queue_toggle)
         self.details_pane.episode_favorite_toggled.connect(self._on_details_episode_favorite_toggle)
         self.details_pane.episode_queue_toggled.connect(self._on_details_episode_queue_toggle)
+        self.details_pane.watchlist_changed.connect(self._refresh_watch_alerts)   # D60
         self.details_pane.rating_requested.connect(self._toggle_rating)
         self.details_pane.suppression_requested.connect(self._on_suppression_requested)
         self.details_pane.hide_requested.connect(self._on_hide_from_details_pane)
