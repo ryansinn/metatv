@@ -44,10 +44,8 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: matches the download scheduler's own POLL_SECONDS, so a row never lags the
 #: thing it describes by more than one of its ticks.
 _TRANSFER_TICK_MS = 2000
-from metatv.core.epg_utils import to_local, to_utc_naive
+from metatv.core.epg_utils import to_utc_naive
 from metatv.core.history_buckets import BUCKETS_BY_KEY, bucket_range
-from metatv.core.models import MediaType
-from metatv.core.repositories import RepositoryFactory
 
 
 def _hms(total_seconds: float) -> str:

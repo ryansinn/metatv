@@ -583,7 +583,7 @@ class ContentTagCrudMixin:
             )
             self.session.rollback()
 
-    def collections_for(self, channel_ids) -> list[tuple[str, str, str, int]]:
+    def collection_choices_for(self, channel_ids) -> list[tuple[str, str, str, int]]:
         """``(provider_id, source name, collection value, channels in it)`` for
         every collection the given channels sit in, largest first — the
         choices an "Exclude collection" menu offers."""

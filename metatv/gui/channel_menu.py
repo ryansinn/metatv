@@ -88,7 +88,7 @@ class ChannelMenuContext:
     # rest of the DB-pass context so the picker needs no second round trip.
     variant_options: list = field(default_factory=list)
     # Collections the title's copies sit in: (provider_id, source name, value,
-    # channel count) — what "Exclude collection" offers (TagRepository.collections_for).
+    # channel count) — what "Exclude collection" offers (TagRepository.collection_choices_for).
     collections: list = field(default_factory=list)
     # REC-3: the EPG programme this row represents (alerts/On Now/Browse),
     # else None/"" — what "record_programme"'s applies= predicate gates on.

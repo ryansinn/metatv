@@ -11,7 +11,6 @@ from metatv.core.config import Config
 from metatv.gui import icon_utils as _icon_utils
 import html as _html
 
-from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import FlowLayout, enable_height_for_width
 

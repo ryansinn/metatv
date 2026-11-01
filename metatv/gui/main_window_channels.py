@@ -1599,7 +1599,7 @@ class _ChannelListMixin:
                         content_key=content_key,
                         variant_count=len(variant_options) + 1,
                         variant_options=variant_options,
-                        collections=repos.tags.collections_for([cid, *(o["id"] for o in variant_options)]),
+                        collections=repos.tags.collection_choices_for([cid, *(o["id"] for o in variant_options)]),
                         programme_start=programme[0] if programme else None,
                         programme_end=programme[1] if programme else None,
                         programme_title=programme[2] if programme else "",
