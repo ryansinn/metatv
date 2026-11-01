@@ -69,16 +69,17 @@ def _tag_cache_key(type: str, value: str) -> tuple[str, str]:
 
 
 def _value_matches(column, value: str):
-    """Case-insensitive match that also finds a non-ASCII value exactly.
+    """Case-insensitive match, non-ASCII capitals included.
 
-    SQLite's lower() folds ASCII only, so lower('Necati Şaşmaz') keeps its 'Ş'
-    while Python's casefold() does not: the case-insensitive test alone missed
-    1,660 existing tags, the INSERT then hit the unique constraint, and the
-    fallback lookup missed the same way (NoResultFound in the metadata backfill).
-    The exact test is the one the unique constraint itself applies.
+    SQLite's own lower() folded ASCII only — lower('Necati Şaşmaz') kept its
+    'Ş' — so this once missed 1,660 tags, the INSERT hit the unique constraint
+    and the fallback lookup missed the same way (#932). ``Database`` now
+    registers a Unicode ``lower`` (``db_base.unicode_lower``, ledger F55), so
+    the SQL side matches Python's ``str.lower`` and "ŞAŞMAZ" finds "Şaşmaz"
+    (F56). The exact test stays: it is the one the unique constraint applies.
     """
     from sqlalchemy import func, or_
-    return or_(column == value, func.lower(column) == value.casefold())
+    return or_(column == value, func.lower(column) == value.lower())
 
 
 class TagRepository(ContentTagCrudMixin, FacetQueryMixin):
