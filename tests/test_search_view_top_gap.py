@@ -89,6 +89,9 @@ win.show_series_nav(None)
 out["back_after_leaving"] = win.back_button.isVisible()
 
 print("GEOM " + json.dumps(out))
+
+from metatv.gui.app_exit import release_before_exit
+release_before_exit(win)
 """
 
 

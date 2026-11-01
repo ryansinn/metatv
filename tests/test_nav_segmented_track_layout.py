@@ -86,6 +86,9 @@ print("GEOM " + json.dumps({
     "checked": [c.isChecked() for c in chips],
     "track": {"w": track.width(), "h": track.height()},
 }), flush=True)
+
+from metatv.gui.app_exit import release_before_exit
+release_before_exit(win)
 """
 
 
