@@ -24,6 +24,7 @@ from metatv.core.migrations import (
     category_facet_refacet,
     category_marker_backfill,
     collection_token_cleanup_backfill,
+    company_person_cleanup,
     content_key_backfill,
     credit_tags_backfill,
     credits_text_drop,
@@ -62,6 +63,7 @@ _MODULES = {m.__name__.rsplit(".", 1)[-1]: m for m in (
     category_facet_refacet,
     category_marker_backfill,
     collection_token_cleanup_backfill,
+    company_person_cleanup,
     content_key_backfill,
     credit_tags_backfill,
     credits_text_drop,
@@ -119,6 +121,8 @@ TASKS: tuple[tuple[str, str, str], ...] = (
     ("feeder_codes_compact", "FeederCodesCompactTask", ""),
     ("person_identity", "PersonIdentityTask", ""),
     ("person_aliases", "PersonAliasTask", ""),
+    # AFTER the credit writers and the alias merge: studios out of the person facet (F59).
+    ("company_person_cleanup", "CompanyPersonCleanupTask", ""),
     ("credits_text_drop", "CreditsTextDropTask", ""),
     # A new provider field is a row in raw_field_backfill's FIELDS table, not
     # a new task here.

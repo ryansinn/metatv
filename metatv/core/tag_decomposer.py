@@ -909,17 +909,18 @@ def credit_tags(cast, director) -> list[tuple]:
         cast: Stored cast list (``[{"name", "character", …}]``) or names.
         director: Stored director string (comma/slash/& separated) or None.
     """
+    from metatv.core.content_labels import looks_like_company
     from metatv.core.preference_engine import _split_directors
     items: list[tuple] = []
     for i, person in enumerate(cast or []):
         name = _clean_name(person.get("name") if isinstance(person, dict) else person)
-        if not name:
+        if not name or looks_like_company(name):
             continue
         character = _clean_name(person.get("character")) if isinstance(person, dict) else ""
         items.append(("cast", name, "metadata_credits", character or None, i))
     for i, name in enumerate(_split_directors(director) if director else []):
         name = _clean_name(name)
-        if name:
+        if name and not looks_like_company(name):   # a studio in the director field (F59)
             items.append(("director", name, "metadata_credits", None, i))
     return items
 
