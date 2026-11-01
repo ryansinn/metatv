@@ -146,7 +146,7 @@ def test_the_tab_shows_a_heading_per_type_in_order(qapp, file_db):
         destroy_widget(ed)
 
 
-@pytest.mark.parametrize("code, canonical", [("KA", "KN"), ("PJ", "PB"), ("PU", "PB"), ("QC", "QFR")])
+@pytest.mark.parametrize("code, canonical", [("KA", "KN"), ("PJ", "PB"), ("PU", "PB"), ("QC", "QFR"), ("TK", "TJ")])
 def test_provider_spellings_of_known_languages(code, canonical):
     """TREX's KA/PJ/PU are Kannada/Punjabi and QC is Quebec (owner, 2026-10-31)."""
     from metatv.core.region_codes import normalize_region_code

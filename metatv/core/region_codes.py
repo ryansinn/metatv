@@ -448,6 +448,7 @@ _ALIAS_MAP: dict[str, str] = {
     # are Punjabi. (KA is Georgian in ISO 639-1; no source here uses it so.)
     "KA": "KN", "PJ": "PB", "PU": "PB",
     "QC": "QFR",   # Quebec ("QC - Karl Tremblay - Hommage Centre Bell") — Quebec French
+    "TK": "TJ",    # Tajikistan as TREX spells it ("TK| DUSHANBE HD", "TK| TV SUGD HD"); ISO TK is Tokelau
     "MALAYALAM": "ML",
     "GUJARATI": "GU",
     "PUNJABI": "PB",   # PB (not PA): PA is Panama (Spanish); Punjabi must not collapse onto it

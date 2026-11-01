@@ -161,6 +161,10 @@ def main():
 
     # Run application
     code = app.exec()
+    # Delete the window now rather than inside PyQt's exit-time cleanup, which
+    # segfaults on a live window with many children (GUARD-7, gui/app_exit.py).
+    from metatv.gui.app_exit import release_before_exit
+    release_before_exit(window)
     if fresh_start.pending():
         fresh_start.relaunch()      # the new process performs the wipe
     sys.exit(code)

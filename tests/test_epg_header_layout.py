@@ -242,6 +242,9 @@ assert not win.epg_status_label.isVisibleTo(win), "status still shown after leav
 assert not win.epg_refresh_btn.isVisibleTo(win), "Refresh still shown after leaving EPG"
 
 print("EPG_STATS_LINE_OK")
+
+from metatv.gui.app_exit import release_before_exit
+release_before_exit(win)
 """
 
 
