@@ -652,9 +652,8 @@ class GlobalFilterDialog(QDialog):
         self._uncat_cb.setToolTip("Content with no category prefix is usually general/English-language.\nLeave unchecked to keep it visible (the safe default).")
         self._ended_cb = QCheckBox("Hide finished events")
         self._ended_cb.setChecked(not self._config.show_ended_events)
-        self._ended_cb.setToolTip("Events that are over — names starting \"End |\" or \"ENDED |\", and\n"
-                                  "fixtures whose scheduled time has passed (the rows marked \"Ended\").\n"
-                                  "Sources keep listing a game after it ends; there is nothing left to watch.")
+        self._ended_cb.setToolTip("Events that are over: names starting \"End |\" or \"ENDED |\", and fixtures\n"
+                                  "whose scheduled time has passed (rows marked \"Ended\"). Nothing left to watch.")
         for cb in (self._uncat_cb, self._ended_cb):
             _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT}; padding-top: 4px;")
             vl.addWidget(cb)
