@@ -1076,19 +1076,15 @@ def collection_display(collection: str | None, platform_code: str | None = None)
     return working
 
 
-#: An episode marker inside a VOD title: ``S01E57``, ``S2 E4``, ``S01.E05``.
-#:
-#: **Only this form.** The ``1x05`` spelling was measured across the owner's
-#: 785,163 names and matched 14 rows, ALL of them real film titles — "10x10
-#: (2018)", "8x10 Tasveer", "12x12". "Season N Episode N" matched nothing at
-#: all. So the vocabulary is one pattern, not three, and it is one pattern
-#: because that is what the data supports.
-#:
-#: SxxExx itself matched 960 rows and every one is a series episode the provider
-#: filed as a movie — 48 shows, led by Konusanlar with 414 episodes. Nothing in
-#: the library is a film with S..E.. in its name.
+#: Episode markers inside a VOD title — only the forms the data supports.
+#: ``S01E57``/``S2 E4``/``S01.E05``: 960 rows, 48 shows filed as movies, no film.
+#: ``1x05`` was measured and rejected: its 14 matches were all films ("10x10
+#: (2018)", "12x12"); "Season N Episode N" matched nothing.
 _EPISODE_MARKER_RE = re.compile(
     r"(?<![A-Za-z0-9])S(\d{1,2})[ ._-]?E(\d{1,3})(?![0-9])", re.IGNORECASE)
+#: Turkish "N. Bölüm" (episode N): 4,634 movie rows, 305 shows (F32). What follows
+#: is decoration ("@showtv", "Full Bölüm", "(FİNAL)"); the show is what precedes.
+_BOLUM_MARKER_RE = re.compile(r"(?<![\w])(\d{1,4})\s*\.?\s*B[öo]l[üu]m\b", re.IGNORECASE)
 
 
 def _extract_episode_marker(bare: str) -> "tuple[str, str, str]":
@@ -1120,6 +1116,8 @@ def _extract_episode_marker(bare: str) -> "tuple[str, str, str]":
     """
     match = _EPISODE_MARKER_RE.search(bare)
     if not match:
+        if (bolum := _BOLUM_MARKER_RE.search(bare)) and bare[: bolum.start()].strip():
+            return bare[: bolum.start()].strip(" _-|"), "", bolum.group(1)
         return bare, "", ""
     title = (bare[: match.start()] + " " + bare[match.end():])
     title = re.sub(r"\s{2,}", " ", title)
