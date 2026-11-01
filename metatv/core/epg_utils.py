@@ -15,8 +15,23 @@ from metatv.core.time_display import (
 
 
 def _local_tz():
-    """Return machine's local tzinfo. Module-level callable for testability via patch."""
-    return datetime.now().astimezone().tzinfo
+    """The local zone for conversions: ``None`` = the machine's own zone, with the
+    offset worked out FOR EACH INSTANT (``astimezone(None)`` / a naive
+    ``.astimezone(utc)``). Module-level so tests can patch in a fixed zone.
+
+    It returned ``datetime.now().astimezone().tzinfo`` — a fixed offset taken
+    from today — so every conversion applied today's offset to every date: the
+    day DST ended (2026-11-01) a September recording window converted an hour
+    off, and so did any stored time from before the change.
+    """
+    return None
+
+
+def _as_utc_naive(local_dt: datetime, tz) -> datetime:
+    """A naive local wall time → UTC-naive; *tz* None = the machine's zone,
+    with that date's own DST."""
+    src = local_dt if tz is None else local_dt.replace(tzinfo=tz)
+    return src.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def now_utc() -> datetime:
@@ -109,8 +124,7 @@ def to_utc_naive(local_dt: datetime, tz=None) -> datetime:
     Returns:
         The same instant as a UTC-naive datetime.
     """
-    _tz = tz if tz is not None else _local_tz()
-    return local_dt.replace(tzinfo=_tz).astimezone(timezone.utc).replace(tzinfo=None)
+    return _as_utc_naive(local_dt, tz if tz is not None else _local_tz())
 
 
 def to_local_naive(dt: datetime) -> datetime:
@@ -177,10 +191,9 @@ def local_day_window(d: date, tz=None) -> tuple[datetime, datetime]:
         (day_start, day_end): UTC-naive datetimes spanning the full local day d.
     """
     _tz = tz if tz is not None else _local_tz()
-    local_start = datetime(d.year, d.month, d.day, tzinfo=_tz)
-    day_start = local_start.astimezone(timezone.utc).replace(tzinfo=None)
-    day_end   = (local_start + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
-    return day_start, day_end
+    nxt = d + timedelta(days=1)   # each bound converted with its own offset: a DST day is 23 or 25 h
+    return (_as_utc_naive(datetime(d.year, d.month, d.day), _tz),
+            _as_utc_naive(datetime(nxt.year, nxt.month, nxt.day), _tz))
 
 
 def browse_anchors(_now: datetime | None = None, tz=None) -> list[tuple[str, datetime]]:
