@@ -125,16 +125,23 @@ class AnalyticsRepository:
 
         Reads the stored attempt history (``recent_attempts``, the last ~20
         requests per address), falling back to the lifetime counts for an
-        address recorded before that history existed.
+        address recorded before that history existed. Carries that history
+        in order, the last success, and which address ``UrlCycler`` would
+        try first (Q22).
         """
         from metatv.core.repositories.provider import ProviderRepository
 
         row = self.session.query(ProviderDB).filter_by(id=provider_id).first()
         if row is None:
             return []
+        from metatv.core.url_cycle import UrlCycler
+
+        model = ProviderRepository(self.session).to_model(row)
+        first = (UrlCycler(model, "analytics").first_choice() or "").rstrip("/")
         out = []
-        for pu in ProviderRepository(self.session).to_model(row).urls:
-            recent = [a for a in pu.recent_attempts if a.host_at_fault or a.success]
+        for pu in model.urls:
+            recent = sorted((a for a in pu.recent_attempts if a.host_at_fault or a.success),
+                            key=lambda a: a.timestamp)
             if recent:
                 tried, worked = len(recent), sum(1 for a in recent if a.success)
             else:
@@ -142,6 +149,8 @@ class AnalyticsRepository:
             out.append(ServerAddressDTO(
                 url=pu.url, tried=tried, worked=worked,
                 median_latency_ms=pu.median_latency_ms() or None,
+                history=tuple(a.success for a in recent), last_worked=pu.last_success,
+                in_use=bool(first) and pu.url.rstrip("/") == first,
             ))
         out.sort(key=lambda a: (-(a.worked / a.tried if a.tried else -1), a.median_latency_ms or 10**9))
         return out
@@ -164,8 +173,9 @@ class AnalyticsRepository:
         )
         title = func.coalesce(ChannelDB.detected_title, ChannelDB.name)
         top = tuple(
-            (name, media or "", int(n), when) for name, media, n, when in self.session.query(
-                title, ChannelDB.media_type, func.sum(ChannelDB.play_count), func.max(ChannelDB.last_played))
+            (name, media or "", int(n), when, key) for name, media, n, when, key in self.session.query(
+                title, ChannelDB.media_type, func.sum(ChannelDB.play_count), func.max(ChannelDB.last_played),
+                _TITLE_KEY)
             .filter(*played).group_by(_TITLE_KEY)
             .order_by(func.sum(ChannelDB.play_count).desc(), title).limit(TOP_TITLES)
         )
@@ -191,6 +201,12 @@ class AnalyticsRepository:
             only_here=only_here or 0, recent=recent or 0, favourites=favourites or 0,
             episodes=episodes or 0, episode_series=episode_series or 0,
         )
+
+    def title_channel_ids(self, provider_id: str, title_key: str) -> frozenset[str]:
+        """Channel ids on *provider_id* carrying one title (a ``_TITLE_KEY``
+        value from :meth:`viewing`'s Most played) — what a click hands to Search."""
+        return frozenset(i for (i,) in self.session.query(ChannelDB.id).filter(
+            ChannelDB.provider_id == provider_id, _TITLE_KEY == title_key))
 
     def region_channel_ids(self, provider_id: str, region: str) -> frozenset[str]:
         """Channel ids on *provider_id* whose detected region is *region* — the

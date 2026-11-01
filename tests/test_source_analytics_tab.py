@@ -380,3 +380,25 @@ def test_what_you_watch_counts_recent_episodes_and_favourites(qapp, file_db):
         assert "Favourites here" in texts
     finally:
         destroy_widget(ed)
+
+
+def test_clicking_a_most_played_title_opens_it_in_search(qapp, file_db):
+    """A Most played row is a link like a region: it hands that title's channels here to Search."""
+    from PyQt6.QtCore import QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+    _seed(file_db)
+    _play(file_db, "trex", "fut", 12, title="Futurama", media="series")
+    _play(file_db, "trex", "fut", 7, title="Futurama", media="series")   # a second row, same title
+    _play(file_db, "prosat", "fut", 3, title="Futurama", media="series")  # another source's copy
+    ed = _analytics(qapp, file_db)
+    try:
+        got = []
+        ed.browse_ids_requested.connect(lambda label, ids: got.append((label, ids)))
+        link = next(w for w in ed._analytics_tab._viewing.findChildren(QLabel)
+                    if w.toolTip() == "Show Futurama in Search")
+        for kind in (QMouseEvent.Type.MouseButtonPress, QMouseEvent.Type.MouseButtonRelease):
+            qapp.sendEvent(link, QMouseEvent(kind, QPointF(4, 4), QPointF(4, 4), Qt.MouseButton.LeftButton,
+                                             Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+        assert got and got[0][0] == "Futurama" and len(got[0][1]) == 2     # TREX's two rows only
+    finally:
+        destroy_widget(ed)

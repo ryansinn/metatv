@@ -70,6 +70,12 @@ _FPS_RE = re.compile(r"\b(\d{2,3})\s?FPS\b", re.IGNORECASE)
 #: are then discarded, never turned into a chip.
 _SOURCE_QUALITY_NORM: dict[str, str] = {"HDTV": "HD"}
 
+#: Tier words that only count as a category PREFIX ("IN-PREM| BOLLYWOOD 1",
+#: "PB-PREM| GURBANI CHANNEL 1" — premium packages). Kept out of TIER_TOKENS,
+#: which the name parser applies inside titles: "Prem" is a common word in
+#: Hindi film titles (Prem Ratan Dhan Payo).
+PREFIX_TIER_TOKENS: frozenset[str] = frozenset({"PREM"})
+
 #: Source tags as a provider's category PREFIX ("BLURAY-DE - Zoomania 2"): they
 #: say where the file came from, never a resolution, so they make no chip — but
 #: they are known vocabulary, not a token the parser has never seen.

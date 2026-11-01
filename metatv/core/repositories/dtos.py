@@ -443,6 +443,9 @@ class ServerAddressDTO:
     tried: int
     worked: int
     median_latency_ms: int | None
+    history: tuple[bool, ...] = ()        # the counted recent attempts, oldest first (True = worked)
+    last_worked: datetime | None = None   # last success ever, local-naive as recorded
+    in_use: bool = False                  # the address the next attempt tries first
 
 
 @dataclass(frozen=True)
@@ -485,7 +488,7 @@ class ViewingDTO:
     plays: int
     last_played: datetime | None                  # UTC-naive
     by_media: dict[str, int]                      # media_type -> titles played
-    top: tuple[tuple[str, str, int, datetime | None], ...]  # (title, media, plays, last played), most first
+    top: tuple[tuple[str, str, int, datetime | None, str], ...]  # (title, media, plays, last played, title key)
     seconds_watched: int
     watched_since: datetime | None                # first recorded play, None when none
     only_here: int = 0                            # played titles no other source carries

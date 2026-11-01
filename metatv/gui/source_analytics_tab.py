@@ -46,6 +46,7 @@ from metatv.core.repositories.dtos import (
 )
 from metatv.core.time_display import short_date_text
 from metatv.gui import cursor_affordance, icons
+from metatv.gui.attempt_ticks import AttemptTicks
 from metatv.gui import theme as _theme
 from metatv.gui.connection_wait import minutes_text
 from metatv.gui.chip_row import MiddleElideLabel
@@ -243,6 +244,16 @@ class _LinkLabel(MiddleElideLabel):
         if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
             self.clicked.emit()
         super().mouseReleaseEvent(event)
+
+
+def _last_worked_text(when: datetime | None) -> str:
+    """"today" / "20 Oct" / "never", under a "Last worked" heading (Q22). *when*
+    is local-naive, as the URL history records it."""
+    if when is None:
+        return "never"
+    if when.date() == datetime.now().date():
+        return "today"
+    return short_date_text(when)
 
 
 def _bar(fraction: float | None) -> ProgressBar:
@@ -509,6 +520,16 @@ class SourceAnalyticsTab(QWidget):
 
         self._catalogue.show_all(hidden, len(mix.regions))
 
+    def _browse_title(self, key: str, title: str) -> None:
+        """A Most played title was clicked: hand its channels on this source to Search."""
+        pid = self._provider_id
+        if pid is None:
+            return
+        self._run_query(lambda repos: repos.analytics.title_channel_ids(pid, key),
+                        lambda ids: self.browse_requested.emit(title, ids),
+                        token_ref=self._tokens["region"],
+                        on_error=lambda e: show_panel_error(self._viewing.body, e))
+
     def _browse_region(self, code: str, name: str) -> None:
         """A region was clicked: hand its channels on this source to Search (Q18)."""
         pid, source = self._provider_id, self._source_name or "this source"
@@ -555,8 +576,10 @@ class SourceAnalyticsTab(QWidget):
             grid = self._viewing.grid()
             grid.setColumnStretch(4, 1)       # the row hugs its title; slack goes last
             hidden: list[QWidget] = []
-            for row, (title, media, plays, when) in enumerate(viewing.top):
-                cells = (MiddleElideLabel(title), _label(MEDIA_SINGULAR.get(media, media), "META_HINT"),
+            for row, (title, media, plays, when, key) in enumerate(viewing.top):
+                link = _LinkLabel(title, f"Show {title} in Search")
+                link.clicked.connect(lambda k=key, t=title: self._browse_title(k, t))
+                cells = (link, _label(MEDIA_SINGULAR.get(media, media), "META_HINT"),
                          _label(f"{plays:,} plays" if plays != 1 else "1 play", "FIELD_LABEL"),
                          _label(short_date_text(when) if when else "", "META_HINT"))
                 for col, widget in enumerate(cells):
@@ -619,27 +642,34 @@ class SourceAnalyticsTab(QWidget):
     def _on_addresses(self, addresses: list[ServerAddressDTO]) -> None:
         clear_layout(self._addresses.body)
         worked = sum(1 for a in addresses if a.worked)
-        self._addresses.subtitle.setText(f"{worked} of {len(addresses)} have worked")
+        current = next((urlparse(a.url).netloc or a.url for a in addresses if a.in_use), None)
+        self._addresses.subtitle.setText(f"{worked} of {len(addresses)} have worked"
+                                         + (f" · in use: {current}" if current else ""))
+        self._addresses.subtitle.setToolTip("The address MetaTV tries first right now" if current else "")
         if not addresses:
             self._addresses.text("No addresses.")
             return
         grid = self._addresses.grid()
-        grid.setColumnStretch(4, 1)
+        grid.setColumnStretch(5, 1)
+        for col, heading in ((1, "Last 20 requests"), (3, "Speed"), (4, "Last worked")):
+            grid.addWidget(_label(heading, "META_HINT"), 0, col)
         keep = max(worked, 3)                         # best first: the ones that worked
         hidden: list[QWidget] = []
-        for row, a in enumerate(addresses):
+        for row, a in enumerate(addresses, start=1):
             host = MiddleElideLabel(urlparse(a.url).netloc or a.url)
+            host.setToolTip(a.url + ("\nIn use — MetaTV tries this address first" if a.in_use else ""))
             if a.tried:
                 share = a.worked / a.tried
-                cells = (host, _bar(share), _label(f"{share:.0%}", "FIELD_LABEL"),
+                cells = (host, AttemptTicks(a.history), _label(f"{share:.0%}", "FIELD_LABEL"),
                          _label(f"{a.median_latency_ms / 1000:.1f} s" if a.median_latency_ms else "—",
-                                "META_HINT"))
-                host.setToolTip(f"{a.url}\n{a.worked} of the last {a.tried} requests worked")
+                                "META_HINT"),
+                         _label(_last_worked_text(a.last_worked), "META_HINT"))
             else:
-                cells = (host, _bar(None), _label("—", "LABEL_MUTED"), _label("untested", "META_HINT"))
+                cells = (host, AttemptTicks(()), _label("—", "LABEL_MUTED"), _label("", "META_HINT"),
+                         _label("untested", "META_HINT"))
             for col, widget in enumerate(cells):
                 grid.addWidget(widget, row, col)
-            if row >= keep:
+            if row > keep and not a.in_use:
                 hidden.extend(cells)
         self._addresses.show_all(hidden, len(addresses))
 
