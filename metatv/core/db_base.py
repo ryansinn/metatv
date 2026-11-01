@@ -37,3 +37,17 @@ class JSONEncoded(TypeDecorator):
         if value is None:
             return None
         return _json.loads(value)
+
+
+def unicode_lower(value):
+    """SQLite's ``lower()`` folds ASCII only: ``lower('ÉCOLE')`` is ``'École'``.
+
+    ``Database`` registers this over the built-in on every connection (ledger
+    F55), so every ``func.lower`` and every ``.ilike()`` — SQLAlchemy renders it
+    on SQLite as ``lower(a) LIKE lower(b)`` — folds the way Python's
+    ``str.lower`` does. Searching "école" found 22 of the owner's 33 matching
+    titles before. No index is built on ``lower()``, so none can disagree with
+    it; the cost is ~70 ms per full scan of ~490k channel names, on queries
+    that already run off the main thread.
+    """
+    return value.lower() if isinstance(value, str) else value

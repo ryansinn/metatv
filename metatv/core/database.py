@@ -14,7 +14,7 @@ from metatv.core import channel_index_policy, write_gate
 from metatv.core.schema_migrations import COLUMN_MIGRATIONS
 from metatv.core.tag_source import TagSourceType, FeederList
 
-from metatv.core.db_base import Base, JSONEncoded
+from metatv.core.db_base import Base, JSONEncoded, unicode_lower
 
 #: Log a main-thread commit that blocked at least this long. 100ms is the point
 #: a click stops feeling instant; below it the wait is invisible and logging it
@@ -873,12 +873,12 @@ class Database:
 
         @event.listens_for(self.engine, "connect")
         def _set_pragmas(dbapi_conn, _record):
+            dbapi_conn.create_function("lower", 1, unicode_lower, deterministic=True)   # F55
             cur = dbapi_conn.cursor()
             cur.execute("PRAGMA journal_mode=WAL")
             cur.execute("PRAGMA busy_timeout=30000")
             cur.execute("PRAGMA synchronous=NORMAL")
-            # auto_vacuum is a PERSISTENT db-level setting — only WRITE it when the DB
-            # isn't already FULL. Running "PRAGMA auto_vacuum=FULL" unconditionally on
+            # auto_vacuum is PERSISTENT — only WRITE it when not already FULL: running it on
             # EVERY connection takes a write lock even when the value is unchanged, which
             # raised "database is locked" (bypassing busy_timeout) whenever a concurrent
             # transaction held the writer — e.g. an off-thread provider delete — and

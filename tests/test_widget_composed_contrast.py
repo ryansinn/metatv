@@ -465,15 +465,17 @@ def test_the_sweep_actually_reaches_widget_modules():
     gone by design, not by a resolver regression. Re-measured population: 29
     blocks / 15 files. Floors re-calibrated the same way, ~90% of the new
     count rounded down, so a genuine resolver regression is still caught.
+    F62 (#1004) then deleted ``sidebar/sources.py`` with its 7 blocks: 22
+    blocks / 14 files, floors re-calibrated the same way (19 / 12).
     """
     _theme.apply_theme("Midnight")
     measured = list(_measured_blocks())
-    assert len(measured) >= 26, (
+    assert len(measured) >= 19, (
         f"only {len(measured)} widget stylesheet blocks resolved — the AST "
         f"reconstruction has probably stopped matching how sheets are written"
     )
     files = {k[0] for k, _ in measured}
-    assert len(files) >= 13, f"only reached {sorted(files)}"
+    assert len(files) >= 12, f"only reached {sorted(files)}"
 
 
 def test_a_sheet_composed_from_a_local_variable_is_measured():
