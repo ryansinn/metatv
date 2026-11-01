@@ -67,7 +67,8 @@ CREDIT_QUALIFIER_WORDS: frozenset[str] = frozenset({"UNCREDITED", "CAMEO", "VOIC
 #: the owner's library 2026-11-01 (ledger F59): every person tag carrying one
 #: was a company, or a fragment of one split on its comma ("Ltd.", "Inc").
 COMPANY_NAME_WORDS: frozenset[str] = frozenset({
-    "ENTERTAINMENT", "PICTURES", "PRODUCTIONS", "PRODUCTION", "STUDIOS", "STUDIO",
+    "ENTERTAINMENT", "ENTERTAINMENTS", "PICTURES", "PRODUCTIONS", "PRODUCTION",
+    "STUDIOS", "STUDIO", "ESTUDIOS",
     "FILMS", "MEDIA", "LTD", "INC", "GMBH", "COMPANY", "TELEVISION", "NETWORKS",
     "NETWORK", "LLC", "CORP", "CORPORATION", "GROUP", "ANIMATION", "BROADCASTING",
 })
@@ -75,7 +76,7 @@ COMPANY_NAME_WORDS: frozenset[str] = frozenset({
 
 def looks_like_company(name: str) -> bool:
     """True when a credited name carries a company word (:data:`COMPANY_NAME_WORDS`)."""
-    return any(w.strip(".,()").upper() in COMPANY_NAME_WORDS for w in re.split(r"[\s/]+", name or ""))
+    return any(w.strip(".,()").upper() in COMPANY_NAME_WORDS for w in re.split(r"[\s/-]+", name or ""))
 
 
 NON_PERSON_RESIDUAL_WORDS: frozenset[str] = frozenset({

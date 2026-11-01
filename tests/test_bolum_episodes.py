@@ -38,3 +38,9 @@ def test_two_episodes_of_one_show_share_a_content_key():
         return SimpleNamespace(media_type="movie", detected_title=p.bare_name, detected_year=None,
                                detected_tmdb_id=None, name=name, raw_data=None)
     assert content_key_for(row("Yeraltı 14. Bölüm")) == content_key_for(row("Yeraltı 15. Bölüm @trt1"))
+
+
+def test_an_absolute_bolum_after_sxxexx_goes_too():
+    """14 Konusanlar rows kept "76 Bolum" in the title after the first pass."""
+    parsed = parse_channel_name("Konusanlar S02E04 76. Bolum - 1080p EXXEN Web-DL AAC H.264 - TURG")
+    assert (parsed.bare_name, parsed.season, parsed.episode) == ("Konusanlar", "02", "04")

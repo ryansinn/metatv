@@ -163,7 +163,9 @@ from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparse
 #   17  Turkish "N. Bölüm" episodes filed as movies lift their episode number
 #       out of the title, so a show's 4,634 episode rows collapse into 305
 #       cards the way SxxExx ones do (ledger F32).
-CURRENT_VERSION: int = 17
+#   18  "SxxExx N. Bölüm" names also drop the absolute "N. Bölüm" (14 Konusanlar
+#       rows kept "76 Bolum" in the title after v17).
+CURRENT_VERSION: int = 18
 
 
 class DetectedTitleReparseTask(DetectedFieldsReparseBase):
