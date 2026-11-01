@@ -447,6 +447,22 @@ def register_strategy(domain: str, strategy: _ContentKeyStrategy) -> None:
 # ---------------------------------------------------------------------------
 
 
+def title_key(content_key: str | None, row_id) -> str:
+    """The title-identity key every collapse surface groups on (CLAUDE.md
+    "Content identity"): the stored ``content_key``, else ``"id:<row id>"`` so
+    an un-keyed row is its own title and NULL never merges the library.
+    """
+    return content_key or f"id:{row_id}"
+
+
+def title_key_expr(content_key_col, id_col):
+    """SQL twin of :func:`title_key`: ``COALESCE(content_key, 'id:' || id)``
+    over the given columns (a table's or a subquery's ``.c``). One expression
+    for every GROUP BY / COUNT(DISTINCT …) (ledger F65)."""
+    from sqlalchemy import func
+    return func.coalesce(content_key_col, func.concat("id:", id_col))
+
+
 def content_key_for(channel) -> str:
     """Return the stable ``content_key`` for *channel*.
 

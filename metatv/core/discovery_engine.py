@@ -20,6 +20,7 @@ from sqlalchemy import literal_column, text
 from loguru import logger
 
 from metatv.core import channel_visibility
+from metatv.core.content_identity import title_key
 from metatv.core.content_dedup import _YEAR_EXTRACT_RE
 from metatv.core.filter_utils import genres_from_raw, normalize_genre
 
@@ -189,7 +190,7 @@ def _dedup_cards(cards: list[ContentCard]) -> list[ContentCard]:
     slots: dict[str, tuple[int, ContentCard]] = {}
     groups: dict[str, list[ContentCard]] = {}
     for card in cards:
-        gk = card.content_key if card.content_key else f"id:{card.channel_id}"
+        gk = title_key(card.content_key, card.channel_id)
         if gk not in slots:
             slots[gk] = (len(slots), card)
             groups[gk] = [card]
@@ -212,7 +213,7 @@ def _dedup_cards(cards: list[ContentCard]) -> list[ContentCard]:
     ordered = sorted(slots.values(), key=lambda t: t[0])
     result = []
     for _idx, rep in ordered:
-        gk = rep.content_key if rep.content_key else f"id:{rep.channel_id}"
+        gk = title_key(rep.content_key, rep.channel_id)
         rep.variant_count = len(groups[gk])
         result.append(rep)
     return result
@@ -882,7 +883,7 @@ def get_by_user_category(session, category: str, limit: int = 30,
     seen: set = set()
     cards = []
     for ch, meta in rows:
-        work = ch.content_key or f"id:{ch.id}"
+        work = title_key(ch.content_key, ch.id)
         if work in seen:
             continue
         seen.add(work)

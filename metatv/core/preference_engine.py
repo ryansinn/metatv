@@ -216,8 +216,8 @@ def _title_key(channel) -> str:
     Browse/Discover/Other-Versions: variants that share a stored ``content_key``
     are one title; a row without one stands alone.
     """
-    ck = getattr(channel, "content_key", None) or None
-    return ck if ck else f"id:{channel.id}"
+    from metatv.core.content_identity import title_key
+    return title_key(getattr(channel, "content_key", None), channel.id)
 
 
 #: Weights computed for one taste state, shared by every surface that asks.
