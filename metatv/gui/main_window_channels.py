@@ -1599,6 +1599,7 @@ class _ChannelListMixin:
                         content_key=content_key,
                         variant_count=len(variant_options) + 1,
                         variant_options=variant_options,
+                        collections=repos.tags.collections_for([cid, *(o["id"] for o in variant_options)]),
                         programme_start=programme[0] if programme else None,
                         programme_end=programme[1] if programme else None,
                         programme_title=programme[2] if programme else "",
@@ -1668,20 +1669,14 @@ class _ChannelListMixin:
         # of the DB-pass context) and the anchor point — added here rather than
         # in _build_handlers since gx/gy aren't part of that method's signature.
         handlers["show_versions"] = lambda: self._show_variant_picker_menu(ctx, gx, gy)
+        handlers["exclude_collection"] = lambda: self._exclude_collection_from_menu(ctx, gx, gy)
         menu = build_channel_menu(ctx, handlers, parent=self)
         menu.exec(QPoint(gx, gy))
 
     def _show_variant_picker_menu(self, ctx, gx: int, gy: int) -> None:
-        """Show a small menu of *ctx*'s collapsed content_key variants.
-
-        Simplest-correct picker for the collapse_variants_in_list feature: a
-        flat menu of (quality, language, source) options — NOT an inline
-        expanding tree. Populated from ``ctx.variant_options`` (already
-        fetched off-thread in ``_bg_fetch_ctx_data`` via the existing
-        ``get_content_key_siblings`` chokepoint, the same one the details-pane
-        "Other Versions"/Similar-Titles lightbox use) — no extra DB round trip.
-        Picking an option plays it through the normal single-channel play path.
-        """
+        """A flat picker of *ctx*'s collapsed variants (quality · language ·
+        source) from ``ctx.variant_options``, fetched off-thread with the rest
+        of the menu context; picking one plays it through the normal path."""
         from PyQt6.QtCore import QPoint
         from PyQt6.QtGui import QAction
         from PyQt6.QtWidgets import QMenu

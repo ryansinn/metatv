@@ -719,6 +719,7 @@ class _NavMixin:
             bool(self.config.global_filter_excluded_categories)
             or bool(getattr(self.config, "global_filter_excluded_channel_categories", []))
             or bool(getattr(self.config, "global_filter_excluded_genres", []))
+            or bool(getattr(self.config, "global_filter_excluded_collections", []))
             or bool(self.config.global_filter_excluded_prefixes)
             or bool(getattr(self.config, "global_filter_excluded_user_categories", []))
             or bool(getattr(self.config, "global_filter_excluded_tag_content_types", []))

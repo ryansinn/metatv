@@ -1038,6 +1038,8 @@ class Config(BaseModel):
     global_exclusions_collapsed: list = Field(
         default_factory=lambda: ["Languages", "Platforms"], json_schema_extra=PROFILE)
     global_exclusions_dialog_size: list = Field(default_factory=list, json_schema_extra=PROFILE)  # [w, h]
+    # Excluded collections, keyed by source: [[provider_id, collection tag value], …].
+    global_filter_excluded_collections: list = Field(default_factory=list, json_schema_extra=PROFILE)
 
     # User-defined categories that are globally excluded (added via "Add to Global Exclusions"
     # in the CategoryPickerDialog when creating or editing a user category).

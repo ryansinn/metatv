@@ -29,6 +29,7 @@ from metatv.gui.queue_end_prompt import _QueueEndPromptMixin
 from metatv.gui.main_window_overlays import _OverlaysMixin
 from metatv.gui.main_window_nav import _NavMixin
 from metatv.gui.main_window_metadata import _MetadataMixin
+from metatv.gui.main_window_exclusions import _ExclusionActionsMixin
 from metatv.gui.main_window_downloads import _DownloadsMixin
 from metatv.gui.main_window_favorites import _FavoritesMixin
 from metatv.gui.main_window_history import _HistoryMixin
@@ -147,7 +148,7 @@ def _tab_btn_sheet(extra: str) -> str:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnectivityMixin, _SeriesMixin, _SeriesPlaybackMixin, _ChannelListMixin, _StreamingMixin, _QueueEndPromptMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _StatusMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnectivityMixin, _SeriesMixin, _SeriesPlaybackMixin, _ChannelListMixin, _StreamingMixin, _QueueEndPromptMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _ExclusionActionsMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _StatusMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
                  QMainWindow):
     """Main application window"""
     
@@ -783,6 +784,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnec
         self.details_pane.version_selected.connect(self.show_channel_details_by_id)
         self.details_pane.prefix_block_requested.connect(self._on_prefix_block)
         self.details_pane.prefix_unblock_requested.connect(self._on_prefix_unblock)
+        self.details_pane.collection_exclude_requested.connect(self._on_collection_exclude)
+        self.details_pane.collection_include_requested.connect(self._on_collection_include)
+        self.details_pane.set_collection_excluded_check(self.is_collection_excluded)
         self.details_pane.prefix_name_saved.connect(self._on_prefix_name_saved)
         self.details_pane.manage_filters_requested.connect(self.manage_filters)
         self.details_pane.genre_filter_requested.connect(self._on_genre_filter_requested)

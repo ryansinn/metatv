@@ -698,9 +698,7 @@ class _VersionSection(QWidget):
         if v is None:
             return
         if chip.property("cv_menu_kind") == "filtered":
-            self._show_filtered_chip_menu(
-                chip.mapToGlobal(pos), v.detected_prefix or "?", v.is_hidden_category
-            )
+            self._show_filtered_chip_menu(chip.mapToGlobal(pos), v.detected_prefix or "?")
         else:
             self._show_version_chip_menu(chip.mapToGlobal(pos), v, chip)
 
@@ -776,11 +774,11 @@ class _VersionSection(QWidget):
             hide_act.setIcon(_icon_utils.role_icon("hide"))
         menu.addSeparator()
 
-        # Admin/destructive rows — no icon (blank column signals a different tier)
-        filter_act   = menu.addAction(f'Filter out ALL "{prefix}" content')
-        filter_act.setToolTip(f"Deselects {prefix} from Content Categories — easy to undo from filter panel")
-        hide_cat_act = menu.addAction(f"Hide the {prefix} category")
-        hide_cat_act.setToolTip(f"Suppresses {prefix} entirely — removed from filter options")
+        # Admin rows — no icon (blank column signals a different tier). ONE row: a
+        # "Filter out ALL" / "Hide the category" pair both sent this same request
+        # while their tooltips promised two different behaviours.
+        exclude_act = menu.addAction(f'Exclude all "{prefix}" content')
+        exclude_act.setToolTip(f"Hides every {prefix} copy everywhere — undo from the notice or Global Exclusions")
         menu.addSeparator()
 
         edit_act = menu.addAction("Edit Category Name…")
@@ -789,24 +787,21 @@ class _VersionSection(QWidget):
         menu.deleteLater()
         if chosen == hide_act:
             self.hide_requested.emit(v.channel_id)
-        elif chosen in (filter_act, hide_cat_act):
+        elif chosen == exclude_act:
             self.prefix_block_requested.emit(prefix)
         elif chosen == edit_act:
             self._show_category_name_popup(prefix, global_pos)
 
-    def _show_filtered_chip_menu(self, global_pos, prefix: str, is_hidden: bool) -> None:
+    def _show_filtered_chip_menu(self, global_pos, prefix: str) -> None:
         full = resolve_category_name(prefix, self.config)
-        state = "hidden" if is_hidden else "filtered"
-        header = f"{full} ({prefix}) — {state}" if full else f"{prefix} — {state}"
+        header = f"{full} ({prefix}) — excluded" if full else f"{prefix} — excluded"
 
         menu = QMenu(self)
         title_act = menu.addAction(header)
         title_act.setEnabled(False)
         menu.addSeparator()
 
-        restore_act = menu.addAction(
-            f"Unhide {prefix} category" if is_hidden else f"Remove filter on {prefix} content"
-        )
+        restore_act = menu.addAction(f'Include "{prefix}" content again')
         menu.addSeparator()
         # "Global Exclusions" is the app's one name for this surface — never
         # "filters", which is what this said while emitting into a dead stub.

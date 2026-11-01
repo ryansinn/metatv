@@ -48,7 +48,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "search_title", "copy_title", "show_versions",
         "sep",
-        "category",
+        "category", "exclude_collection",
         # Multi-select extras (applies = is_multi; single-select actions apply = is_single)
         "sep",
         "play_all",
@@ -147,7 +147,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "search_title", "copy_title",
         "sep",
-        "not_interested", "category", "hide",
+        "not_interested", "category", "exclude_collection", "hide",
     ],
     "alerts": [
         "download",

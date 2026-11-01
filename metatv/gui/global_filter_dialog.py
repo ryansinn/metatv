@@ -31,7 +31,7 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui.exclusion_sections import (
     SectionCollapser, TagExclusionSection, genre_mode_choice, load_tag_counts,
-    remember_dialog_size, restore_dialog_size,
+    collection_pairs, collection_section, remember_dialog_size, restore_dialog_size,
 )
 from metatv.gui.fonts import monospace_family
 from metatv.gui.scoped_filter_box import ScopedFilterBox
@@ -892,13 +892,9 @@ class GlobalFilterDialog(QDialog):
         self._collapsers[title] = collapser
 
     def _populate_tag_sections(self) -> None:
-        """Channel Categories, Genres and Content Provenance — the tag axes.
-
-        All three save as tag values and are enforced by one predicate
-        (``core/tag_exclusions.py``) on every surface. Genre counts are TITLES
-        (variants of one title across sources count once); the long tail
-        (under 100 titles) folds behind "N more".
-        """
+        """Channel Categories, Genres, Content Provenance and Collections — the
+        tag axes, enforced by one predicate (``core/tag_exclusions.py``). Genre
+        counts are TITLES; genres under 100 titles fold behind "N more"."""
         from metatv.core.content_labels import (
             AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, content_type_display, genre_display,
         )
@@ -916,18 +912,16 @@ class GlobalFilterDialog(QDialog):
                 unit=" channels", columns=4, select_links=self._make_select_links))
         genres = load_tag_counts(self._db, "genre", by_title=True)
         if genres:
-            n = dict(genres)
             mode_w, self._genre_mode_group = genre_mode_choice(
                 cfg.global_filter_genre_mode,
                 "A title tagged only with excluded genres is hidden; a Horror-Comedy stays.",
                 "Any excluded genre hides the title — sloppy multi-genre tagging hides much more.")
-            excluded = set(cfg.global_filter_excluded_genres)
             self._add_tag_section("genre", TagExclusionSection(
                 cfg, "Genres",
                 "Movies and series by genre. Titles usually carry several genres —\n"
                 "the choice below decides what an excluded genre does.\n"
-                f"Counts are titles ({len(n)} genres).",
-                [(v, genre_display(v), c) for v, c in genres], excluded,
+                f"Counts are titles ({len(genres)} genres).",
+                [(v, genre_display(v), c) for v, c in genres], set(cfg.global_filter_excluded_genres),
                 columns=3, fold_below=100, extra=mode_w, select_links=self._make_select_links))
         prov_values = [AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, "ppv"]
         prov = dict(load_tag_counts(self._db, "content_type", values=prov_values))
@@ -942,6 +936,8 @@ class GlobalFilterDialog(QDialog):
                 "  • PPV in a provider label  →  PPV",
                 [(v, content_type_display(v), prov.get(v, 0)) for v in shown], prov_excluded,
                 unit=" channels", columns=3, select_links=self._make_select_links))
+        if (collections := collection_section(self._db, cfg, self._make_select_links)) is not None:
+            self._add_tag_section("collection", collections)
 
     def _add_tag_section(self, axis: str, section: TagExclusionSection) -> None:
         self._inner_vl.addWidget(section)
@@ -1388,6 +1384,8 @@ class GlobalFilterDialog(QDialog):
                                  ("content_type", "global_filter_excluded_tag_content_types")):
             if axis in tags:
                 setattr(self._config, field_name, tags[axis].checked_values())
+        if "collection" in tags:
+            self._config.global_filter_excluded_collections = collection_pairs(tags["collection"].checked_values())
         if self._genre_mode_group is not None:
             self._config.global_filter_genre_mode = "any" if self._genre_mode_group.checkedId() == 1 else "only"
 

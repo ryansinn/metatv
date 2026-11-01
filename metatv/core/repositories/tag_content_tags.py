@@ -583,6 +583,32 @@ class ContentTagCrudMixin:
             )
             self.session.rollback()
 
+    def collections_for(self, channel_ids) -> list[tuple[str, str, str, int]]:
+        """``(provider_id, source name, collection value, channels in it)`` for
+        every collection the given channels sit in, largest first — the
+        choices an "Exclude collection" menu offers."""
+        from sqlalchemy import func
+
+        from metatv.core.database import ProviderDB
+
+        if not channel_ids:
+            return []
+        pairs = (self.session.query(ChannelDB.provider_id, TagDB.value)
+                 .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)
+                 .join(TagDB, TagDB.id == ContentTagDB.tag_id)
+                 .filter(ChannelDB.id.in_(list(channel_ids)), TagDB.type == "collection")
+                 .distinct().all())
+        out = []
+        for pid, value in pairs:
+            n = (self.session.query(func.count(func.distinct(ChannelDB.id)))
+                 .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)
+                 .join(TagDB, TagDB.id == ContentTagDB.tag_id)
+                 .filter(ChannelDB.provider_id == pid, TagDB.type == "collection", TagDB.value == value)
+                 .scalar())
+            name = self.session.query(ProviderDB.name).filter(ProviderDB.id == pid).scalar() or ""
+            out.append((pid, name, value, int(n or 0)))
+        return sorted(out, key=lambda r: -r[3])
+
     def channel_ids_for_content_types(self, values: Set[str]) -> Set[str]:
         """Return the ids of channels the tag Global Exclusions hide.
 
