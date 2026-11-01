@@ -12,7 +12,12 @@ axes with no new parameter:
 * ``genre:Horror`` hides a channel carrying ANY excluded genre;
 * ``genre-only:Horror`` hides a channel whose genres are ALL excluded — the
   default, because provider genre tagging is sloppy ("Drama, Religion,
-  History") and "any" hides ten times more (Horror: 5,491 titles vs 516).
+  History") and "any" hides ten times more (Horror: 5,491 titles vs 516);
+* ``ended-events`` ("Hide finished events") hides a fixture slot whose
+  scheduled window has passed — the same window the row's "Ended" label uses
+  (``event_datetime.event_is_on_now``). Names marked "END |" are the prefix
+  rule's job (``filter_utils.global_exclusion_set``); a passed slot carries no
+  such marker (the FLO NETWORK fixtures), so it needs this.
 
 ``excluded_tag_content_types(config)`` is the one paused-aware builder of that
 set; ``tag_content_type_exclusion_criterion`` is the SQL KEEP clause and
@@ -28,6 +33,8 @@ CATEGORY_PREFIX = "category:"
 GENRE_ANY_PREFIX = "genre:"
 GENRE_ONLY_PREFIX = "genre-only:"
 
+ENDED_EVENTS = "ended-events"
+
 GENRE_MODE_ONLY = "only"
 GENRE_MODE_ANY = "any"
 
@@ -40,6 +47,7 @@ class TagExclusions:
     categories: frozenset[str] = field(default_factory=frozenset)
     genres: frozenset[str] = field(default_factory=frozenset)
     genre_only: bool = True
+    ended_events: bool = False
 
 
 def split_tag_exclusions(slugs) -> TagExclusions:
@@ -54,8 +62,11 @@ def split_tag_exclusions(slugs) -> TagExclusions:
     """
     content_types, categories, genres = set(), set(), set()
     genre_only = True
+    ended = False
     for s in slugs or ():
-        if s.startswith(CATEGORY_PREFIX):
+        if s == ENDED_EVENTS:
+            ended = True
+        elif s.startswith(CATEGORY_PREFIX):
             categories.add(s[len(CATEGORY_PREFIX):])
         elif s.startswith(GENRE_ONLY_PREFIX):
             genres.add(s[len(GENRE_ONLY_PREFIX):])
@@ -64,7 +75,8 @@ def split_tag_exclusions(slugs) -> TagExclusions:
             genre_only = False
         else:
             content_types.add(s)
-    return TagExclusions(frozenset(content_types), frozenset(categories), frozenset(genres), genre_only)
+    return TagExclusions(frozenset(content_types), frozenset(categories), frozenset(genres),
+                         genre_only, ended)
 
 
 def excluded_tag_content_types(config) -> set[str]:
@@ -88,6 +100,8 @@ def excluded_tag_content_types(config) -> set[str]:
     mode = getattr(config, "global_filter_genre_mode", GENRE_MODE_ONLY)
     prefix = GENRE_ANY_PREFIX if mode == GENRE_MODE_ANY else GENRE_ONLY_PREFIX
     out |= {prefix + v for v in getattr(config, "global_filter_excluded_genres", []) or []}
+    if not getattr(config, "show_ended_events", False):
+        out.add(ENDED_EVENTS)
     return out
 
 
@@ -110,6 +124,34 @@ def _has_tag(channel_key_col, tag_type: str, values, outside: bool = False):
     )
 
 
+def _ended(channel_cls, now):
+    """A fixture slot whose window is over at *now*: started, and past its own
+    stop or, with none, ``DEFAULT_EVENT_DURATION`` after the start. The SQL
+    twin of ``not event_is_on_now`` after the start, for stored UTC times."""
+    from sqlalchemy import and_, func, or_
+
+    from metatv.core.event_datetime import DEFAULT_EVENT_DURATION
+
+    start, stop = channel_cls.event_start_time, channel_cls.event_stop_time
+    hours = int(DEFAULT_EVENT_DURATION.total_seconds() // 3600)
+    default_stop = func.datetime(start, f"+{hours} hours")
+    return and_(start.isnot(None), or_(
+        and_(stop.isnot(None), stop <= now),
+        and_(stop.is_(None), default_stop <= func.datetime(now)),
+    ))
+
+
+def _has_ended_event(channel_key_col, now):
+    from sqlalchemy import exists, select
+    from sqlalchemy.orm import aliased
+
+    from metatv.core.database import ChannelDB
+
+    _c = aliased(ChannelDB, flat=True)
+    return exists(select(_c.channel_key).where(_c.channel_key == channel_key_col, _ended(_c, now))
+                  .correlate_except(_c))
+
+
 def tag_exclusion_hit(excluded_slugs, channel_key_col):
     """The clause that is TRUE for an excluded channel (``None`` when nothing is excluded)."""
     from sqlalchemy import and_, or_
@@ -125,6 +167,9 @@ def tag_exclusion_hit(excluded_slugs, channel_key_col):
         if ex.genre_only:
             hit = and_(hit, ~_has_tag(channel_key_col, "genre", ex.genres, outside=True))
         hits.append(hit)
+    if ex.ended_events:
+        from metatv.core.epg_utils import now_utc
+        hits.append(_has_ended_event(channel_key_col, now_utc()))
     return or_(*hits) if hits else None
 
 
@@ -170,8 +215,12 @@ def excluded_channel_ids(session, excluded_slugs) -> set[str]:
     ex = split_tag_exclusions(excluded_slugs)
     axes = [(t, v) for t, v in (("content_type", ex.content_types), ("category", ex.categories),
                                 ("genre", ex.genres)) if v]
+    out: set[str] = set()
+    if ex.ended_events:
+        from metatv.core.epg_utils import now_utc
+        out = {cid for (cid,) in session.query(ChannelDB.id).filter(_ended(ChannelDB, now_utc())).all()}
     if not axes:
-        return set()
+        return out
     # Driven from the tag index (only matching rows are touched), never a scan of
     # every channel evaluating EXISTS.
     match = or_(*[and_(TagDB.type == t, TagDB.value.in_(list(v))) for t, v in axes])
@@ -182,4 +231,4 @@ def excluded_channel_ids(session, excluded_slugs) -> set[str]:
     if ex.genres and ex.genre_only:
         q = q.filter(or_(TagDB.type != "genre",
                          ~_has_tag(ChannelDB.channel_key, "genre", ex.genres, outside=True)))
-    return {cid for (cid,) in q.distinct().all()}
+    return out | {cid for (cid,) in q.distinct().all()}

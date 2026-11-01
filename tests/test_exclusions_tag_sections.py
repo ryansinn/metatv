@@ -233,3 +233,52 @@ def test_dialog_opens_large_and_remembers_its_size(seeded, qtbot):
     screen = again.screen().availableGeometry()
     assert again.width() == min(1000, screen.width() - 40), "reopens at the saved width (screen permitting)"
     assert again.height() == min(700, screen.height() - 40)
+
+
+# ── Finished fixture slots ("Hide finished events") ─────────────────────────
+
+
+@pytest.fixture
+def slots(file_db):
+    from datetime import timedelta
+
+    from metatv.core.epg_utils import now_utc
+
+    now = now_utc()
+    rows = {
+        "ended_no_stop": (now - timedelta(hours=5), None),      # past the 4h default
+        "on_now_no_stop": (now - timedelta(hours=1), None),
+        "upcoming": (now + timedelta(hours=2), None),
+        "ended_by_stop": (now - timedelta(hours=2), now - timedelta(minutes=5)),
+        "rack": (None, None),                                   # 24/7 feed, never "ended"
+    }
+    ids = {}
+    with file_db.session_scope() as s:
+        for key, (start, stop) in rows.items():
+            cid = str(uuid.uuid4())
+            s.add(ChannelDB(id=cid, source_id=cid, provider_id="p1", name=key, media_type="live",
+                            event_start_time=start, event_stop_time=stop))
+            ids[key] = cid
+    return ids, file_db
+
+
+def test_finished_events_hide_passed_fixture_slots(slots):
+    ids, db = slots
+    visible = _visible_ids(db, excluded_tag_content_types(_cfg()))   # default: hide finished
+    assert ids["ended_no_stop"] not in visible, "a slot past its window is finished"
+    assert ids["ended_by_stop"] not in visible, "a provider stop time in the past is finished"
+    assert {ids["on_now_no_stop"], ids["upcoming"], ids["rack"]} <= visible
+
+
+def test_showing_finished_events_keeps_every_slot(slots):
+    ids, db = slots
+    visible = _visible_ids(db, excluded_tag_content_types(_cfg(show_ended_events=True)))
+    assert set(ids.values()) <= visible
+
+
+def test_finished_slots_id_twin_agrees(slots):
+    ids, db = slots
+    slugs = excluded_tag_content_types(_cfg())
+    with db.session_scope() as s:
+        hidden = excluded_channel_ids(s, slugs)
+    assert hidden == {ids["ended_no_stop"], ids["ended_by_stop"]}
