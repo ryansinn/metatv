@@ -85,6 +85,7 @@ def env(tmp_path):
     """A manager wired to a real database, a real library dir, and the arbiter."""
     config = Config(config_dir=tmp_path)
     config.download_dir = str(tmp_path / "library")
+    config.download_free_space_floor_gb = 0   # never the CI runner's free disk
     db = Database(f"sqlite:///{tmp_path / 'dl.db'}")
     db.create_tables()
     accountant = ConnectionAccountant(lambda _p: 1)
@@ -208,6 +209,7 @@ def test_a_server_that_ignores_range_restarts_rather_than_corrupting(tmp_path):
     try:
         config = Config(config_dir=tmp_path)
         config.download_dir = str(tmp_path / "library")
+        config.download_free_space_floor_gb = 0   # never the CI runner's free disk
         db = Database(f"sqlite:///{tmp_path / 'dl.db'}")
         db.create_tables()
         manager = DownloadManager(db, config, ConnectionAccountant(lambda _p: 1))
@@ -301,6 +303,7 @@ def test_a_queued_download_self_heals_a_dead_playback_holder(tmp_path):
     now = [0.0]
     config = Config(config_dir=tmp_path)
     config.download_dir = str(tmp_path / "library")
+    config.download_free_space_floor_gb = 0   # never the CI runner's free disk
     db = Database(f"sqlite:///{tmp_path / 'dl.db'}")
     db.create_tables()
     accountant = ConnectionAccountant(lambda _p: 1, clock=lambda: now[0])

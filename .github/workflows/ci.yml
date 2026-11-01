@@ -150,7 +150,7 @@ jobs:
       # this matrix tells you.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-15]   # macos-14 is deprecated by GitHub
         # Four shards each. The suite is ~8,000 tests and seventeen minutes
         # single-file; split four ways it is about five, which is the
         # difference between waiting for the gate and working through it.
@@ -199,7 +199,7 @@ jobs:
           echo "$(wc -l < shard.txt) test files in this shard"
           # Command substitution, deliberately, on two counts.
           #
-          # NOT `xargs -a`: -a is a GNU extension and BSD xargs on macos-14 has
+          # NOT `xargs -a`: -a is a GNU extension and BSD xargs on macOS has
           # no such flag, so all four macOS shards died in 17 seconds with a
           # usage message. (The matrix exists for exactly this — a Linux-only
           # gate would have called this green.)
