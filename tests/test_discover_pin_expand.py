@@ -514,10 +514,12 @@ class TestManageDialogTransferToPinned:
         """Transferring a shelf from collapsed to pinned removes it from collapsed."""
         config.discover_pinned_shelves    = []
         config.discover_expanded_shelves  = []
-        config.discover_collapsed_shelves = ["genre:Action"]
         config.discover_hidden_shelves    = []
 
-        dlg = self._build_dialog(config, owned_widgets)
+        # Collapsed is derived from the zone map, never stored (F47).
+        from tests.conftest import make_discover_manage_dialog
+        dlg = owned_widgets.own(make_discover_manage_dialog(config, zones={"genre:Action": "collapsed"}))
+        assert config.discover_collapsed_shelves == [], "opening the dialog stores nothing"
 
         dlg._transfer(
             "genre:Action",
@@ -533,12 +535,11 @@ class TestManageDialogTransferToPinned:
 
     def test_transfer_pinned_deduped_from_expanded(
             self, qapp, config, owned_widgets):
-        """If a key is in both expanded and collapsed (inconsistent config), pinning
-        it removes it from both other lists via the mutual-exclusion guard."""
-        # Simulate an inconsistent state: key in expanded AND collapsed.
+        """Pinning an expanded key removes it from Expanded (and never leaves it in
+        Collapsed). Collapsed is derived since F47, so the old "in expanded AND
+        collapsed" config state can no longer be built."""
         config.discover_pinned_shelves    = []
         config.discover_expanded_shelves  = ["recently_added"]
-        config.discover_collapsed_shelves = ["recently_added", "genre:Drama"]
         config.discover_hidden_shelves    = []
 
         dlg = self._build_dialog(config, owned_widgets)
@@ -557,8 +558,6 @@ class TestManageDialogTransferToPinned:
         assert "recently_added" not in dlg._collapsed, (
             "pin transfer must also remove key from collapsed (mutual-exclusion guard)"
         )
-        # genre:Drama must be untouched.
-        assert "genre:Drama" in dlg._collapsed
 
 
 # ---------------------------------------------------------------------------

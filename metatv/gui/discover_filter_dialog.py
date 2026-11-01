@@ -214,11 +214,15 @@ class DiscoverManageDialog(QDialog):
         self._config = config
         self._changed = False
 
-        # Convenience aliases — these ARE the config lists (modified in place)
+        # Convenience aliases — these ARE the config lists (modified in place)…
         self._pinned    = config.discover_pinned_shelves
         self._expanded  = config.discover_expanded_shelves
-        self._collapsed = config.discover_collapsed_shelves
         self._hidden    = config.discover_hidden_shelves
+        # …except Collapsed, the DEFAULT zone: derived here, never stored. Backing
+        # it with discover_collapsed_shelves wrote every unzoned shelf back into
+        # config on each open, regrowing the list _retire_collapsed_shelves had
+        # emptied (818 of the owner's 4,768 config lines; ledger F47).
+        self._collapsed: list[str] = []
 
         # Display names from live shelf_widgets (already loaded)
         self._titles: dict[str, str] = {}
