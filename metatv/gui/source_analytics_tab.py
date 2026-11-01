@@ -12,7 +12,8 @@ Sections, in the order that answers the question first:
   Disabled and expired sources stay in, greyed and labelled (Q9).
 * **Playback** — how plays from this source went: started, never loaded,
   refused at the connection limit, dropped mid-play, time to picture (Q6).
-  Recorded by ``gui/playback_start_watch.py`` from 2026-10-31 on.
+  Recorded by ``gui/playback_start_watch.py`` from 2026-10-31 on; failures by
+  time of day (Q11, ``gui/hour_strip.py``) once 30 plays exist.
 * **Connections** — the account's limit, and how long the source usually takes
   to free one after refusing a play (Q7, recorded by ``gui/connection_wait.py``).
 * **Server addresses** — each address's recent success rate and speed.
@@ -50,6 +51,7 @@ from metatv.gui import theme as _theme
 from metatv.gui.connection_wait import minutes_text
 from metatv.gui.chip_row import MiddleElideLabel
 from metatv.gui.flow_layout import FlowLayout
+from metatv.gui.hour_strip import HourStrip, struggle_span
 from metatv.gui.progress_paint import ProgressBar
 from metatv.gui.tool_view import clear_layout, show_loading, show_panel_error
 
@@ -62,6 +64,10 @@ SHORT_NOUN = {"movie": "films", "series": "series", "live": "live"}
 #: Another source carrying at least this share of a source's films and series
 #: earns the redundancy hint. Advisory only: nothing is hidden (Q10).
 REDUNDANT_AT = 0.95
+
+#: Plays recorded before the time-of-day strip is drawn (Q11: "once there is
+#: data") — fewer and one bad evening reads as a pattern.
+MIN_PLAYS_BY_HOUR = 30
 
 #: Rows shown before "+ N more" — prefixes, and addresses (best first).
 PREFIX_ROWS = 12
@@ -424,6 +430,18 @@ class SourceAnalyticsTab(QWidget):
             ("Time to picture", f"{ttp / 1000:.1f} s typical" if ttp else "not recorded yet"),
         )
         _facts(self._playback, facts)
+        self._render_time_of_day(summary)
+
+    def _render_time_of_day(self, summary: PlaybackSummaryDTO) -> None:
+        """Failures by local hour (Q11), once enough plays exist to show a pattern."""
+        if summary.attempts < MIN_PLAYS_BY_HOUR:
+            self._playback.text(f"Failures by time of day: shown once {MIN_PLAYS_BY_HOUR} plays "
+                                f"are recorded ({summary.attempts:,} so far).", "META_HINT")
+            return
+        span = struggle_span(summary.by_hour)
+        verdict = f"struggles {span}" if span else "no hour stands out"
+        self._playback.text(f"Failures by time of day — {verdict}")
+        self._playback.body.addWidget(HourStrip(summary.by_hour))
 
     def _on_connections(self, conns: ConnectionsDTO) -> None:
         clear_layout(self._connections.body)

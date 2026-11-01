@@ -17,6 +17,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from metatv.core.database import ProviderDB
+from metatv.core.epg_utils import to_local
 from metatv.core.playback_models import ConnectionHoldDB, PlaybackEventDB, PlaybackWeeklyDB
 from metatv.core.repositories.dtos import ConnectionsDTO, PlaybackSummaryDTO
 
@@ -67,7 +68,8 @@ class PlaybackEventRepository:
             row.outcome = outcome
 
     def summary(self, provider_id: str) -> PlaybackSummaryDTO:
-        """Counts per outcome over the kept rows, plus the median time to picture."""
+        """Counts per outcome over the kept rows, the median time to picture, and
+        attempts/failures per local hour of day (Q11)."""
         counts = dict(
             self.session.query(PlaybackEventDB.outcome, func.count(PlaybackEventDB.id))
             .filter(PlaybackEventDB.provider_id == provider_id)
@@ -78,6 +80,13 @@ class PlaybackEventRepository:
         times = [t for (t,) in self.session.query(PlaybackEventDB.time_to_picture_ms).filter(
             PlaybackEventDB.provider_id == provider_id,
             PlaybackEventDB.time_to_picture_ms.isnot(None))]
+        by_hour = [[0, 0] for _ in range(24)]
+        for started_at, outcome in self.session.query(
+                PlaybackEventDB.started_at, PlaybackEventDB.outcome).filter(
+                PlaybackEventDB.provider_id == provider_id):
+            cell = by_hour[to_local(started_at).hour]
+            cell[0] += 1
+            cell[1] += outcome != "started"
         return PlaybackSummaryDTO(
             since=since,
             started=counts.get("started", 0) + counts.get("dropped", 0),
@@ -85,6 +94,7 @@ class PlaybackEventRepository:
             refused=counts.get("refused", 0),
             dropped=counts.get("dropped", 0),
             median_time_to_picture_ms=int(median(times)) if times else None,
+            by_hour=tuple((a, f) for a, f in by_hour) if since else (),
         )
 
     def record_hold(self, provider_id: str, refused_at: datetime, seconds: int) -> None:
