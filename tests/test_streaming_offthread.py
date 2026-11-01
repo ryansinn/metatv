@@ -402,7 +402,7 @@ def test_a_fresh_play_on_a_one_connection_source_skips_the_probe():
     (owner's TREX: 5 of 36 probed fresh plays refused, 0 of 21 unprobed)."""
     obj = _make_mixin()
     repos = MagicMock()
-    repos.providers.get_by_id.return_value = MagicMock(max_connections=1, account_status="Active")
+    repos.providers.reports_one_connection.return_value = True
     obj.db.session_scope = _make_session_scope(MagicMock())
     ctx = SwitchContext(same_provider=False, live_base_url=None, one_connection=False)
 
@@ -421,15 +421,13 @@ def test_a_fresh_play_on_a_one_connection_source_skips_the_probe():
     assert payload["final_url"] == "http://primary.example.com/stream.ts"
 
 
-@pytest.mark.parametrize("limit, status", [(2, "Active"), (0, "Active"), (None, "Active"),
-                                           (1, None)])   # 1 by column default, never polled
-def test_a_fresh_play_without_a_reported_limit_of_one_still_probes(limit, status):
-    """Only the source's own REPORTED limit of 1 skips it — not the accountant's
-    capacity (1 for every source until a play has reported one), and not the
-    column's default of 1 on a source the account poll never reached."""
+def test_a_fresh_play_on_a_source_not_reporting_one_connection_still_probes():
+    """The accountant's capacity says 1 here (it does for every source until a
+    play reports one) — that must not skip the probe; only the source's own
+    reported limit does (ProviderRepository.reports_one_connection)."""
     obj = _make_mixin()
     repos = MagicMock()
-    repos.providers.get_by_id.return_value = MagicMock(max_connections=limit, account_status=status)
+    repos.providers.reports_one_connection.return_value = False
     obj.db.session_scope = _make_session_scope(MagicMock())
     ctx = SwitchContext(same_provider=False, live_base_url=None, one_connection=True)
     with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \

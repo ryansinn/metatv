@@ -286,6 +286,20 @@ class ProviderRepository:
         rows = self.session.query(ProviderDB.id).filter_by(is_active=False).all()
         return [r.id for r in rows]
 
+    def reports_one_connection(self, provider_id: str) -> bool:
+        """True when the source's polled account info says it allows exactly one
+        connection (D61: the pre-play probe would hold that slot as the player
+        connects).
+
+        Only once the account poll has run (``account_status`` set): the
+        ``max_connections`` column DEFAULTS to 1, so an M3U or never-polled
+        source would otherwise look one-slot. Not the connection accountant's
+        capacity either — that is 1 for every source until a play reports a
+        limit, and a fixed ``max_player_instances`` overrides it.
+        """
+        row = self.get_by_id(provider_id)
+        return bool(row) and bool(row.account_status) and row.max_connections == 1
+
     def get_hidden_provider_ids(self) -> List[str]:
         """Return IDs of providers whose content must be hidden from forward-looking
         views — the union of **inactive** (user toggled off), **expired**, and
