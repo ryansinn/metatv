@@ -1110,8 +1110,6 @@ class _RailSpy:
 
     # Attribute stubs the view accesses on the rail.
     class _Btn:
-        def clicked(self):
-            pass
         clicked = type("_Sig", (), {"connect": lambda s, f: None})()
 
     clear_btn = _Btn()

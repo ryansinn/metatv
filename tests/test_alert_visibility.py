@@ -24,7 +24,6 @@ import pytest
 import metatv.gui.theme as _theme
 
 from metatv.core.config import Config
-from metatv.gui import theme as _theme
 
 
 @pytest.fixture(scope="module")

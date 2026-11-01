@@ -3,7 +3,7 @@
 (a) Engine — excluding (source A, "Au Espn Play") hides A's channels in that
     collection and nothing on source B with the same collection name; the SQL
     clause and the id-set twin agree.
-(b) Repository — ``collections_for`` names every collection a title's copies
+(b) Repository — ``collection_choices_for`` names every collection a title's copies
     sit in, with source name and size.
 (c) Actions — the row-menu action reads "Exclude collection "X"" for one and
     opens a picker for several; exclude/include write the config and offer Undo.
@@ -79,10 +79,10 @@ def test_excluding_a_collection_hides_only_that_source(seeded):
 # ── (b) Repository ────────────────────────────────────────────────────────────
 
 
-def test_collections_for_lists_each_source_collection_with_its_size(seeded):
+def test_collection_choices_for_lists_each_source_collection_with_its_size(seeded):
     ids, db = seeded
     with db.session_scope() as s:
-        got = RepositoryFactory(s).tags.collections_for([ids["a_espn"], ids["b_espn"]])
+        got = RepositoryFactory(s).tags.collection_choices_for([ids["a_espn"], ids["b_espn"]])
     assert ("pA", "Source A", "Au Espn Play", 2) in got
     assert ("pB", "Source B", "Au Espn Play", 1) in got
     assert got[0][3] == 2, "largest first"

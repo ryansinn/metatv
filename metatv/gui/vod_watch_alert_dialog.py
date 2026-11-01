@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
-import html
 
 from metatv.gui import cursor_affordance
 from metatv.gui import series_alert_identity as _series_identity

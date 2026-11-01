@@ -13,7 +13,6 @@ from loguru import logger
 from metatv.core.channel_name_utils import parse_channel_name
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import DENSITIES, DENSITY_COMPACT, ROW_SPACING
 
