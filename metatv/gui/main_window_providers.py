@@ -209,8 +209,7 @@ class _ProviderMixin:
         source yet" — misleading, and gives no next step. This banner states
         the real cause plainly and offers a discoverable "Add Source" button
         that calls :meth:`add_provider` directly — the SAME handler the
-        sidebar '+' (``sidebar/sources.py``) and Sources-manager '+'
-        (``sources_manager_view.py``) buttons already use, so there is still
+        Sources-manager '+' (``sources_manager_view.py``) uses, so there is still
         exactly one path that creates a source.
 
         Extracted into its own method (called once from ``setup_ui()``) so a
