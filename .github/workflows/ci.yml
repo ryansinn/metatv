@@ -65,7 +65,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Install ruff
         run: pip install "ruff>=0.6.0"
@@ -92,7 +92,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
 
       - name: Install Qt runtime libraries
@@ -111,10 +111,7 @@ jobs:
 
       # Imports EVERY test module without running anything — which is the
       # cheapest possible check that the tree is coherent, and it is DERIVED
-      # rather than a list someone maintains. It is also where the local-3.14
-      # vs CI-3.12 annotation class shows up: PEP 649 evaluates annotations
-      # lazily on 3.14, so a function annotated with a name its module never
-      # imports passes locally and fails at import here. Seconds, 525 files.
+      # rather than a list someone maintains. Seconds, 525 files.
       - name: Collect every test (import check)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -169,11 +166,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          # 3.12, matching the release build — NOT the 3.14 used locally.
-          # PEP 649 makes 3.14 evaluate annotations lazily, so a function
-          # annotated with a name its module never imports passes locally and
-          # fails at import time here. This job is where that class is caught.
-          python-version: "3.12"
+          # The same Python as development and the packaged builds (3.14).
+          python-version: "3.14"
           cache: pip
 
       - name: Install Qt runtime libraries (Linux)

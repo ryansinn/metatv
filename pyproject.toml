@@ -29,10 +29,11 @@
 
 [tool.ruff]
 line-length = 100
-# CI's version, deliberately NOT the 3.14 used for development. PEP 649 makes
-# 3.14 evaluate annotations lazily, so a function annotated with a name its
-# module never imports passes locally and raises at import time in CI.
-target-version = "py312"
+# One Python everywhere — development, CI and the packaged builds all run 3.14
+# (2026-11-01). Before that CI and the builds ran 3.12 while development ran
+# 3.14, and PEP 649's lazy annotations let a missing import pass locally and
+# fail in CI; the version split itself was the bug.
+target-version = "py314"
 extend-exclude = ["venv", ".claude"]
 
 [tool.ruff.lint]
