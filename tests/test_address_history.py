@@ -99,9 +99,9 @@ def test_the_card_names_the_address_in_use_and_when_each_last_worked(qapp, file_
     qapp.processEvents()
     try:
         card = ed._analytics_tab._addresses
-        assert card.subtitle.text() == "1 of 2 have worked · in use: good.example" or \
-            card.subtitle.text().endswith("in use: good.example")
+        assert card.subtitle.text() == "2 of 2 have worked"
         texts = [lbl.text() for lbl in card.findChildren(QLabel) if lbl.isVisible()]
+        assert "In use: <b>good.example</b>" in texts
         assert "today" in texts and "20 Oct" in texts and "Last worked" in texts
         assert len([t for t in card.findChildren(AttemptTicks) if t.isVisible()]) == 2
     finally:

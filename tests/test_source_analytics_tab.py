@@ -402,3 +402,21 @@ def test_clicking_a_most_played_title_opens_it_in_search(qapp, file_db):
         assert got and got[0][0] == "Futurama" and len(got[0][1]) == 2     # TREX's two rows only
     finally:
         destroy_widget(ed)
+
+
+def test_a_loaded_analytics_tab_still_lets_the_editor_fit_400px(qapp, file_db):
+    """WIP-2: the editor fits 400 px. The re-layout's two columns, four tiles and
+    side-by-side prefixes must all reflow, or a populated tab sets the floor."""
+    _seed(file_db)
+    for i, code in enumerate(("FR", "DE", "IT", "ES", "PL", "NL")):
+        _play(file_db, "trex", f"r{i}", 3, title=f"A Fairly Long Played Title Number {i}",
+              media="series", region=code, last=datetime(2026, 10, 30))
+    ed = _analytics(qapp, file_db, width=400)
+    try:
+        qapp.processEvents()
+        tab = ed._analytics_tab
+        assert ed.width() == 400, f"the editor refused 400px (min {ed.minimumSizeHint().width()})"
+        assert tab.minimumSizeHint().width() <= ed._analytics_scroll.viewport().width()
+        assert _top_left(tab, tab._viewing)[0] == _top_left(tab, tab._playback)[0]   # stacked
+    finally:
+        destroy_widget(ed)

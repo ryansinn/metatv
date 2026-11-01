@@ -72,8 +72,9 @@ MIN_PLAYS_BY_HOUR = 30
 #: Below this share of live channels with guide data the tile says "low".
 LOW_GUIDE_SHARE = 0.25
 
-#: Figure tiles per row, equal widths.
-TILES_ACROSS = 4
+#: Figure tiles per row, equal widths: four in the two-column layout, two below.
+TILES_ACROSS_WIDE = 4
+TILES_ACROSS_NARROW = 2
 
 #: Width at which the cards sit in two columns; narrower, they stack.
 TWO_COLUMNS_FROM = 860
@@ -84,15 +85,19 @@ PREFIX_ROWS = 10
 TOP_ROWS = 5
 
 #: Regions per row: three in the two-column layout, two when the cards stack
-#: (three across at 760 px elided "France (FR)" to "Fr…R)", Q20).
+#: (three across at 760 px elided "France (FR)" to "Fr…R)", Q20), one below
+#: REGIONS_TWO_FROM so the editor still fits 400 px (WIP-2).
 REGIONS_ACROSS_WIDE = 3
 REGIONS_ACROSS_NARROW = 2
+REGIONS_TWO_FROM = 560
 
 #: Media type → the singular noun a Most played row shows.
 MEDIA_SINGULAR = {"movie": "film", "series": "series", "live": "live"}
 
 #: A short bar: long enough to compare, too short to be a page-wide empty track.
 BAR_PX = 56
+#: Shared puts three bars on a row, so they are shorter still (fits 400 px).
+SHARED_BAR_PX = 40
 
 
 def source_state_label(name: str, is_active: bool, is_expired: bool) -> str:
@@ -144,6 +149,8 @@ class _Section(QFrame):
         _theme.style(self.title, "SECTION_TITLE_SM")
         head.addWidget(self.title, 1)
         self.subtitle = QLabel("")
+        self.subtitle.setWordWrap(True)          # a long subtitle must not set a narrow editor's floor
+        self.subtitle.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         _theme.style(self.subtitle, "META_HINT")
         head.addWidget(self.subtitle)
         outer.addLayout(head)
@@ -225,7 +232,9 @@ def _facts(section: _Section, facts) -> None:
         row = QHBoxLayout(pair)
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(_label(caption, "META_HINT"))
-        row.addWidget(_label(value, "FIELD_LABEL"))
+        figure = _label(value, "FIELD_LABEL")
+        figure.setWordWrap(True)                 # a long value wraps rather than widen the card
+        row.addWidget(figure)
         flow.addWidget(pair)
     section.body.addWidget(holder)
 
@@ -256,8 +265,8 @@ def _last_worked_text(when: datetime | None) -> str:
     return short_date_text(when)
 
 
-def _bar(fraction: float | None) -> ProgressBar:
-    return ProgressBar((fraction or 0.0) * 100.0, width=BAR_PX, height=6, warn_at=None)
+def _bar(fraction: float | None, width: int = BAR_PX) -> ProgressBar:
+    return ProgressBar((fraction or 0.0) * 100.0, width=width, height=6, warn_at=None)
 
 
 class SourceAnalyticsTab(QWidget):
@@ -273,7 +282,11 @@ class SourceAnalyticsTab(QWidget):
         self._overlap: TitleOverlapDTO | None = None
         self._mix: CatalogueMixDTO | None = None
         self._source_name = ""
-        self._regions_across = REGIONS_ACROSS_WIDE
+        # Starts in the narrow arrangement: a hidden tab gets no resize, and a
+        # two-column minimum would leak into the editor's (WIP-2: it must fit 400 px).
+        self._regions_across = 1
+        self._wide = False
+        self._prefix_box: QBoxLayout | None = None
         # One token per query type (the seam's contract): these load together
         # and must not supersede one another; a provider switch bumps them all.
         self._tokens = {k: [0] for k in ("overlap", "viewing", "playback", "connections", "catalogue", "addresses",
@@ -288,14 +301,11 @@ class SourceAnalyticsTab(QWidget):
         self._empty.hide()
 
         self._tiles_box = QWidget()
-        tiles = QGridLayout(self._tiles_box)
-        tiles.setContentsMargins(0, 0, 0, 0)
-        tiles.setSpacing(10)
+        self._tiles_grid = QGridLayout(self._tiles_box)
+        self._tiles_grid.setContentsMargins(0, 0, 0, 0)
+        self._tiles_grid.setSpacing(10)
         self._tiles = {k: _Tile() for k in ("only", "movie", "series", "live", "guide", "days", "started", "limit")}
-        for i, tile in enumerate(self._tiles.values()):
-            tiles.addWidget(tile, *divmod(i, TILES_ACROSS))
-        for col in range(TILES_ACROSS):
-            tiles.setColumnStretch(col, 1)
+        self._place_tiles(TILES_ACROSS_NARROW)
         self._browse = QPushButton("Browse them")
         _theme.style(self._browse, "LINK_BTN_SM")
         cursor_affordance.set_clickable(self._browse)
@@ -315,7 +325,7 @@ class SourceAnalyticsTab(QWidget):
         self._catalogue = _Section("Titles by region")
         self._prefixes = _Section("Unrecognized prefixes")
 
-        self._columns = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._columns = QBoxLayout(QBoxLayout.Direction.TopToBottom)
         self._columns.setSpacing(12)
         for cards in ((self._viewing, self._shared), (self._playback, self._connections, self._addresses)):
             column = QVBoxLayout()
@@ -330,12 +340,25 @@ class SourceAnalyticsTab(QWidget):
         layout.addStretch(1)
         self._shared.subtitle.setText("same title, by title identity")
 
+    def _place_tiles(self, across: int) -> None:
+        for i, tile in enumerate(self._tiles.values()):
+            self._tiles_grid.addWidget(tile, *divmod(i, across))   # re-adding moves it
+        for col in range(TILES_ACROSS_WIDE):
+            self._tiles_grid.setColumnStretch(col, 1 if col < across else 0)
+
     def resizeEvent(self, event) -> None:  # noqa: N802 — Qt override
         super().resizeEvent(event)
-        wide = event.size().width() >= TWO_COLUMNS_FROM
-        self._columns.setDirection(QBoxLayout.Direction.LeftToRight if wide
-                                   else QBoxLayout.Direction.TopToBottom)
-        across = REGIONS_ACROSS_WIDE if wide else REGIONS_ACROSS_NARROW
+        width = event.size().width()
+        wide = width >= TWO_COLUMNS_FROM
+        across = (REGIONS_ACROSS_WIDE if wide else
+                  REGIONS_ACROSS_NARROW if width >= REGIONS_TWO_FROM else 1)
+        if wide != self._wide:
+            self._wide = wide
+            direction = QBoxLayout.Direction.LeftToRight if wide else QBoxLayout.Direction.TopToBottom
+            self._columns.setDirection(direction)
+            if self._prefix_box is not None:
+                self._prefix_box.setDirection(direction)
+            self._place_tiles(TILES_ACROSS_WIDE if wide else TILES_ACROSS_NARROW)
         if across != self._regions_across:
             self._regions_across = across
             if self._mix is not None:
@@ -358,6 +381,7 @@ class SourceAnalyticsTab(QWidget):
             section.setVisible(provider_id is not None)
         if provider_id is None:
             return
+        self._prefix_box = None
         for section in sections:
             show_loading(section.body)
 
@@ -460,7 +484,7 @@ class SourceAnalyticsTab(QWidget):
                 box.setContentsMargins(0, 0, 0, 0)
                 box.setSpacing(6)
                 box.addWidget(_label(f"{both / total:.0%}", "LABEL_MUTED" if muted else "FIELD_LABEL"))
-                box.addWidget(_bar(both / total))
+                box.addWidget(_bar(both / total, SHARED_BAR_PX))
                 grid.addWidget(cell, row, col)
         hint = redundancy_hint(overlap, pid)
         if hint:
@@ -642,16 +666,17 @@ class SourceAnalyticsTab(QWidget):
     def _on_addresses(self, addresses: list[ServerAddressDTO]) -> None:
         clear_layout(self._addresses.body)
         worked = sum(1 for a in addresses if a.worked)
-        current = next((urlparse(a.url).netloc or a.url for a in addresses if a.in_use), None)
-        self._addresses.subtitle.setText(f"{worked} of {len(addresses)} have worked"
-                                         + (f" · in use: {current}" if current else ""))
-        self._addresses.subtitle.setToolTip("The address MetaTV tries first right now" if current else "")
+        self._addresses.subtitle.setText(f"{worked} of {len(addresses)} have worked")
         if not addresses:
             self._addresses.text("No addresses.")
             return
+        current = next((urlparse(a.url).netloc or a.url for a in addresses if a.in_use), None)
+        if current:
+            self._addresses.text(f"In use: <b>{current}</b>").setToolTip(
+                "The address MetaTV tries first right now")
         grid = self._addresses.grid()
         grid.setColumnStretch(5, 1)
-        for col, heading in ((1, "Last 20 requests"), (3, "Speed"), (4, "Last worked")):
+        for col, heading in ((1, "Last 20"), (3, "Speed"), (4, "Last worked")):
             grid.addWidget(_label(heading, "META_HINT"), 0, col)
         keep = max(worked, 3)                         # best first: the ones that worked
         hidden: list[QWidget] = []
@@ -675,6 +700,7 @@ class SourceAnalyticsTab(QWidget):
 
     def _on_prefixes(self, prefixes: list[PrefixStatDTO]) -> None:
         clear_layout(self._prefixes.body)
+        self._prefix_box = None                    # cleared with the body; rebuilt below
         distinct = len({p.prefix for p in prefixes})
         self._prefixes.subtitle.setText(f"{distinct:,} the name parser does not know")
         if not prefixes:
@@ -684,8 +710,10 @@ class SourceAnalyticsTab(QWidget):
         for stat in prefixes:  # already live → films → series, commonest first
             groups.setdefault(stat.media_type, []).append(stat)
         nouns = dict(MEDIA)
-        across = QHBoxLayout()
-        across.setSpacing(24)
+        across = QBoxLayout(QBoxLayout.Direction.LeftToRight if self._wide
+                            else QBoxLayout.Direction.TopToBottom)
+        self._prefix_box = across
+        across.setSpacing(24 if self._wide else 12)
         hidden: list[QWidget] = []
         for media, stats in groups.items():
             column = QVBoxLayout()
