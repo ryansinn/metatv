@@ -48,7 +48,7 @@ def seeded(file_db):
             "kids_live": _add(s, "Kids TV", [("category", "Kids")], media_type="live"),
             "news_live": _add(s, "News TV", [("category", "News")], media_type="live"),
         }
-        for code in ("CL", "CHL", "AR"):
+        for code in ("CL", "CHL", "AR", "XXX"):
             _add(s, f"{code} channel", [], media_type="live", prefix=code)
     return ids, file_db
 
@@ -206,3 +206,30 @@ def test_save_writes_categories_genres_and_mode(dialog):
     assert cfg.global_filter_excluded_genres == ["Horror"]
     assert set(cfg.global_filter_excluded_channel_categories) == {"Kids", "News"}
     assert cfg.global_filter_genre_mode == "any"
+
+
+def test_adult_is_listed_with_platforms_not_languages(dialog):
+    dlg, _cfg_ = dialog
+    lang = {s._group_name for s in dlg._language_sections}
+    plat = {s._group_name for s in dlg._platform_sections}
+    assert "Adult" not in lang, "a content descriptor is not a language"
+    assert "Adult" in plat
+    assert "Arabic" in lang, "real languages stay put"
+
+
+def test_dialog_opens_large_and_remembers_its_size(seeded, qtbot):
+    from metatv.gui.global_filter_dialog import GlobalFilterDialog
+
+    _ids, db = seeded
+    cfg = _cfg()
+    dlg = GlobalFilterDialog(db, cfg)
+    qtbot.addWidget(dlg)
+    assert dlg.width() >= 700 and dlg.height() >= 540, "fits the grids, not the 420px minimum"
+    dlg.resize(1000, 700)
+    dlg.reject()
+    assert cfg.global_exclusions_dialog_size == [1000, 700]
+    again = GlobalFilterDialog(db, cfg)
+    qtbot.addWidget(again)
+    screen = again.screen().availableGeometry()
+    assert again.width() == min(1000, screen.width() - 40), "reopens at the saved width (screen permitting)"
+    assert again.height() == min(700, screen.height() - 40)
