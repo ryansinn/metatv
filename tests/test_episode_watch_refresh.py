@@ -56,9 +56,11 @@ class _SeriesHost(_SeriesMixin):
     """
 
     def __init__(self, db, tree):
+        from tests.conftest import wire_episode_state_refresh
         self.db = db
         self.config = _Cfg()
         self.series_tree = tree
+        self.pane_told = wire_episode_state_refresh(self)
 
 
 def _make_db(tmp_path) -> Database:

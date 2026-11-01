@@ -329,6 +329,8 @@ def test_bulk_mark_watched_persists_to_db(tmp_path):
             self._load_channels_calls += 1
 
     host = _FakeHost(db)
+    from tests.conftest import attach_channel_state_bus
+    attach_channel_state_bus(host)   # D60: mark-watched publishes watch_completed
     host._bulk_mark_watched(ids)
 
     # Verify all channels are now marked watched in a fresh session.
