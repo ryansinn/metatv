@@ -1012,22 +1012,6 @@ class Config(BaseModel):
     tmdb_enrichment_concurrency: int = 4        # Max concurrent detail requests per provider
     tmdb_enrichment_throttle_ms: int = 150      # Gentle delay before each request
 
-    # Content category groups — maps raw source_category labels (from ## headers ##) to
-    # normalized display names used in the Global Filter and Discovery shelves.
-    # Keys are the normalized type name shown in the UI; values are lists of raw labels
-    # exactly as they appear in the provider's ## header ## strings (case-insensitive match).
-    content_category_groups: dict = Field(default_factory=lambda: {
-        "Sports":        ["SPORTS NETWORK", "SOCCER PPV", "NBA LIVE EVENTS", "NBA TEAMS",
-                          "NBA LEAGUE REPLAY", "NHL LIVE EVENTS", "NHL TEAMS", "NFL LIVE EVENTS",
-                          "NFL LEAGUE REPLAY", "USA NCAA LIVE", "DAZN PPV US", "FIFA+ PPV",
-                          "NBA PASS PPV", "BALLY NETWORK", "B1G+ PPV"],
-        "Entertainment": ["ENTERTAINMENT", "SPECTRUM NETWORK", "BEIN CINEMA"],
-        "News":          ["NEWS NETWORK"],
-        "Kids":          ["KIDS NETWORK"],
-        "Movies":        ["MOVIES NETWORK", "PRIME", "TUBI", "PARAMOUNT+ PPV"],
-        "Religious":     ["BIBLICAL/RELIGIOUS"],
-        "Relaxation":    ["RELAX", "RELAX 4K", "RELAX UHD"],
-    })
     # Content type exclusions — empty = hide nothing. Legacy included list kept for migration.
     global_filter_excluded_content_types: list = Field(default_factory=list, json_schema_extra=PROFILE)
     global_filter_included_content_types: list = Field(default_factory=list, json_schema_extra=PROFILE)  # legacy
@@ -1044,6 +1028,15 @@ class Config(BaseModel):
     # the Exclusions dialog. Opt-out: a new content_type value is visible until
     # explicitly excluded.
     global_filter_excluded_tag_content_types: list = Field(default_factory=list, json_schema_extra=PROFILE)
+    # Channel categories (``category`` tags: Sports, News, Kids, …) and genres
+    # (``genre`` tags) to hide — see core/tag_exclusions.py. The genre mode is
+    # "only" (hide a title whose genres are ALL excluded) or "any".
+    global_filter_excluded_channel_categories: list = Field(default_factory=list, json_schema_extra=PROFILE)
+    global_filter_excluded_genres: list = Field(default_factory=list, json_schema_extra=PROFILE)
+    global_filter_genre_mode: str = Field(default="only", json_schema_extra=PROFILE)
+    # Exclusions dialog sections the user left collapsed (by section title).
+    global_exclusions_collapsed: list = Field(
+        default_factory=lambda: ["Languages", "Platforms"], json_schema_extra=PROFILE)
 
     # User-defined categories that are globally excluded (added via "Add to Global Exclusions"
     # in the CategoryPickerDialog when creating or editing a user category).
@@ -2134,6 +2127,32 @@ class Config(BaseModel):
         self._migrate_metadata_enabled_providers()
         self._migrate_background_polling_defaults()
         self._migrate_live_refresh_mode()
+        self._migrate_content_types_to_categories()
+
+    def _migrate_content_types_to_categories(self) -> None:
+        """Carry the retired hand-typed Content Types onto channel categories.
+
+        The old list matched 28 exact provider header spellings; the
+        ``category`` tag says what a channel IS whatever the provider calls it.
+        A group name that is also a category (Kids, Religious, Sports, News)
+        carries over; the rest (Entertainment, Movies, Relaxation, and raw
+        header labels) have no category and are dropped. Gated on the old lists
+        being non-empty, so it runs once and is idempotent.
+        """
+        from metatv.core.content_labels import CONTENT_DESCRIPTOR_GROUPS
+
+        old = list(self.global_filter_excluded_content_types or [])
+        raw = list(self.global_filter_excluded_source_categories or [])
+        if not old and not raw:
+            return
+        carried = [n for n in old if n in CONTENT_DESCRIPTOR_GROUPS]
+        dropped = [n for n in old if n not in CONTENT_DESCRIPTOR_GROUPS] + raw
+        cats = list(self.global_filter_excluded_channel_categories or [])
+        self.global_filter_excluded_channel_categories = cats + [n for n in carried if n not in cats]
+        self.global_filter_excluded_content_types = []
+        self.global_filter_excluded_source_categories = []
+        if dropped:
+            logger.info(f"Exclusions: retired content types with no channel category: {dropped}")
 
     #: What ``tmdb_enrichment_session_cap`` and ``series_monitor_interval_minutes``
     #: defaulted to before they were turned off. A stored value EQUAL to one of

@@ -75,11 +75,8 @@ from typing import Any
 from sqlalchemy import or_
 
 from metatv.core.database import ChannelDB
-from metatv.core.filter_utils import (
-    channel_exclusion_criterion,
-    keyword_exclusion_criterion,
-    tag_content_type_exclusion_criterion,
-)
+from metatv.core.filter_utils import channel_exclusion_criterion, keyword_exclusion_criterion
+from metatv.core.tag_exclusions import tag_content_type_exclusion_criterion
 
 
 @dataclass(frozen=True)

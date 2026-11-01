@@ -194,8 +194,9 @@ def test_dialog_content_provenance_section_shows_display_names(seeded, qtbot):
     dlg = GlobalFilterDialog(db, cfg)
     qtbot.addWidget(dlg)
 
-    labels = {cb.text() for _slug, cb, _row in dlg._content_provenance_rows}
-    slugs = {slug for slug, _cb, _row in dlg._content_provenance_rows}
+    boxes = dlg._tag_sections["content_type"]._checkboxes
+    labels = {cb.text() for cb in boxes.values()}
+    slugs = set(boxes)
     assert slugs == {"ai_generated", "ai_voiceover"}, "both AI values listed"
     assert "AI Generated" in labels
     assert "AI Voiceover" in labels
@@ -212,9 +213,7 @@ def test_dialog_saves_checked_provenance_slugs(seeded, qtbot):
     dlg = GlobalFilterDialog(db, cfg)
     qtbot.addWidget(dlg)
 
-    for slug, cb, _row in dlg._content_provenance_rows:
-        if slug == "ai_generated":
-            cb.setChecked(True)
+    dlg._tag_sections["content_type"]._checkboxes["ai_generated"].setChecked(True)
     dlg._save_and_accept()
 
     assert cfg.global_filter_excluded_tag_content_types == ["ai_generated"]

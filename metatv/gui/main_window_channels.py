@@ -324,8 +324,6 @@ class _ChannelListMixin:
 
     def load_channels(self, provider_id: str | None = None, *, keep_rows: bool = False) -> None:
         """Load channels; with keep_rows=True, old rows stay visible during refreshes."""
-        from metatv.core.filter_utils import get_active_content_type_filter
-
         # Stop any pending debounce timer so we don't queue a second load
         self._search_debounce.stop()
 
@@ -393,9 +391,8 @@ class _ChannelListMixin:
             for p in all_providers:
                 provider_icon_map[p.id] = (getattr(p, "icon", "") or self.config.provider_icon)
 
-        from metatv.core.filter_utils import (
-            global_exclusion_set, excluded_tag_content_types, keyword_exclusion_list,
-        )
+        from metatv.core.filter_utils import global_exclusion_set, keyword_exclusion_list
+        from metatv.core.tag_exclusions import excluded_tag_content_types
         from metatv.core.visibility_resolver import dead_signal_streak_floor as _resolve_dead_signal_streak_floor
         _filter_paused = self.config.global_filter_paused
         # Canonical paused-aware builder: category blacklist (group→leaf) ∪ "Block [PREFIX]".
@@ -433,7 +430,6 @@ class _ChannelListMixin:
             # None when bypassing or no facet is constrained.
             'tag_includes': None if _bypassing else tag_includes,
             # Global filter — bypassed when paused so the user can see everything
-            'source_categories': None if _filter_paused else get_active_content_type_filter(self.config),
             'excluded_prefixes': _global_excluded_prefixes,
             'excluded_user_categories': set() if _filter_paused else set(self.config.global_filter_excluded_user_categories),
             # content_type tag slugs to hide (paused-aware); worker resolves the id-set.
@@ -636,7 +632,6 @@ class _ChannelListMixin:
             include_untagged_quality=params.get('include_untagged_quality', True),
             adult_mode=params['adult_mode'],
             force_adult_provider_ids=force_adult_ids or None,
-            source_categories=params['source_categories'],
             include_uncategorized_content_types=True,
             hidden_only=False,
             include_hidden=False,
@@ -2094,7 +2089,6 @@ class _ChannelListMixin:
                 include_untagged_quality=query_params.get('include_untagged_quality', True),
                 adult_mode=query_params.get('adult_mode', 'hide'),
                 force_adult_provider_ids=force_adult_ids or None,
-                source_categories=query_params.get('source_categories'),
                 include_uncategorized_content_types=True,
                 hidden_only=False,
                 include_hidden=False,

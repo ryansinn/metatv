@@ -466,9 +466,10 @@ def recommendation_scope(session, config) -> dict:
     """
     from metatv.core.discovery_engine import build_adult_filter
     from metatv.core.filter_utils import (
-        excluded_tag_content_types, get_active_category_filter,
-        get_excluded_prefixes, global_exclusion_sets, keyword_exclusion_list,
+        get_active_category_filter, get_excluded_prefixes, global_exclusion_sets,
+        keyword_exclusion_list,
     )
+    from metatv.core.tag_exclusions import excluded_tag_content_types
     from metatv.core.repositories import RepositoryFactory
     from metatv.core.visibility_resolver import (
         dead_signal_streak_floor as _dead_signal_streak_floor,

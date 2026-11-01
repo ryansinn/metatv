@@ -285,7 +285,7 @@ class _EpgOnNowMixin:
             # Content-provenance Global Exclusion (paused-aware): resolve the excluded
             # content_type slugs to a channel-id set so On-Now drops AI content just
             # like the channel list.  Off-thread here; membership-checked in the render.
-            from metatv.core.filter_utils import excluded_tag_content_types
+            from metatv.core.tag_exclusions import excluded_tag_content_types
             _ct_slugs = excluded_tag_content_types(self.config)
             self._on_now_excluded_ct_ids = (
                 repos.tags.channel_ids_for_content_types(_ct_slugs) if _ct_slugs else set()

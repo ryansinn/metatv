@@ -505,9 +505,10 @@ class _SeeAllWorker(QObject):
     def run(self) -> None:
         from metatv.core.discovery_engine import build_status_sets, build_adult_filter
         from metatv.core.filter_utils import (
-            get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
-            keyword_exclusion_list, global_exclusion_sets,
+            get_active_category_filter, get_excluded_prefixes, keyword_exclusion_list,
+            global_exclusion_sets,
         )
+        from metatv.core.tag_exclusions import excluded_tag_content_types
         from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
         try:
@@ -577,9 +578,10 @@ class _ShelfCardsWorker(QObject):
     def run(self) -> None:
         from metatv.core.discovery_engine import build_status_sets, build_adult_filter
         from metatv.core.filter_utils import (
-            get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
-            keyword_exclusion_list, global_exclusion_sets,
+            get_active_category_filter, get_excluded_prefixes, keyword_exclusion_list,
+            global_exclusion_sets,
         )
+        from metatv.core.tag_exclusions import excluded_tag_content_types
         from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
         cards: list | None = None
@@ -656,9 +658,10 @@ class _LoaderWorker(QObject):
         )
         from metatv.core.content_labels import PLATFORM_SHELF_EXCLUDED_VALUES
         from metatv.core.filter_utils import (
-            get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
-            keyword_exclusion_list, global_exclusion_sets,
+            get_active_category_filter, get_excluded_prefixes, keyword_exclusion_list,
+            global_exclusion_sets,
         )
+        from metatv.core.tag_exclusions import excluded_tag_content_types
         from metatv.core.platform_shelves import platform_shelf_values
         from metatv.core.repositories import RepositoryFactory
         from metatv.core.visibility_resolver import resolve_scope as _resolve_scope
