@@ -266,7 +266,8 @@ def load_tag_counts(db, tag_type: str, *, by_title: bool = False,
 
     with db.session_scope() as session:
         if by_title:
-            unit = func.count(func.distinct(func.coalesce(ChannelDB.content_key, "id:" + ChannelDB.id)))
+            from metatv.core.content_identity import title_key_expr
+            unit = func.count(func.distinct(title_key_expr(ChannelDB.content_key, ChannelDB.id)))
         else:
             unit = func.count(func.distinct(ContentTagDB.channel_key))
         q = (session.query(TagDB.value, unit)
