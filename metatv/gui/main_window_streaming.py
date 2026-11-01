@@ -436,6 +436,22 @@ class _StreamingMixin(_WatchCaptureMixin):
                 return True
         return False
 
+    def _reports_one_connection(self, provider_id: str) -> bool:
+        """True when the source's own account info says it allows exactly one
+        connection (``ProviderDB.max_connections``, refreshed by the account
+        poll). Not the accountant's capacity: that is 1 for EVERY source until
+        a play has told it the limit, and a fixed ``max_player_instances``
+        overrides it — either would skip the probe on many-connection sources.
+        And only once the poll has run (``account_status`` set): the column
+        DEFAULTS to 1, so an M3U or never-polled source would look one-slot."""
+        try:
+            with self.db.session_scope(commit=False) as session:
+                row = RepositoryFactory(session).providers.get_by_id(provider_id)
+                return bool(row) and bool(row.account_status) and row.max_connections == 1
+        except Exception as e:
+            logger.warning(f"Could not read the connection limit for {provider_id}: {e}")
+            return False
+
     def _bg_validate_and_play(
         self,
         channel_id: str,
@@ -452,10 +468,15 @@ class _StreamingMixin(_WatchCaptureMixin):
     ) -> None:
         """Worker: validate + failover (same-source, then cross-source siblings).
 
-        Phase 0 — a same-provider switch (PLAY-10): the probe/failover below
-        would only cost a connection the source has not reaped yet, so both
-        phases are skipped and the URL is rewritten onto the live host when
-        that is safer (``gui.stream_switch.prefer_live_host``).
+        Phase 0 — a same-provider switch (PLAY-10), or any play on a
+        one-connection source (D61): the probe/failover below would only cost
+        a connection the source has not reaped yet, so both phases are skipped
+        and the URL is rewritten onto the live host when that is safer
+        (``gui.stream_switch.prefer_live_host``). On the owner's TREX (one
+        connection) 5 of 36 fresh plays that probed were then refused (509/458);
+        0 of 21 switches that skipped it were. The URL is already on the
+        ranked best host (``derive_channel_stream_url``); a refusal goes to the
+        connection wait, a dead host to the playback-start watch.
         Phase 1 — same-source: validate the primary URL, else cycle the
         provider's alternates (``validate_and_failover_stream_url``).
         Phase 2 — cross-source siblings sharing the ``content_key``
@@ -464,10 +485,15 @@ class _StreamingMixin(_WatchCaptureMixin):
         original URL and the sibling alternatives for the failure toast.
         Runs in ``self.executor``; touches no widget — ``_on_stream_ready`` does.
         """
-        # ── Phase 0: same-provider switch — no probe (docstring) ────────────
-        if switch_context is not None and switch_context.same_provider:
-            logger.info("same-provider switch: probe skipped (the source is "
-                        "proven by the current stream)")
+        # ── Phase 0: same-provider switch or one-connection source — no probe ─
+        same_provider = switch_context is not None and switch_context.same_provider
+        if same_provider or self._reports_one_connection(provider_id):
+            if same_provider:
+                logger.info("same-provider switch: probe skipped (the source is "
+                            "proven by the current stream)")
+            else:
+                logger.info("one-connection source: probe skipped (it would hold "
+                            "the only slot as the player connects)")
             final_url = stream_url
             try:
                 with self.db.session_scope(commit=False) as session:
@@ -476,7 +502,8 @@ class _StreamingMixin(_WatchCaptureMixin):
                     if provider_db:
                         provider_model = repos.providers.to_model(provider_db)
                         final_url = _stream_switch.prefer_live_host(
-                            stream_url, switch_context.live_base_url, provider_model)
+                            stream_url, switch_context.live_base_url if switch_context else None,
+                            provider_model)
             except Exception as e:
                 logger.warning(f"same-provider switch: host lookup failed: {e}")
             self._stream_ready.emit({
@@ -702,7 +729,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             logger.info(f"Cross-source failover: using sibling {sib_label!r}")
             self.status(f"Switched to alternate source for {channel_name}…", ms=0)
         elif data.get("probe_skipped"):
-            logger.info(f"Same-provider switch: skipped the probe for {channel_name}")
+            logger.info(f"Skipped the pre-play probe for {channel_name}")
         elif final_url != original_url:
             logger.info(f"Using failover URL: {final_url}")
 

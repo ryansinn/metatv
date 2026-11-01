@@ -9,6 +9,7 @@ These tests verify:
 from __future__ import annotations
 
 from contextlib import contextmanager
+import pytest
 from unittest.mock import MagicMock, patch
 
 from metatv.core.models import ProviderURL
@@ -391,3 +392,52 @@ def test_no_switch_context_takes_the_existing_path():
     assert "probe_skipped" not in payload
 
 
+
+
+# ── D61: a one-connection source never spends its only slot on the probe ────
+
+def test_a_fresh_play_on_a_one_connection_source_skips_the_probe():
+    """Nothing is playing (same_provider=False) but the source allows one
+    connection: the probe would hold that slot while the player connects
+    (owner's TREX: 5 of 36 probed fresh plays refused, 0 of 21 unprobed)."""
+    obj = _make_mixin()
+    repos = MagicMock()
+    repos.providers.get_by_id.return_value = MagicMock(max_connections=1, account_status="Active")
+    obj.db.session_scope = _make_session_scope(MagicMock())
+    ctx = SwitchContext(same_provider=False, live_base_url=None, one_connection=False)
+
+    with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
+         patch.object(obj, "validate_and_failover_stream_url") as mock_validate, \
+         patch.object(obj, "validate_stream_url") as mock_probe:
+        obj._bg_validate_and_play(
+            "ch-1", "Chan", "http://primary.example.com/stream.ts",
+            "prov-1", "notif-1", switch_context=ctx,
+        )
+
+    mock_validate.assert_not_called()
+    mock_probe.assert_not_called()
+    payload = obj._stream_ready.emit.call_args[0][0]
+    assert payload["ok"] is True and payload["probe_skipped"] is True
+    assert payload["final_url"] == "http://primary.example.com/stream.ts"
+
+
+@pytest.mark.parametrize("limit, status", [(2, "Active"), (0, "Active"), (None, "Active"),
+                                           (1, None)])   # 1 by column default, never polled
+def test_a_fresh_play_without_a_reported_limit_of_one_still_probes(limit, status):
+    """Only the source's own REPORTED limit of 1 skips it — not the accountant's
+    capacity (1 for every source until a play has reported one), and not the
+    column's default of 1 on a source the account poll never reached."""
+    obj = _make_mixin()
+    repos = MagicMock()
+    repos.providers.get_by_id.return_value = MagicMock(max_connections=limit, account_status=status)
+    obj.db.session_scope = _make_session_scope(MagicMock())
+    ctx = SwitchContext(same_provider=False, live_base_url=None, one_connection=True)
+    with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
+         patch.object(obj, "validate_and_failover_stream_url",
+                      return_value=("http://final.example.com/stream.ts", None)) as mock_validate:
+        obj._bg_validate_and_play(
+            "ch-1", "Chan", "http://primary.example.com/stream.ts",
+            "prov-1", "notif-1", switch_context=ctx,
+        )
+    mock_validate.assert_called_once()
+    assert "probe_skipped" not in obj._stream_ready.emit.call_args[0][0]
