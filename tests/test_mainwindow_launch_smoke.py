@@ -96,18 +96,14 @@ app.processEvents()
 print("SMOKE_OK")
 sys.stdout.flush()
 
-# Everything this file asserts has now happened: the window built, every lazy
-# overlay built, closeEvent ran to completion. What follows in a normal exit is
-# CPython's interpreter finalization, where sip tears down Qt wrappers in
-# whatever order the GC finds them — and 2026-09-11 that segfaulted (rc=-11,
-# no Python frame, inside sip/QtCore) on 2 of 6 identical runs of this exact
-# child on one tree and 1 of 4 on another, AFTER the marker had printed. That
-# crash is real and is tracked on its own (GUARD-7 in docs/REFACTOR_PLAN.md);
-# it is not a launch failure, and letting it fail THIS test turned a launch
-# guard into a coin flip that blocked pushes and CI on diffs that never
-# touched teardown. Ending the process here keeps the guard's verdict about
-# the things it actually checked.
-os._exit(0)
+# Exit through the same path the app takes (GUARD-7, gui/app_exit.py): the
+# window is released before the interpreter finalizes, so PyQt's exit-time
+# cleanup has no live window to delete mid-walk. This used to end with
+# os._exit(0), because that cleanup segfaulted (rc -11, AFTER the marker) on
+# some runs; with the release it exits cleanly, and a crash here is now a real
+# regression of the exit path, not noise.
+from metatv.gui.app_exit import release_before_exit
+release_before_exit(win)
 """
 
 
