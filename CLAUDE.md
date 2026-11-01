@@ -289,8 +289,8 @@ The owner UX-tests via `./run.sh` from this checkout — it always rests on the 
 ### The stash stack is shared, not per-worktree
 `refs/stash` lives in the repository's common `.git` directory, not in a linked worktree, so concurrent agents each in their own worktree still share ONE stash stack — a `git stash pop` can return a different agent's diff (to a file you were forbidden to touch) while silently discarding your own. Never `git stash`/`stash pop`/`stash apply` when other agents may be running; set work aside with `git diff > patch-file` + `git apply`, or a WIP commit on your branch, instead.
 
-### Local Python 3.14 hides annotation errors that CI's 3.12 catches
-This machine runs Python 3.14, where annotations are evaluated lazily (PEP 649); CI runs 3.12, which evaluates them eagerly. A function annotated with a name the module never imports passes the local gate and fails CI at import time. When a slice moves code between modules, verify every annotation's name is imported in its new home — the local suite will not tell you.
+### One Python everywhere — 3.14 (2026-11-01)
+Development, CI and the packaged macOS/Windows builds all run Python 3.14; never pin a workflow to a different version. The old split (CI and builds on 3.12, development on 3.14) let a missing import in an annotation pass locally under PEP 649's lazy evaluation and fail in CI — the split was the bug. Moving to a newer Python is one bump in the three workflows plus `pyproject.toml`'s ruff `target-version`, once PyInstaller ships wheels for it. The Flatpak uses the KDE runtime's own Python.
 
 ### `--quick` cannot see a repo-wide drift guard
 The guards a changed-file selection can never pick up — `test_no_stray_color_literals`,
