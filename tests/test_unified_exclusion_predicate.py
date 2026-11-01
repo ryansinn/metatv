@@ -172,6 +172,7 @@ class TestGlobalExclusionSet:
             global_filter_paused=False,
             global_filter_excluded_categories=["IN"],
             global_filter_excluded_prefixes=["ZZ"],
+            show_ended_events=True,   # END/ENDED are their own axis (#985)
         )
         got = global_exclusion_set(cfg)
         assert {"IN", "ZZ"} <= got, "both lists are unioned"

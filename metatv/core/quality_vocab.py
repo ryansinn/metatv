@@ -70,6 +70,14 @@ _FPS_RE = re.compile(r"\b(\d{2,3})\s?FPS\b", re.IGNORECASE)
 #: are then discarded, never turned into a chip.
 _SOURCE_QUALITY_NORM: dict[str, str] = {"HDTV": "HD"}
 
+#: Source tags as a provider's category PREFIX ("BLURAY-DE - Zoomania 2"): they
+#: say where the file came from, never a resolution, so they make no chip — but
+#: they are known vocabulary, not a token the parser has never seen.
+SOURCE_TAG_TOKENS: frozenset[str] = frozenset({
+    "BLURAY", "BLU-RAY", "BDRIP", "BRRIP", "REMUX",
+    "WEB", "WEBDL", "WEB-DL", "WEBRIP", "DVDRIP", "HDRIP",
+})
+
 
 # ── Audio format normalization ───────────────────────────────────────────────── #
 

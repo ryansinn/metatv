@@ -116,9 +116,12 @@ _EVENT_STARTSTOP_RE = re.compile(
 _EVENT_STARTSTOP_STOP_RE = re.compile(
     r"\bstop:\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})")
 #: "| Sat 29 Aug 14:00 CEST (DK) |" — day-name, carries a zone and NO YEAR.
+#: The zone is a name or a numeric offset ("| Mon 26 Oct 22:00 +03 (SA)",
+#: "-02 (BR)"); the offsets went unparsed and those listings stored no time.
 _EVENT_DAYNAME_RE = re.compile(
     r"\|\s*([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?\s+"
-    r"(\d{1,2}):(\d{2})\s+([A-Za-z]{2,4})")
+    r"(\d{1,2}):(\d{2})\s+([A-Za-z]{2,4}|[+-]\d{2}(?::?\d{2})?)")
+_NUMERIC_ZONE_RE = re.compile(r"([+-])(\d{2}):?(\d{2})?")
 #: "… (2026-09-03 19:00:25)" — a trailing parenthesised timestamp. 2,843 rows
 #: carry it and 842 stored NOTHING, because ``parse_platform_event`` only runs
 #: on the 'live_event' branch while 603 of these classify as 'sports'.
@@ -194,6 +197,14 @@ class EventWindow(NamedTuple):
 
     start: "Optional[datetime]"
     stop: "Optional[datetime]"
+
+
+def _zone_offset_min(tz_name: "Optional[str]") -> int:
+    """Minutes east of UTC for a zone name or a "+03"/"-0230" offset; 0 if unknown."""
+    if tz_name and (m := _NUMERIC_ZONE_RE.fullmatch(tz_name)):
+        sign, hours, minutes = m.groups()
+        return (1 if sign == "+" else -1) * (int(hours) * 60 + int(minutes or 0))
+    return _EVENT_TZ_OFFSET_MIN.get((tz_name or "").upper(), 0)
 
 
 def _startstop_utc(year: str, month: str, day: str,
@@ -410,7 +421,7 @@ def parse_event_window(name: str, *, reference: "Optional[date]" = None
     except ValueError:
         return EventWindow(None, None)   # 31 Feb, hour 25 — malformed
 
-    offset = _EVENT_TZ_OFFSET_MIN.get((tz_name or "").upper(), 0)
+    offset = _zone_offset_min(tz_name)
     # No end: these forms name a start and nothing else, so a caller falls back
     # to DEFAULT_EVENT_DURATION via event_is_on_now.
     return EventWindow(local - timedelta(minutes=offset), None)

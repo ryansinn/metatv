@@ -548,7 +548,15 @@ def detect_and_categorize_channel(channel: ChannelDB) -> Optional[str]:
     # Priority 3: Sports
     if detect_sports_channel(channel):
         return 'sports'
-    
+
+    # Last: a PPV listing dated in a form the DD-MM-YYYY test above does not
+    # read ("ENDED | … | Mon 26 Oct 01:00 EDT (US) | … PPV 1", ISO dates) —
+    # 483 of them landed in no view and stored no time. Checked after sports
+    # so the 381 such rows Sports already lists stay where they are.
+    if (channel.stream_url and 'ppv' in channel.name.lower()
+            and parse_event_window(channel.name).start is not None):
+        return 'ppv'
+
     return None
 
 
