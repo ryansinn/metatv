@@ -12,8 +12,8 @@ footer (Delete / Test Connection / Discard / Save Changes) below the tabs,
 always visible regardless of the selected tab — Save/Discard apply to the
 whole source, not to one tab, so a commit bar living inside a tab would wrongly
 imply per-tab saving. The four per-row action buttons the pre-Wave-7 left
-column rendered (refresh / analyze / EPG-refresh / enable-toggle — see
-``sidebar/sources.py``'s ``ProviderItemWidget``) now live in the Summary tab's
+column rendered (refresh / analyze / EPG-refresh / enable-toggle — on the
+since-removed ``ProviderItemWidget``) now live in the Summary tab's
 action bar (``_build_action_bar``), wired to the SAME signals/handlers the row
 buttons used — see the class docstring below for exactly how each was
 re-pointed.
@@ -263,8 +263,8 @@ class ProviderEditorView(_NewSourceMixin, _ProviderEditorTabsMixin, QWidget):
     Shows account info, credentials, URLs, and settings for one provider.
     Clicking a different source in the left column calls load_provider() to switch.
 
-    Action-bar re-pointing (Wave 7 — moved off the left-column row, see
-    ``sidebar/sources.py``'s ``ProviderItemWidget(show_actions=False)``):
+    Action-bar re-pointing (Wave 7 — moved off the left-column row, the
+    since-removed ``ProviderItemWidget``):
 
     * Refresh        → reuses the pre-existing (previously unemitted)
       ``refresh_requested`` signal, already connected in ``main_window.py`` to

@@ -1664,8 +1664,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SourceAddMixin, _ProviderConnec
         self.provider_editor.setVisible(False)
 
         # Sources manager view (Wave 6, hidden by default) — LEFT: every provider as
-        # a selectable ProviderItemWidget row (same widget/signals the retired
-        # sidebar Sources section used); CENTER: the provider_editor above. Opened
+        # a selectable source chip; CENTER: the provider_editor above. Opened
         # (and, Wave 7, toggled closed) from the sidebar status strip
         # (on_sources_manager_toggle → switch_to_sources_manager/switch_to_list_view).
         self.sources_manager_view = SourcesManagerView(

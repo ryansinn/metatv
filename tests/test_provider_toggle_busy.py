@@ -1,9 +1,10 @@
 """Behavior tests for the provider-toggle busy affordance.
 
 Toggling a source active/inactive triggers a multi-second canonical refresh
-(recommendations recompute over the whole library). The row's buttons must disable
-with a spinner so the user sees progress and can't stack repeat clicks. These execute
-the real widget/guard logic, not source-string checks.
+(recommendations recompute over the whole library). The re-entrancy guard and
+the busy-then-refresh sequence live in ``MainWindow.toggle_provider_active``;
+these execute it. (The sidebar row widget they once also covered,
+``ProviderItemWidget``, was removed with the Sources manager's move to chips.)
 """
 
 from __future__ import annotations
@@ -27,35 +28,6 @@ def _icon_bytes(btn) -> bytes:
     """Raw pixel bytes of *btn*'s current icon, for "did it actually repaint"."""
     image = btn.icon().pixmap(btn.iconSize()).toImage()
     return image.bits().asstring(image.sizeInBytes())
-
-
-def test_set_busy_disables_buttons_and_shows_spinner(qapp):
-    # ICON-1: the toggle glyph is a QIcon (icon_utils.set_button_icon), never
-    # text — a colour-emoji-as-text bug in a 22x20 button (ledger F13).
-    from metatv.gui.sidebar.sources import ProviderItemWidget
-    w = ProviderItemWidget("p1", "Prov", is_active=True)
-
-    assert all(b.isEnabled() for b in w._action_btns)
-    active_bytes = _icon_bytes(w._toggle_btn)
-
-    w.set_busy(True)
-    assert all(not b.isEnabled() for b in w._action_btns)
-    assert w._toggle_btn.text() == ""
-    assert _icon_bytes(w._toggle_btn) != active_bytes, (
-        "the spinner glyph must repaint, not just disable the button"
-    )
-
-    w.set_busy(False)
-    assert all(b.isEnabled() for b in w._action_btns)
-    assert _icon_bytes(w._toggle_btn) == active_bytes, "active glyph restored"
-
-
-def test_busy_constructor_param_renders_busy(qapp):
-    from metatv.gui.sidebar.sources import ProviderItemWidget
-    w = ProviderItemWidget("p1", "Prov", is_active=False, busy=True)
-    assert all(not b.isEnabled() for b in w._action_btns)
-    assert w._toggle_btn.text() == ""
-    assert not w._toggle_btn.icon().isNull()
 
 
 def test_toggle_reentrancy_guard_blocks_while_busy():

@@ -291,7 +291,6 @@ _MODULES_TO_SMOKE = [
     "metatv.gui.sidebar.alerts",
     "metatv.gui.sidebar.favorites",
     "metatv.gui.sidebar.history",
-    "metatv.gui.sidebar.sources",
 ]
 
 
@@ -382,12 +381,8 @@ def test_no_migrated_literals_remain() -> None:
 # Each entry: (file_relative, line_substring_or_pattern) — the line must contain
 # the substring for the exemption to apply.  Use the minimal unique fragment.
 _BROAD_ALLOWLIST: list[tuple[str, str]] = [
-    # sidebar/sources.py: dynamic rgba/rgb computed from provider icon color at runtime;
-    # {r}, {g}, {b} are Python format-string placeholders, NOT literal values.
-    ("metatv/gui/sidebar/sources.py", "rgba({r},{g},{b},"),
-    ("metatv/gui/sidebar/sources.py", "rgb({r},{g},{b})"),
     # tokens/loader.py: the Radix→Qt alpha conversion. {r},{g},{b} are format
-    # placeholders (same shape as the sources.py entries above), and the
+    # placeholders, and the
     # docstring line explains the #RRGGBBAA vs #AARRGGBB trap that makes the
     # conversion necessary — neither is a chosen colour.
     ("metatv/gui/tokens/loader.py", "rgba({r},{g},{b},"),

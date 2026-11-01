@@ -48,8 +48,7 @@ class MoviesSeriesMixin:
 
         A real spinning widget (``icon_utils.busy_spinner``) rather than the
         static ``⟳`` plus the word "checking…" this used to append to the
-        label. ``sidebar/sources.py``'s ``set_busy``/``set_epg_refreshing``
-        still use the static idiom and should move to the same helper.
+        label.
         """
         self._series_checking = busy
         spinner = self.__dict__.get("_series_spinner")
