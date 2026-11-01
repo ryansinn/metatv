@@ -30,10 +30,10 @@ from datetime import datetime
 from typing import Dict, List, Optional, Set
 
 from loguru import logger
-from sqlalchemy import or_
+from sqlalchemy import and_, exists, or_
 
 from metatv.core.quality_vocab import quality_tier_rank
-from metatv.core.database import ChannelDB, ProviderDB, UserRatingDB, WatchQueueDB
+from metatv.core.database import ChannelDB, EpisodeDB, ProviderDB, UserRatingDB, WatchQueueDB
 from metatv.core.repositories.dtos import ReconnectCandidateDTO, ReconnectMatchDTO
 
 
@@ -50,13 +50,25 @@ class ChannelProviderOpsMixin:
         (``UserRatingDB``, 1:1 keyed by ``channel_id``).  This is the single
         "flag engaged-unavailable, don't delete" gate reused by every doomed-set
         delete below so the exclusion can never drift between statements.
+
+        A series also counts when any of its EPISODES was played, watched or
+        favourited: watched episode by episode, the series row itself never
+        records a play, so a source delete used to drop the series and strand
+        its watched episodes (ledger F60 — 13 such rows on the owner's library).
         """
+        episode_engaged = exists().where(and_(
+            EpisodeDB.provider_id == ChannelDB.provider_id,
+            EpisodeDB.series_id == ChannelDB.source_id,
+            or_(EpisodeDB.play_count > 0, EpisodeDB.is_watched == True,   # noqa: E712
+                EpisodeDB.is_favorite == True),                           # noqa: E712
+        ))
         return or_(
             ChannelDB.is_favorite == True,           # noqa: E712
             ChannelDB.last_played.isnot(None),
             ChannelDB.play_count > 0,
             ChannelDB.id.in_(self.session.query(WatchQueueDB.channel_id)),
             ChannelDB.id.in_(self.session.query(UserRatingDB.channel_id)),
+            and_(ChannelDB.media_type == "series", episode_engaged),
         )
 
     def get_reconnect_candidates(
