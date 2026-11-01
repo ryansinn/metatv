@@ -160,7 +160,10 @@ from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparse
 #       "(PNJ)", "(VFQ)" are language aliases (ledger F4). Runs after
 #       unknown_region_cleanup cleared the bad values, so the fill-empty region
 #       pass re-derives them.
-CURRENT_VERSION: int = 16
+#   17  Turkish "N. Bölüm" episodes filed as movies lift their episode number
+#       out of the title, so a show's 4,634 episode rows collapse into 305
+#       cards the way SxxExx ones do (ledger F32).
+CURRENT_VERSION: int = 17
 
 
 class DetectedTitleReparseTask(DetectedFieldsReparseBase):
