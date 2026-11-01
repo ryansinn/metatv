@@ -717,10 +717,10 @@ class _NavMixin:
         """Sync FilterChip visual state with current filter config."""
         active = (
             bool(self.config.global_filter_excluded_categories)
-            or bool(self.config.global_filter_excluded_content_types)
+            or bool(getattr(self.config, "global_filter_excluded_channel_categories", []))
+            or bool(getattr(self.config, "global_filter_excluded_genres", []))
             or bool(self.config.global_filter_excluded_prefixes)
             or bool(getattr(self.config, "global_filter_excluded_user_categories", []))
-            or bool(getattr(self.config, "global_filter_excluded_source_categories", []))
             or bool(getattr(self.config, "global_filter_excluded_tag_content_types", []))
             or not getattr(self.config, "global_filter_include_uncategorized", True)
         )

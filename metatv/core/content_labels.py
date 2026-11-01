@@ -175,6 +175,16 @@ def content_type_display(value: str) -> str:
     return value.replace("_", " ").title()
 
 
+def genre_display(value: str) -> str:
+    """Display form of a stored ``genre`` tag value.
+
+    Providers send compound genres with an underscore where the source had
+    "&" (``Sci-Fi_Fantasy``, ``War_Politics``); show them as written. The
+    stored value — what queries and saved exclusions use — is unchanged.
+    """
+    return value.replace("_", " & ")
+
+
 class AiProvenance(NamedTuple):
     """Result of :func:`detect_ai_provenance`.
 

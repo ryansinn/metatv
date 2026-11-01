@@ -122,7 +122,9 @@ def test_search_germany_finds_de_via_full_name_lookup(qapp, seeded_db):
 def test_clearing_search_restores_full_list(qapp, seeded_db):
     from metatv.core.config import Config
 
-    dlg = GlobalFilterDialog(seeded_db, Config())
+    # Languages open, so "restored" means visible (collapsed is covered in
+    # test_exclusions_tag_sections.py).
+    dlg = GlobalFilterDialog(seeded_db, Config(global_exclusions_collapsed=[]))
     french = _group(dlg, "French")
     german = _group(dlg, "German")
 
@@ -153,31 +155,3 @@ def test_nonsense_query_shows_empty_state_and_hides_everything(qapp, seeded_db):
     assert not dlg._empty_state_label.isHidden(), "empty-state label must appear"
     assert "zzzz_totally_not_a_real_token_zzzz" in dlg._empty_state_label.text()
     assert all(s.isHidden() for s in dlg._sections), "every prefix group hides"
-
-
-# ---------------------------------------------------------------------------
-# (e) The filter reaches flat leaf rows too, not just prefix groups
-# ---------------------------------------------------------------------------
-
-
-def test_search_reaches_content_types_leaf_rows(qapp, seeded_db):
-    """The Content Types header + its 'Other' container hide/show together as a
-    single type block, driven by a match on the raw source_category label."""
-    from metatv.core.config import Config
-
-    dlg = GlobalFilterDialog(seeded_db, Config())
-    assert dlg._content_type_other_section is not None, "Other section must exist (seeded)"
-    header_widgets = dlg._content_types_only_header_widgets
-    assert header_widgets, "Content Types header widgets must be tracked"
-
-    dlg._search_box.setText("weirdprovider")
-    assert not dlg._content_type_other_section.isHidden(), "Other section matches"
-    assert not header_widgets[0].isHidden(), "Content Types header stays visible on match"
-
-    dlg._search_box.setText("no_such_category_at_all")
-    assert dlg._content_type_other_section.isHidden(), "Other section hides on no match"
-    assert header_widgets[0].isHidden(), "Content Types header hides once nothing matches"
-
-    dlg._search_box.setText("")
-    assert not dlg._content_type_other_section.isHidden(), "restored after clearing"
-    assert not header_widgets[0].isHidden(), "header restored after clearing"

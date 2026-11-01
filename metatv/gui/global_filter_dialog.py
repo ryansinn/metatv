@@ -29,6 +29,9 @@ from metatv.core.database import Database
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui.dialog_chrome import dialog_buttons
+from metatv.gui.exclusion_sections import (
+    SectionCollapser, TagExclusionSection, genre_mode_choice, load_tag_counts,
+)
 from metatv.gui.fonts import monospace_family
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui import theme as _theme
@@ -50,7 +53,7 @@ class _FilterBlock:
     realtime search query changes.
 
     ``containers`` are child widgets that know how to filter themselves
-    (``_GroupSection`` / ``_ContentTypeSection`` — they own nested checkboxes
+    (``_GroupSection`` / ``TagExclusionSection`` — they own nested checkboxes
     behind a lazy expand/collapse). ``leaf_rows`` are flat checkbox rows with
     precomputed lowercase match text. ``header_widgets`` (the type's title row
     + separator) are shown only while the block still has ≥1 visible member —
@@ -75,55 +78,6 @@ class _FilterBlock:
         for w in self.header_widgets:
             w.setVisible(visible)
         return visible
-
-
-def _load_source_category_counts(db: Database) -> list[tuple[str, int]]:
-    """Return [(source_category, count)] for live channels with a known source_category."""
-    from sqlalchemy import func
-    from metatv.core.database import ChannelDB
-    session = db.get_session()
-    try:
-        rows = (
-            session.query(ChannelDB.source_category, func.count())
-            .filter(
-                ChannelDB.source_category.isnot(None),
-                ChannelDB.media_type == "live",
-            )
-            .group_by(ChannelDB.source_category)
-            .all()
-        )
-        return [(row[0], row[1]) for row in rows if row[0]]
-    finally:
-        session.close()
-
-
-def _load_tag_content_type_counts(db: Database, values: list[str]) -> dict[str, int]:
-    """Return ``{content_type_value: distinct_channel_count}`` for *values*.
-
-    Counts channels carrying each ``content_type`` tag (any source — generated or
-    user) among *values*.  A tiny, tag_id-indexed lookup (never a full channels
-    scan), so it loads synchronously in the dialog exactly like the sibling
-    prefix / source-category counts.  Values absent from the result carry 0.
-    """
-    from sqlalchemy import func
-    from metatv.core.database import ContentTagDB, TagDB
-    if not values:
-        return {}
-    session = db.get_session()
-    try:
-        rows = (
-            session.query(
-                TagDB.value,
-                func.count(func.distinct(ContentTagDB.channel_key)),
-            )
-            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(TagDB.type == "content_type", TagDB.value.in_(values))
-            .group_by(TagDB.value)
-            .all()
-        )
-        return dict(rows)
-    finally:
-        session.close()
 
 
 def _load_prefix_counts(db: Database, excluded_user_categories: set[str] | None = None) -> tuple[list[tuple[str, int]], set[str]]:
@@ -336,6 +290,7 @@ class _GroupSection(_ExpandableSection, QWidget):
         self._prefix_data = prefixes                    # raw data, always present
         self._initial_checked = {s.upper() for s in initially_checked}
         self._checkboxes: dict[str, QCheckBox] = {}    # built lazily
+        self._row_codes: dict[str, list[str]] = {}       # row key → every code it holds
         self._body_built = False
         self._expanded = False
         self._pre_search_expanded: bool | None = None  # expand state to restore when search clears
@@ -400,22 +355,31 @@ class _GroupSection(_ExpandableSection, QWidget):
         body_vl.setSpacing(2)
         body_vl.setContentsMargins(28, 2, 0, 4)
 
+        # One row per country: codes sharing a full name (CL and CHL are both
+        # Chile) share a checkbox, as excluding one already hides the others.
+        merged: dict[str, list[str]] = {}
+        counts: dict[str, int] = {}
         for prefix, count in self._prefix_data:
+            name = REGION_FULL_NAMES.get(prefix.upper(), "") or f"\0{prefix}"
+            merged.setdefault(name, []).append(prefix)
+            counts[name] = counts.get(name, 0) + count
+        for name, codes in merged.items():
+            prefix, count = codes[0], counts[name]
             row = QWidget()
             rl = QHBoxLayout(row)
             rl.setContentsMargins(0, 0, 0, 0)
             rl.setSpacing(8)
 
-            full_name = REGION_FULL_NAMES.get(prefix.upper(), "")
-            label = f"[{prefix}] {full_name}" if full_name else prefix
+            full_name = "" if name.startswith("\0") else name
+            label = f"[{'·'.join(codes)}] {full_name}" if full_name else prefix
             cb = QCheckBox(label)
-            cb.setChecked(prefix.upper() in self._initial_checked)
+            cb.setChecked(any(c.upper() in self._initial_checked for c in codes))
             _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_LG}; font-family: '{monospace_family()}';")
             cb.stateChanged.connect(self._on_prefix_changed)
             rl.addWidget(cb)
 
             # Mark region-only tokens with a tooltip
-            if prefix.upper() in self._region_only_tokens:
+            if any(c.upper() in self._region_only_tokens for c in codes):
                 cb.setToolTip("Region token — applies to channels that carry no language prefix")
 
             count_lbl = QLabel(f"({count:,})")
@@ -425,6 +389,7 @@ class _GroupSection(_ExpandableSection, QWidget):
 
             body_vl.addWidget(row)
             self._checkboxes[prefix] = cb
+            self._row_codes[prefix] = codes
 
         self._body_built = True
 
@@ -435,7 +400,7 @@ class _GroupSection(_ExpandableSection, QWidget):
 
     def checked_prefixes(self) -> list[str]:
         if self._body_built:
-            return [p for p, cb in self._checkboxes.items() if cb.isChecked()]
+            return [c for p, cb in self._checkboxes.items() if cb.isChecked() for c in self._row_codes[p]]
         return [p for p, _ in self._prefix_data if p.upper() in self._initial_checked]
 
     def set_all(self, checked: bool) -> None:
@@ -460,15 +425,14 @@ class _GroupSection(_ExpandableSection, QWidget):
         "France"."""
         from metatv.core.region_codes import REGION_FULL_NAMES
 
-        full_name = REGION_FULL_NAMES.get(prefix.upper(), "")
-        return bool(query in self._group_name.lower()
-                    or query in prefix.lower()
-                    or (full_name and query in full_name.lower()))
+        return query in self._group_name.lower() or any(
+            query in c.lower() or query in REGION_FULL_NAMES.get(c.upper(), "").lower()
+            for c in self._row_codes.get(prefix, [prefix]))
 
     def _update_group_state(self) -> None:
         total = len(self._prefix_data)
         if self._body_built:
-            checked = sum(1 for cb in self._checkboxes.values() if cb.isChecked())
+            checked = len(self.checked_prefixes())
         else:
             checked = sum(
                 1 for p, _ in self._prefix_data if p.upper() in self._initial_checked
@@ -513,154 +477,6 @@ class _GroupSection(_ExpandableSection, QWidget):
             else:
                 self._initial_checked = set()
         self._update_group_state()
-
-
-class _ContentTypeSection(_ExpandableSection, QWidget):
-    """Collapsible section for unmapped source_category labels inside 'Other'.
-
-    Identical collapse/expand and lazy-body pattern to _GroupSection but for
-    raw source_category strings (which can be long provider labels, not codes).
-    """
-
-    def __init__(
-        self,
-        items: list[tuple[str, int]],       # [(source_category_label, count)]
-        initially_checked: set[str],
-        *,
-        config,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self._config = config
-        self._items = items
-        self._initial_checked = set(initially_checked)
-        self._checkboxes: dict[str, QCheckBox] = {}
-        self._body_built = False
-        self._expanded = False
-        self._pre_search_expanded: bool | None = None  # expand state to restore when search clears
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(0)
-        layout.setContentsMargins(0, 0, 0, 4)
-
-        # ── Header ────────────────────────────────────────────────────────────
-        header = self._header = QWidget()
-        self._toggle_label = "Other (unmapped types)"
-        cursor_affordance.set_clickable(header, keyboard=True)
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(0, 2, 0, 2)
-        hl.setSpacing(6)
-
-        self._group_cb = QCheckBox()
-        self._group_cb.setTristate(True)
-        _theme.style(self._group_cb, "FILTER_ITEM_TEXT")
-        hl.addWidget(self._group_cb)
-
-        self._expand_lbl = QLabel()
-        _theme.style(self._expand_lbl, "EXPAND_HINT")
-        _icon_utils.set_label_icon(self._expand_lbl, "expand", 12)
-        self._expand_lbl.setFixedWidth(12)
-        hl.addWidget(self._expand_lbl)
-
-        name_lbl = QLabel("Other (unmapped types)")
-        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_TEXT};")
-        name_lbl.setToolTip(
-            "Live channels whose source_category header from the source\n"
-            "didn't match any configured Content Type group.\n"
-            "Expand to see individual category labels and exclude specific ones."
-        )
-        hl.addWidget(name_lbl)
-        hl.addStretch()
-
-        self._count_lbl = QLabel()
-        _theme.style(self._count_lbl, "LABEL_MUTED")
-        hl.addWidget(self._count_lbl)
-
-        layout.addWidget(header)
-
-        self._body = QWidget()
-        self._body.setVisible(False)
-        layout.addWidget(self._body)
-
-        self._group_cb.clicked.connect(self._on_group_clicked)
-        header.mousePressEvent = self._toggle_expand  # type: ignore[assignment]
-        self._sync_expand_affordance()
-
-        self._update_state()
-
-    def _build_body(self) -> None:
-        body_vl = QVBoxLayout(self._body)
-        body_vl.setSpacing(2)
-        body_vl.setContentsMargins(28, 2, 0, 4)
-
-        for label, count in sorted(self._items, key=lambda x: -x[1]):
-            row = QWidget()
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(0, 0, 0, 0)
-            rl.setSpacing(8)
-
-            cb = QCheckBox(label)
-            cb.setChecked(label in self._initial_checked)
-            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_MD}; font-family: '{monospace_family()}';")
-            cb.stateChanged.connect(self._on_item_changed)
-            rl.addWidget(cb)
-
-            cnt_lbl = QLabel(f"({count:,})")
-            _theme.style(cnt_lbl, "LABEL_MUTED")
-            rl.addWidget(cnt_lbl)
-            rl.addStretch()
-
-            body_vl.addWidget(row)
-            self._checkboxes[label] = cb
-
-        self._body_built = True
-
-    def checked_labels(self) -> list[str]:
-        """Return list of individually checked source_category labels."""
-        if self._body_built:
-            return [lbl for lbl, cb in self._checkboxes.items() if cb.isChecked()]
-        return [lbl for lbl, _ in self._items if lbl in self._initial_checked]
-
-    def set_all(self, checked: bool) -> None:
-        if self._body_built:
-            for cb in self._checkboxes.values():
-                cb.blockSignals(True)
-                cb.setChecked(checked)
-                cb.blockSignals(False)
-        else:
-            self._initial_checked = {lbl for lbl, _ in self._items} if checked else set()
-        self._update_state()
-
-    def _row_matches(self, label: str, query: str) -> bool:
-        """Raw provider ``source_category`` labels are already human-readable,
-        so no separate full-name lookup applies."""
-        return query in label.lower()
-
-    def _update_state(self) -> None:
-        total = len(self._items)
-        checked = len(self.checked_labels())
-        self._count_lbl.setText(f"[{checked} of {total}]")
-
-        self._group_cb.blockSignals(True)
-        if checked == 0:
-            self._group_cb.setCheckState(Qt.CheckState.Unchecked)
-        elif checked == total:
-            self._group_cb.setCheckState(Qt.CheckState.Checked)
-        else:
-            self._group_cb.setCheckState(Qt.CheckState.PartiallyChecked)
-        self._group_cb.blockSignals(False)
-
-    def _on_item_changed(self) -> None:
-        self._update_state()
-
-    def _on_group_clicked(self) -> None:
-        state = self._group_cb.checkState()
-        if state == Qt.CheckState.PartiallyChecked:
-            self._group_cb.blockSignals(True)
-            self._group_cb.setCheckState(Qt.CheckState.Checked)
-            self._group_cb.blockSignals(False)
-            state = Qt.CheckState.Checked
-        self.set_all(state == Qt.CheckState.Checked)
 
 
 class _RescanThread(QThread):
@@ -729,18 +545,18 @@ class GlobalFilterDialog(QDialog):
         self._platform_sections: list[_GroupSection] = []
         self._inner_vl: QVBoxLayout | None = None
         self._rescan_thread: _RescanThread | None = None
-        # Content-type section: list of (group_name, checkbox, row_widget)
-        self._content_type_rows: list[tuple[str, QCheckBox, QWidget]] = []
-        # Expandable "Other" section for unmapped source_category labels
-        self._content_type_other_section: _ContentTypeSection | None = None
-        # Separator / header widgets for the content-type section
+        # Tag axes (Channel Categories, Genres, Content Provenance) — one
+        # TagExclusionSection each, keyed by axis; the genre rule's radio group.
+        self._tag_sections: dict[str, TagExclusionSection] = {}
+        self._genre_mode_group = None
+        # Collapsers for the Languages / Platforms blocks (built in _populate_groups).
+        self._collapsers: dict[str, SectionCollapser] = {}
+        # Separator / header widgets for the User Categories section
         self._content_type_header_widgets: list[QWidget] = []
         # Separator / header widgets for the platforms section
         self._platform_header_widgets: list[QWidget] = []
         # User-defined category rows: list of (category_name, checkbox, row_widget)
         self._user_category_rows: list[tuple[str, QCheckBox, QWidget]] = []
-        # Content-provenance rows: list of (content_type_slug, checkbox, row_widget)
-        self._content_provenance_rows: list[tuple[str, QCheckBox, QWidget]] = []
         # Keywords section: a staged working copy of the excluded-keyword list —
         # mutated by Add/Remove, only written to config.global_excluded_keywords
         # in _save_and_accept() (Cancel discards it, matching every other section).
@@ -766,8 +582,6 @@ class GlobalFilterDialog(QDialog):
         # (bulk teardown before a repopulate) and by the realtime search filter
         # below (a type header hides once none of its members match).
         self._lang_header_widgets: list[QWidget] = []
-        self._content_types_only_header_widgets: list[QWidget] = []
-        self._content_provenance_header_widgets: list[QWidget] = []
         self._user_categories_header_widgets: list[QWidget] = []
         # Realtime search — one _FilterBlock per top-level type, rebuilt whenever
         # the group list is (re)populated. See _apply_search_filter().
@@ -975,6 +789,7 @@ class GlobalFilterDialog(QDialog):
             lang_w.setLayout(lang_row)
             self._inner_vl.addWidget(lang_w)
             self._lang_header_widgets.append(lang_w)
+            self._add_collapser("Languages", lang_row, lambda: self._language_sections)
 
         for group_name, prefixes in named_groups:
             # Only pre-check prefixes that are currently excluded
@@ -1027,6 +842,8 @@ class GlobalFilterDialog(QDialog):
             hdr_w.setLayout(hdr_row)
             self._inner_vl.addWidget(hdr_w)
             self._platform_header_widgets.append(hdr_w)
+            self._add_collapser("Platforms", hdr_row, lambda: self._platform_sections + (
+                [self._uncategorized_section] if self._uncategorized_section else []))
 
             for group_name, entries in sorted(platform_data):
                 initial = excluded & {p for p, _ in entries}
@@ -1051,11 +868,86 @@ class GlobalFilterDialog(QDialog):
             self._sections.append(other_section)
             self._uncategorized_section = other_section
 
-        self._populate_content_types()
-        self._populate_content_provenance()
+        self._populate_tag_sections()
         self._populate_user_categories()
         self._populate_keywords()
         self._rebuild_filter_blocks()
+        for collapser in self._collapsers.values():
+            collapser.sync()
+
+    def _add_collapser(self, title: str, header_row: QHBoxLayout, sections) -> None:
+        """Collapse a dialog-built block (Languages / Platforms) by its header.
+
+        *sections* is a callable: the block's groups are built after its header.
+        """
+        def apply(collapsed: bool) -> None:
+            for section in sections():
+                section.setVisible(not collapsed)
+
+        def summary() -> str:
+            excluded = sum(1 for s in sections() if s.checked_prefixes())
+            return f"{len(sections())} groups · {excluded} excluded"
+
+        collapser = SectionCollapser(self._config, title, apply, summary)
+        collapser.install(header_row)
+        self._collapsers[title] = collapser
+
+    def _populate_tag_sections(self) -> None:
+        """Channel Categories, Genres and Content Provenance — the tag axes.
+
+        All three save as tag values and are enforced by one predicate
+        (``core/tag_exclusions.py``) on every surface. Genre counts are TITLES
+        (variants of one title across sources count once); the long tail
+        (under 100 titles) folds behind "N more".
+        """
+        from metatv.core.content_labels import (
+            AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, content_type_display, genre_display,
+        )
+
+        cfg = self._config
+        cats = load_tag_counts(self._db, "category")
+        if cats:
+            self._add_tag_section("category", TagExclusionSection(
+                cfg, "Channel Categories",
+                "What a channel IS — Sports, News, Kids, … — from MetaTV's own tagging\n"
+                "of category headers, names and the guide, whatever the source calls it.\n"
+                "Check a category to hide its channels everywhere.",
+                [(v, v, n) for v, n in cats],
+                set(cfg.global_filter_excluded_channel_categories),
+                unit=" channels", columns=4, select_links=self._make_select_links))
+        genres = load_tag_counts(self._db, "genre", by_title=True)
+        if genres:
+            n = dict(genres)
+            mode_w, self._genre_mode_group = genre_mode_choice(
+                cfg.global_filter_genre_mode,
+                "A title tagged only with excluded genres is hidden; a Horror-Comedy stays.",
+                "Any excluded genre hides the title — sloppy multi-genre tagging hides much more.")
+            excluded = set(cfg.global_filter_excluded_genres)
+            self._add_tag_section("genre", TagExclusionSection(
+                cfg, "Genres",
+                "Movies and series by genre. Titles usually carry several genres —\n"
+                "the choice below decides what an excluded genre does.\n"
+                f"Counts are titles ({len(n)} genres).",
+                [(v, genre_display(v), c) for v, c in genres], excluded,
+                columns=3, fold_below=100, extra=mode_w, select_links=self._make_select_links))
+        prov_values = [AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, "ppv"]
+        prov = dict(load_tag_counts(self._db, "content_type", values=prov_values))
+        prov_excluded = set(cfg.global_filter_excluded_tag_content_types)
+        shown = [v for v in prov_values if prov.get(v, 0) or v in prov_excluded]
+        if shown:
+            self._add_tag_section("content_type", TagExclusionSection(
+                cfg, "Content Provenance",
+                "How the content was produced, read from a trailing marker on the name:\n"
+                "  • \"(AI Generated)\"  →  AI Generated (the content itself)\n"
+                "  • \"(AI)\" / Lektor (AI)  →  AI Voiceover (an AI dub/narration)\n"
+                "  • PPV in a provider label  →  PPV",
+                [(v, content_type_display(v), prov.get(v, 0)) for v in shown], prov_excluded,
+                unit=" channels", columns=3, select_links=self._make_select_links))
+
+    def _add_tag_section(self, axis: str, section: TagExclusionSection) -> None:
+        self._inner_vl.addWidget(section)
+        self._content_type_header_widgets.append(section)
+        self._tag_sections[axis] = section
 
     def _populate_user_categories(self) -> None:
         """Build the User Categories section at the bottom of the filter list."""
@@ -1115,178 +1007,6 @@ class GlobalFilterDialog(QDialog):
             rl.addStretch()
             self._inner_vl.addWidget(row)
             self._user_category_rows.append((name, cb, row))
-
-    def _populate_content_types(self) -> None:
-        """Build the Content Types section below the prefix groups."""
-        cat_counts = _load_source_category_counts(self._db)
-        if not cat_counts:
-            return
-
-        groups = self._config.content_category_groups
-        group_counts: dict[str, int] = {}
-        matched_labels: set[str] = set()
-
-        for group_name, raw_labels in groups.items():
-            raw_upper = {lbl.upper() for lbl in raw_labels}
-            total = sum(c for lbl, c in cat_counts if lbl.upper() in raw_upper)
-            if total > 0:
-                group_counts[group_name] = total
-                matched_labels.update(lbl for lbl, _ in cat_counts if lbl.upper() in raw_upper)
-
-        other_items = [(lbl, c) for lbl, c in cat_counts if lbl not in matched_labels]
-
-        if not group_counts and not other_items:
-            return
-
-        # ── Separator ────────────────────────────────────────────────────────────
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        _theme.style(sep, "SEP_DARK")
-        self._inner_vl.addWidget(sep)
-        self._content_type_header_widgets.append(sep)
-        self._content_types_only_header_widgets.append(sep)
-
-        hdr_row = QHBoxLayout()
-        type_hdr = QLabel("Content Types")
-        _theme.style(type_hdr, "SECTION_TITLE_SM")
-        hdr_row.addWidget(type_hdr)
-
-        info_lbl = _info_label(
-            "Content types are derived from category headers in the source's\n"
-            "channel list (e.g. ##### SPORTS NETWORK #####).\n"
-            "Check a type to hide all matching live channels from Discovery."
-        )
-        hdr_row.addWidget(info_lbl)
-        hdr_row.addStretch()
-        hdr_row.addWidget(self._make_select_links(
-            "Content Types", self._select_content_types
-        ))
-
-        hdr_container = QWidget()
-        hdr_container.setLayout(hdr_row)
-        self._inner_vl.addWidget(hdr_container)
-        self._content_type_header_widgets.append(hdr_container)
-        self._content_types_only_header_widgets.append(hdr_container)
-
-        # Blacklist model: checked = excluded; start unchecked unless currently excluded.
-        excluded_types = set(self._config.global_filter_excluded_content_types)
-        # Individually excluded source_category labels (from the expandable Other section)
-        excluded_raw = set(getattr(self._config, "global_filter_excluded_source_categories", []))
-
-        for group_name in sorted(group_counts):
-            count = group_counts[group_name]
-            row = QWidget()
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(2, 2, 2, 2)
-            rl.setSpacing(8)
-
-            cb = QCheckBox(group_name)
-            cb.setChecked(group_name in excluded_types)
-            _theme.style(cb, "FILTER_ITEM_TEXT")
-            rl.addWidget(cb)
-
-            count_lbl = QLabel(f"({count:,} channels)")
-            _theme.style(count_lbl, "LABEL_MUTED")
-            rl.addWidget(count_lbl)
-            rl.addStretch()
-
-            self._inner_vl.addWidget(row)
-            self._content_type_rows.append((group_name, cb, row))
-
-        if other_items:
-            # Expandable section — shows individual source_category labels with counts.
-            # Sorted by channel count descending so the most common categories are visible first.
-            self._content_type_other_section = _ContentTypeSection(
-                items=sorted(other_items, key=lambda x: -x[1]),
-                initially_checked=excluded_raw,
-                config=self._config,
-            )
-            self._inner_vl.addWidget(self._content_type_other_section)
-            self._content_type_header_widgets.append(self._content_type_other_section)
-
-    def _populate_content_provenance(self) -> None:
-        """Build the 'Content Provenance' section — ``content_type`` TAG exclusions.
-
-        A distinct mechanism from Content Types above.  Content Types key off the
-        provider's category HEADER (``source_category``); these rows match a
-        channel's stored ``content_type`` TAG (a NOT-EXISTS over ``content_tags``),
-        so a "Sports" here would mean something different from a "Sports" category
-        group — hence the deliberate separation (never merge the two lists).
-
-        Scope for now: the two AI-provenance values (``ai_generated`` /
-        ``ai_voiceover``).  The section iterates a list, so more ``content_type``
-        values can be surfaced later without a structural change.  A value is shown
-        when it has channels OR is already excluded (so an active exclusion is never
-        hidden); when none qualify the section is omitted entirely.
-        """
-        from metatv.core.content_labels import (
-            AI_GENERATED_VALUE,
-            AI_VOICEOVER_VALUE,
-            content_type_display,
-        )
-
-        # PPV is a content type read off provider labels ("SWEDEN SOCCER PPV").
-        provenance_values = [AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, "ppv"]
-        counts = _load_tag_content_type_counts(self._db, provenance_values)
-        excluded = set(getattr(self._config, "global_filter_excluded_tag_content_types", []))
-        visible = [
-            v for v in provenance_values
-            if counts.get(v, 0) > 0 or v in excluded
-        ]
-        if not visible:
-            return
-
-        # ── Separator ──────────────────────────────────────────────────────────
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        _theme.style(sep, "SEP_DARK")
-        self._inner_vl.addWidget(sep)
-        self._content_type_header_widgets.append(sep)
-        self._content_provenance_header_widgets.append(sep)
-
-        hdr_row = QHBoxLayout()
-        hdr = QLabel("Content Provenance")
-        _theme.style(hdr, "SECTION_TITLE_SM")
-        hdr_row.addWidget(hdr)
-
-        info_lbl = _info_label(
-            "How the content was produced, detected from a trailing marker on the\n"
-            "channel/title name:\n"
-            "  • \"(AI Generated)\" name suffix  →  AI Generated (the content itself)\n"
-            "  • \"(AI)\" / Lektor (AI) suffix   →  AI Voiceover (an AI dub/narration)\n"
-            "Check a type to hide all channels carrying that content_type tag —\n"
-            "everywhere (search, Discovery, Recommendations, EPG)."
-        )
-        hdr_row.addWidget(info_lbl)
-        hdr_row.addStretch()
-        hdr_row.addWidget(self._make_select_links(
-            "Content Provenance", self._select_content_provenance
-        ))
-        hdr_w = QWidget()
-        hdr_w.setLayout(hdr_row)
-        self._inner_vl.addWidget(hdr_w)
-        self._content_type_header_widgets.append(hdr_w)
-        self._content_provenance_header_widgets.append(hdr_w)
-
-        for value in visible:
-            count = counts.get(value, 0)
-            row = QWidget()
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(2, 2, 2, 2)
-            rl.setSpacing(8)
-
-            cb = QCheckBox(content_type_display(value))
-            cb.setChecked(value in excluded)
-            _theme.style(cb, "FILTER_ITEM_TEXT")
-            rl.addWidget(cb)
-
-            count_lbl = QLabel(f"({count:,} channels)")
-            _theme.style(count_lbl, "LABEL_MUTED")
-            rl.addWidget(count_lbl)
-            rl.addStretch()
-
-            self._inner_vl.addWidget(row)
-            self._content_provenance_rows.append((value, cb, row))
 
     def _populate_keywords(self) -> None:
         """Build the 'Keywords' section — user-defined free-text Global Exclusions.
@@ -1476,26 +1196,14 @@ class GlobalFilterDialog(QDialog):
             w.deleteLater()
         self._platform_header_widgets.clear()
 
-        for _name, _cb, row in self._content_type_rows:
-            self._inner_vl.removeWidget(row)
-            row.deleteLater()
-        self._content_type_rows.clear()
-
-        for _slug, _cb, row in self._content_provenance_rows:
-            self._inner_vl.removeWidget(row)
-            row.deleteLater()
-        self._content_provenance_rows.clear()
-
-        if self._content_type_other_section is not None:
-            self._content_type_other_section = None  # already in header_widgets, will be deleted below
+        self._tag_sections.clear()  # the widgets are in _content_type_header_widgets
+        self._collapsers.clear()
 
         for w in self._content_type_header_widgets:
             self._inner_vl.removeWidget(w)
             w.deleteLater()
         self._content_type_header_widgets.clear()
-        # These three lists alias widgets already deleted just above — just drop the refs.
-        self._content_types_only_header_widgets.clear()
-        self._content_provenance_header_widgets.clear()
+        # Aliases widgets already deleted just above — just drop the refs.
         self._user_categories_header_widgets.clear()
 
         for _kw, row, _count_lbl in self._keyword_rows:
@@ -1556,24 +1264,14 @@ class GlobalFilterDialog(QDialog):
     def _select_all(self, checked: bool) -> None:
         """Master select/deselect — every type at once (the bottom shortcut)."""
         self._select_sections(self._sections, checked)
-        self._select_content_types(checked)
-        self._select_content_provenance(checked)
+        for section in self._tag_sections.values():
+            section.set_all(checked)
         self._select_user_categories(checked)
 
     def _select_sections(self, sections: list["_GroupSection"], checked: bool) -> None:
         """Select/deselect every prefix in the given group sections (one type)."""
         for section in sections:
             section.set_all(checked)
-
-    def _select_content_types(self, checked: bool) -> None:
-        for _name, cb, _row in self._content_type_rows:
-            cb.setChecked(checked)
-        if self._content_type_other_section:
-            self._content_type_other_section.set_all(checked)
-
-    def _select_content_provenance(self, checked: bool) -> None:
-        for _slug, cb, _row in self._content_provenance_rows:
-            cb.setChecked(checked)
 
     def _select_user_categories(self, checked: bool) -> None:
         for _name, cb, _row in self._user_category_rows:
@@ -1607,8 +1305,6 @@ class GlobalFilterDialog(QDialog):
         re-scan/reset repopulate) so the search box always filters whatever is
         currently on screen.
         """
-        from metatv.core.content_labels import content_type_display
-
         blocks: list[_FilterBlock] = [
             _FilterBlock(
                 header_widgets=list(self._lang_header_widgets),
@@ -1622,26 +1318,8 @@ class GlobalFilterDialog(QDialog):
         if self._uncategorized_section is not None:
             blocks.append(_FilterBlock(containers=[self._uncategorized_section]))
 
-        if self._content_type_rows or self._content_type_other_section is not None:
-            containers = (
-                [self._content_type_other_section] if self._content_type_other_section is not None else []
-            )
-            leaf_rows = [(row, [name.lower()]) for name, _cb, row in self._content_type_rows]
-            blocks.append(_FilterBlock(
-                header_widgets=list(self._content_types_only_header_widgets),
-                containers=containers,
-                leaf_rows=leaf_rows,
-            ))
-
-        if self._content_provenance_rows:
-            leaf_rows = [
-                (row, [slug.lower(), content_type_display(slug).lower()])
-                for slug, _cb, row in self._content_provenance_rows
-            ]
-            blocks.append(_FilterBlock(
-                header_widgets=list(self._content_provenance_header_widgets),
-                leaf_rows=leaf_rows,
-            ))
+        if self._tag_sections:
+            blocks.append(_FilterBlock(containers=list(self._tag_sections.values())))
 
         if self._user_category_rows:
             leaf_rows = [(row, [name.lower()]) for name, _cb, row in self._user_category_rows]
@@ -1688,6 +1366,9 @@ class GlobalFilterDialog(QDialog):
         else:
             self._empty_state_label.setVisible(False)
 
+        if not query:  # a cleared search hands visibility back to the collapsed headers
+            for collapser in self._collapsers.values():
+                collapser.sync()
         if not query and self._pre_search_scroll_value is not None and self._scroll_area is not None:
             self._scroll_area.verticalScrollBar().setValue(self._pre_search_scroll_value)
             self._pre_search_scroll_value = None
@@ -1701,23 +1382,19 @@ class GlobalFilterDialog(QDialog):
         self._config.global_filter_include_uncategorized = not self._uncat_cb.isChecked()
         self._config.show_ended_events = not self._ended_cb.isChecked()
 
-        # Named content-type group exclusions
-        excluded_types = [name for name, cb, _row in self._content_type_rows if cb.isChecked()]
-        self._config.global_filter_excluded_content_types = excluded_types
-
-        # Individually excluded source_category labels from the expandable Other section
-        self._config.global_filter_excluded_source_categories = (
-            self._content_type_other_section.checked_labels() if self._content_type_other_section
-            else list(getattr(self._config, "global_filter_excluded_source_categories", [])))
+        # Tag axes — a section that did not render (no data) keeps what was saved.
+        tags = self._tag_sections
+        for axis, field_name in (("category", "global_filter_excluded_channel_categories"),
+                                 ("genre", "global_filter_excluded_genres"),
+                                 ("content_type", "global_filter_excluded_tag_content_types")):
+            if axis in tags:
+                setattr(self._config, field_name, tags[axis].checked_values())
+        if self._genre_mode_group is not None:
+            self._config.global_filter_genre_mode = "any" if self._genre_mode_group.checkedId() == 1 else "only"
 
         # User-defined category exclusions
         self._config.global_filter_excluded_user_categories = [
             name for name, cb, _row in self._user_category_rows if cb.isChecked()
-        ]
-
-        # Content-provenance (content_type tag) exclusions — stored as slugs.
-        self._config.global_filter_excluded_tag_content_types = [
-            slug for slug, cb, _row in self._content_provenance_rows if cb.isChecked()
         ]
 
         # Keywords — the staged working copy (Add/Remove already mutated it;

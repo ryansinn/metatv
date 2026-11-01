@@ -331,9 +331,8 @@ class _MetadataMixin:
                     hidden_provider_ids - inactive_provider_ids - expired_provider_ids
                 )
                 disabled_provider_ids = inactive_provider_ids | orphaned_provider_ids
-                from metatv.core.filter_utils import (
-                    global_exclusion_set, is_channel_excluded, excluded_tag_content_types,
-                )
+                from metatv.core.filter_utils import global_exclusion_set, is_channel_excluded
+                from metatv.core.tag_exclusions import excluded_tag_content_types
                 _filter_paused = self.config.global_filter_paused
                 # Canonical Global-Exclusion set (paused-aware, group→leaf-expanded).
                 all_excluded = global_exclusion_set(self.config)

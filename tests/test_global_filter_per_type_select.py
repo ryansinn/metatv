@@ -73,60 +73,20 @@ def test_select_languages_leaves_platforms_untouched():
     assert all(s.value is True for s in langs), "languages unchanged by a platform op"
 
 
-def test_select_content_types_is_scoped():
-    """_select_content_types toggles only the content-type rows (+ its Other section)."""
-    dlg = _dlg()
-    cb1, cb2 = MagicMock(), MagicMock()
-    dlg._content_type_rows = [("Sports", cb1, None), ("News", cb2, None)]
-    other = _FakeSection()
-    dlg._content_type_other_section = other
-
-    dlg._select_content_types(True)
-    cb1.setChecked.assert_called_once_with(True)
-    cb2.setChecked.assert_called_once_with(True)
-    assert other.value is True
-
-
-def test_select_user_categories_is_scoped():
-    """_select_user_categories toggles only the user-category rows."""
-    dlg = _dlg()
-    cb1, cb2 = MagicMock(), MagicMock()
-    dlg._user_category_rows = [("Faves", cb1, None), ("Kids", cb2, None)]
-
-    dlg._select_user_categories(False)
-    cb1.setChecked.assert_called_once_with(False)
-    cb2.setChecked.assert_called_once_with(False)
-
-
-def test_select_content_provenance_is_scoped():
-    """_select_content_provenance toggles only the content-provenance rows."""
-    dlg = _dlg()
-    cb1, cb2 = MagicMock(), MagicMock()
-    dlg._content_provenance_rows = [("ai_generated", cb1, None), ("ai_voiceover", cb2, None)]
-
-    dlg._select_content_provenance(True)
-    cb1.setChecked.assert_called_once_with(True)
-    cb2.setChecked.assert_called_once_with(True)
-
-
 def test_master_select_all_covers_every_type():
-    """The bottom master toggle still hits sections + content types + provenance + user cats."""
+    """The bottom master toggle hits prefix groups, every tag axis and user cats."""
     dlg = _dlg()
     secs = [_FakeSection()]
     dlg._sections = secs
-    ct_cb = MagicMock()
-    dlg._content_type_rows = [("Sports", ct_cb, None)]
-    dlg._content_type_other_section = None
-    prov_cb = MagicMock()
-    dlg._content_provenance_rows = [("ai_generated", prov_cb, None)]
+    cats, genres = _FakeSection(), _FakeSection()
+    dlg._tag_sections = {"category": cats, "genre": genres}
     uc_cb = MagicMock()
     dlg._user_category_rows = [("Faves", uc_cb, None)]
 
     dlg._select_all(True)
     assert secs[0].value is True
-    ct_cb.setChecked.assert_called_once_with(True)
-    prov_cb.setChecked.assert_called_once_with(True)  # master now covers content provenance
-    uc_cb.setChecked.assert_called_once_with(True)  # master now covers user cats too
+    assert cats.value is True and genres.value is True
+    uc_cb.setChecked.assert_called_once_with(True)
 
 
 def test_build_and_per_type_select_end_to_end(qapp, seeded_db):

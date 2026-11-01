@@ -153,36 +153,6 @@ def get_active_category_filter(config) -> tuple[list[str] | None, bool]:
     return (prefixes if prefixes else None), include_uncategorized
 
 
-def get_active_content_type_filter(config) -> list[str] | None:
-    """Resolve excluded content types → raw source_category labels to hide.
-
-    Combines:
-    1. Named group exclusions (global_filter_excluded_content_types) — group name → raw labels
-    2. Individual raw label exclusions (global_filter_excluded_source_categories) — the
-       "Other" expandable section in the Exclusions dialog
-
-    Returns a list of raw source_category labels to hide, or None if nothing active.
-    The sentinel "_other_" in excluded_content_types means hide ALL unmapped — callers handle it.
-    """
-    if getattr(config, "global_filter_paused", False):
-        return None
-
-    excluded_types: list[str] = list(getattr(config, "global_filter_excluded_content_types", []))
-    excluded_raw:   list[str] = list(getattr(config, "global_filter_excluded_source_categories", []))
-
-    if not excluded_types and not excluded_raw:
-        return None
-
-    groups: dict = getattr(config, "content_category_groups", {})
-    raw_labels: list[str] = list(excluded_raw)  # start with individually excluded labels
-    for type_name in excluded_types:
-        if type_name == "_other_":
-            continue  # handled separately by callers
-        for lbl in groups.get(type_name, []):
-            raw_labels.append(lbl)
-    return raw_labels if raw_labels else None
-
-
 # ---------------------------------------------------------------------------
 # Global-Exclusion predicate — the single chokepoint (P1-6)
 # ---------------------------------------------------------------------------
@@ -323,108 +293,8 @@ def channel_exclusion_criterion(excluded: set[str], channel_cls, keep_ids=None):
     return or_(keep, channel_cls.id.in_(list(keep_ids))) if keep_ids else keep
 
 
-# ---------------------------------------------------------------------------
-# Content-provenance (content_type TAG) exclusion — P1-6 chokepoint family
-# ---------------------------------------------------------------------------
-#
-# A SECOND Global-Exclusion axis, distinct from the prefix/region rule above: the
-# user may globally hide channels carrying a ``content_type`` tag whose value is in
-# an excluded set (e.g. ``ai_generated`` / ``ai_voiceover``).  Unlike prefix/region
-# (columns ON ChannelDB), a content_type is a TAG, so the predicate is a membership
-# test against ``content_tags``.  Two forms, one rule:
-#
-#   • SQL twin (aggregate / query surfaces — tag facet counts, Discover shelves):
-#     ``tag_content_type_exclusion_criterion(slugs, channel_key_col)`` — a NOT EXISTS
-#     KEEP clause.  No id-set materialisation; safe over 1M+ content_tags rows.
-#   • Python twin (row-by-row surfaces — channel list, EPG On-Now, details "Other
-#     Versions"): those surfaces already iterate ChannelDB rows / DTOs that carry no
-#     tags, so they test membership in a pre-resolved excluded channel-id set
-#     (``TagRepository.channel_ids_for_content_types(slugs)`` — the same predicate,
-#     just materialised for the small AI-tag population).
-#
-# ``excluded_tag_content_types(config)`` is the single paused-aware set builder both
-# forms consume.  Every surface routes through one of these — never a parallel
-# content_type check (single source of truth, CLAUDE.md).
-
-
-def excluded_tag_content_types(config) -> set[str]:
-    """Return the user's active ``content_type`` tag-value Global Exclusions.
-
-    The single paused-aware builder of the excluded ``content_type`` slug set
-    (e.g. ``{"ai_generated", "ai_voiceover"}``) that
-    :func:`tag_content_type_exclusion_criterion` (SQL) and
-    ``TagRepository.channel_ids_for_content_types`` (Python id-set) consume.
-    Empty when Global Exclusions are paused (``global_filter_paused``) or nothing
-    is configured.
-
-    Args:
-        config: The application ``Config`` (read on the main/control thread; the
-            engine layers receive the resolved set, never ``Config`` — DR-0007).
-
-    Returns:
-        The ``content_type`` slugs to exclude — empty when paused or unset.
-    """
-    if getattr(config, "global_filter_paused", False):
-        return set()
-    return set(getattr(config, "global_filter_excluded_tag_content_types", []) or [])
-
-
-def tag_content_type_exclusion_criterion(excluded_slugs: set[str], channel_key_col):
-    """Return the SQLAlchemy KEEP criterion for the content_type Global Exclusion.
-
-    The SQL twin of the content-provenance rule: a boolean clause usable in
-    ``query.filter(...)`` that keeps exactly the channels which do **not** carry a
-    ``content_type`` tag whose value is in *excluded_slugs*.  Expressed as a
-    correlated ``NOT EXISTS`` over ``content_tags JOIN tags`` so no id-set is
-    materialised (safe over 1M+ tag rows) and pagination / row counts stay in SQL.
-    Both ``source="generated"`` and ``source="user"`` content_type tags count — a
-    tag is a tag (the subquery does not filter on ``source``).
-
-    Route every content_type exclusion on an aggregate/query surface (tag facet
-    counts via ``tag.py`` ``_scope_to_visible_channels``, Discover shelves) through
-    this helper instead of hand-rolling a parallel membership check (single
-    chokepoint, P1-6 family).
-
-    Args:
-        excluded_slugs: The ``content_type`` values to exclude (build with
-            :func:`excluded_tag_content_types`).  Empty → a tautology (keeps all
-            rows).
-        channel_key_col: The column expression carrying the outer query's DB-9
-            ``channel_key`` int to correlate against (e.g.
-            ``ChannelDB.channel_key`` or an aliased equivalent).
-
-    Returns:
-        A SQLAlchemy boolean clause for ``.filter(...)`` — ``true()`` when
-        *excluded_slugs* is empty.
-
-    See Also:
-        :func:`excluded_tag_content_types`: builds *excluded_slugs* from ``Config``.
-        ``TagRepository.channel_ids_for_content_types``: the Python id-set twin.
-
-    Note:
-        SQLAlchemy / ORM classes are imported inside the function so this module
-        stays dependency-light.
-    """
-    from sqlalchemy import exists, select, true
-    from sqlalchemy.orm import aliased
-    from metatv.core.database import ContentTagDB, TagDB
-
-    if not excluded_slugs:
-        return true()
-
-    _ct = aliased(ContentTagDB, flat=True)
-    _t = aliased(TagDB, flat=True)
-    subq = (
-        select(_ct.channel_key)
-        .join(_t, _t.id == _ct.tag_id)
-        .where(
-            _ct.channel_key == channel_key_col,
-            _t.type == "content_type",
-            _t.value.in_(list(excluded_slugs)),
-        )
-        .correlate_except(_ct, _t)
-    )
-    return ~exists(subq)
+# Tag-valued exclusions (content type, channel category, genre) live in
+# ``metatv.core.tag_exclusions`` — one encoded set, one predicate.
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +347,8 @@ def global_exclusion_sets(config) -> "tuple[set[str], set[str], set[str], set[st
     """
     if getattr(config, "global_filter_paused", False):
         return set(), set(), set(), set()
+
+    from metatv.core.tag_exclusions import excluded_tag_content_types
 
     excluded_prefixes = global_exclusion_set(config)
     excluded_categories = set(

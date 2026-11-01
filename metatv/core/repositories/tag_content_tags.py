@@ -584,34 +584,15 @@ class ContentTagCrudMixin:
             self.session.rollback()
 
     def channel_ids_for_content_types(self, values: Set[str]) -> Set[str]:
-        """Return channel ids carrying a ``content_type`` tag whose value ∈ *values*.
+        """Return the ids of channels the tag Global Exclusions hide.
 
-        The Python id-set twin of
-        ``filter_utils.tag_content_type_exclusion_criterion`` (the SQL NOT EXISTS):
-        materialises the *excluded* channel-id set for the row-by-row surfaces that
-        cannot express a correlated subquery over ChannelDB rows / DTOs — the
-        channel list (``_apply_python_exclusions``), EPG On-Now, and details "Other
-        Versions".  Both ``source="generated"`` and ``source="user"`` tags count.
-
-        The population is small (content_type is a niche trailing marker), so this
-        is a bounded, indexed lookup — safe to materialise off the UI thread.
-
-        Args:
-            values: The ``content_type`` slugs to resolve (e.g.
-                ``{"ai_generated", "ai_voiceover"}``).  Empty → empty set.
-
-        Returns:
-            The set of ``channel_id`` strings carrying any of those content_type
-            tags.  Empty when *values* is empty or nothing matches.
+        *values* is the encoded set from
+        ``tag_exclusions.excluded_tag_content_types`` (content type, channel
+        category, genre); the rule itself lives in
+        ``tag_exclusions.excluded_channel_ids`` — this is its session-bound entry
+        point for the row-by-row surfaces (channel list, EPG On-Now, details
+        "Other Versions"). Empty *values* → empty set.
         """
-        if not values:
-            return set()
-        rows = (
-            self.session.query(ChannelDB.id)
-            .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)
-            .join(TagDB, TagDB.id == ContentTagDB.tag_id)
-            .filter(TagDB.type == "content_type", TagDB.value.in_(list(values)))
-            .distinct()
-            .all()
-        )
-        return {r.id for r in rows}
+        from metatv.core.tag_exclusions import excluded_channel_ids
+
+        return excluded_channel_ids(self.session, values)
